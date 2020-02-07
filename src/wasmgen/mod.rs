@@ -8,7 +8,11 @@ use std::vec::Vec;
 pub struct WasmModule {
 	type_section: TypeSection,
 	import_section: ImportSection,
-	function_section: FunctionSection,
+	function_section: FuncSection,
+	table_section: TableSection,
+	mem_section: MemSection,
+	global_section: GlobalSection,
+
 	// TODO: more sections
 }
 
@@ -86,8 +90,37 @@ pub enum Mut {
 	Var,
 }
 
-pub struct FunctionSection {
+pub struct FuncSection {
 	data: Vec<TypeIdx>,
+}
+
+pub struct TableSection {
+	data: Vec<Table>,
+}
+
+pub struct Table {
+	table_type: TableType,
+}
+
+pub struct MemSection {
+	data: Vec<Mem>,
+}
+
+pub struct Mem {
+	mem_type: MemType,
+}
+
+pub struct GlobalSection {
+	data: Vec<Global>,
+}
+
+pub struct Global {
+	global_type: GlobalType,
+	init_expr: Expr,
+}
+
+pub struct Expr {
+	bytecode: Box<[u8]>,
 }
 
 
@@ -121,6 +154,9 @@ impl WasmSerialize for WasmModule {
 		self.type_section.wasm_serialize(receiver);
 		self.import_section.wasm_serialize(receiver);
 		self.function_section.wasm_serialize(receiver);
+		self.table_section.wasm_serialize(receiver);
+		self.mem_section.wasm_serialize(receiver);
+		self.global_section.wasm_serialize(receiver);
 	}
 }
 
@@ -287,12 +323,72 @@ impl WasmSerialize for Mut {
 	}
 }
 
-impl WasmSerialize for FunctionSection {
+impl WasmSerialize for FuncSection {
 	fn wasm_serialize<Rec>(&self, receiver: &mut Rec)
 		where
 			for<'a> Rec: std::iter::Extend<&'a u8> {
 		receiver.extend(&[3u8]); // the magic value for Function Section
 		serialize_section(&self.data, receiver);
+	}
+}
+
+impl WasmSerialize for TableSection {
+	fn wasm_serialize<Rec>(&self, receiver: &mut Rec)
+		where
+			for<'a> Rec: std::iter::Extend<&'a u8> {
+		receiver.extend(&[4u8]); // the magic value for Table Section
+		serialize_section(&self.data, receiver);
+	}
+}
+
+impl WasmSerialize for Table {
+	fn wasm_serialize<Rec>(&self, receiver: &mut Rec)
+		where
+			for<'a> Rec: std::iter::Extend<&'a u8> {
+		self.table_type.wasm_serialize(receiver);
+	}
+}
+
+impl WasmSerialize for MemSection {
+	fn wasm_serialize<Rec>(&self, receiver: &mut Rec)
+		where
+			for<'a> Rec: std::iter::Extend<&'a u8> {
+		receiver.extend(&[5u8]); // the magic value for Memory Section
+		serialize_section(&self.data, receiver);
+	}
+}
+
+impl WasmSerialize for Mem {
+	fn wasm_serialize<Rec>(&self, receiver: &mut Rec)
+		where
+			for<'a> Rec: std::iter::Extend<&'a u8> {
+		self.mem_type.wasm_serialize(receiver);
+	}
+}
+
+impl WasmSerialize for GlobalSection {
+	fn wasm_serialize<Rec>(&self, receiver: &mut Rec)
+		where
+			for<'a> Rec: std::iter::Extend<&'a u8> {
+		receiver.extend(&[6u8]); // the magic value for Global Section
+		serialize_section(&self.data, receiver);
+	}
+}
+
+impl WasmSerialize for Global {
+	fn wasm_serialize<Rec>(&self, receiver: &mut Rec)
+		where
+			for<'a> Rec: std::iter::Extend<&'a u8> {
+		self.global_type.wasm_serialize(receiver);
+		self.init_expr.wasm_serialize(receiver);
+	}
+}
+
+impl WasmSerialize for Expr {
+	fn wasm_serialize<Rec>(&self, receiver: &mut Rec)
+		where
+			for<'a> Rec: std::iter::Extend<&'a u8> {
+		receiver.extend(self.bytecode.as_ref());
 	}
 }
 
