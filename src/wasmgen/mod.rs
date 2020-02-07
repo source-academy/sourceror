@@ -6,7 +6,9 @@
 use std::vec::Vec;
 
 pub struct WasmModule {
-	pub type_section: TypeSection,
+	type_section: TypeSection,
+	import_section: ImportSection,
+	function_section: FunctionSection,
 	// TODO: more sections
 }
 
@@ -17,6 +19,10 @@ pub trait Insert<T> {
 pub struct SearchableVec<T> {
 	vec: Vec<T>,
 	index: std::collections::BTreeMap<T, usize>,
+}
+
+pub struct TypeIdx {
+	idx: u32,
 }
 
 pub struct TypeSection {
@@ -46,7 +52,7 @@ pub struct Import {
 }
 
 pub enum ImportDesc {
-	Func(u32),
+	Func(TypeIdx),
 	Table(TableType),
 	Mem(MemType),
 	Global(GlobalType),
@@ -80,6 +86,10 @@ pub enum Mut {
 	Var,
 }
 
+pub struct FunctionSection {
+	data: Vec<TypeIdx>,
+}
+
 
 
 /**
@@ -109,6 +119,8 @@ impl WasmSerialize for WasmModule {
 		receiver.extend(&[0x00, 0x61, 0x73, 0x6D]); // magic value "\0asm"
 		receiver.extend(&[0x01, 0x00, 0x00, 0x00]); // WebAssembly version 1
 		self.type_section.wasm_serialize(receiver);
+		self.import_section.wasm_serialize(receiver);
+		self.function_section.wasm_serialize(receiver);
 	}
 }
 
@@ -157,6 +169,14 @@ fn serialize_section<T: WasmSerialize, Rec>(content: &T, receiver: &mut Rec)
 
 
 
+impl WasmSerialize for TypeIdx {
+	fn wasm_serialize<Rec>(&self, receiver: &mut Rec)
+		where
+			for<'a> Rec: std::iter::Extend<&'a u8> {
+		self.idx.leb_serialize(receiver);
+	}
+}
+
 impl WasmSerialize for ImportSection {
 	fn wasm_serialize<Rec>(&self, receiver: &mut Rec)
 		where
@@ -183,7 +203,7 @@ impl WasmSerialize for ImportDesc {
 		match *self {
 			ImportDesc::Func(ref type_idx) => {
 				receiver.extend(&[0x00]);
-				type_idx.leb_serialize(receiver);
+				type_idx.wasm_serialize(receiver);
 			}
 			ImportDesc::Table(ref table_type) => {
 				receiver.extend(&[0x01]);
@@ -264,6 +284,15 @@ impl WasmSerialize for Mut {
 			Mut::Const => receiver.extend(&[0x00]),
 			Mut::Var => receiver.extend(&[0x01]),
 		}
+	}
+}
+
+impl WasmSerialize for FunctionSection {
+	fn wasm_serialize<Rec>(&self, receiver: &mut Rec)
+		where
+			for<'a> Rec: std::iter::Extend<&'a u8> {
+		receiver.extend(&[3u8]); // the magic value for Function Section
+		serialize_section(&self.data, receiver);
 	}
 }
 
