@@ -15,6 +15,8 @@ pub struct WasmModule {
 	global_section: GlobalSection,
 	export_section: ExportSection,
 	start_section: StartSection,
+	elem_section: ElemSection,
+	data_section: DataSection,
 	// TODO: more sections
 }
 
@@ -141,6 +143,26 @@ pub struct StartSection {
 	start: Option<FuncIdx>,
 }
 
+pub struct ElemSection {
+	data: Vec<Elem>,
+}
+
+pub struct Elem {
+	table_idx: TableIdx,
+	offset: Expr,
+	content: Vec<FuncIdx>,
+}
+
+pub struct DataSection {
+	data: Vec<Data>,
+}
+
+pub struct Data {
+	mem_idx: MemIdx,
+	offset: Expr,
+	content: Vec<u8>,
+}
+
 
 
 
@@ -202,6 +224,8 @@ impl WasmSerialize for WasmModule {
 		self.global_section.wasm_serialize(receiver);
 		self.export_section.wasm_serialize(receiver);
 		self.start_section.wasm_serialize(receiver);
+		self.elem_section.wasm_serialize(receiver);
+		self.data_section.wasm_serialize(receiver);
 	}
 }
 
@@ -525,6 +549,45 @@ impl WasmSerialize for StartSection {
 		}
 	}
 }
+
+impl WasmSerialize for ElemSection {
+	fn wasm_serialize<Rec>(&self, receiver: &mut Rec)
+		where
+			for<'a> Rec: std::iter::Extend<&'a u8> {
+		receiver.extend(&[9u8]); // the magic value for Element Section
+		serialize_section(&self.data, receiver);
+	}
+}
+
+impl WasmSerialize for Elem {
+	fn wasm_serialize<Rec>(&self, receiver: &mut Rec)
+		where
+			for<'a> Rec: std::iter::Extend<&'a u8> {
+		self.table_idx.wasm_serialize(receiver);
+		self.offset.wasm_serialize(receiver);
+		self.content.wasm_serialize(receiver);
+	}
+}
+
+impl WasmSerialize for DataSection {
+	fn wasm_serialize<Rec>(&self, receiver: &mut Rec)
+		where
+			for<'a> Rec: std::iter::Extend<&'a u8> {
+		receiver.extend(&[11u8]); // the magic value for Data Section
+		serialize_section(&self.data, receiver);
+	}
+}
+
+impl WasmSerialize for Data {
+	fn wasm_serialize<Rec>(&self, receiver: &mut Rec)
+		where
+			for<'a> Rec: std::iter::Extend<&'a u8> {
+		self.mem_idx.wasm_serialize(receiver);
+		self.offset.wasm_serialize(receiver);
+		receiver.extend(self.content.as_ref() as &[u8]); // note: we actually want type ascription instead of `as`, but type ascription is still experimental.
+	}
+}
+
 
 
 
