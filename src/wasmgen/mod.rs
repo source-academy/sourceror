@@ -9,15 +9,15 @@ use std::option::Option;
 pub struct WasmModule {
 	type_section: TypeSection,
 	import_section: ImportSection,
-	function_section: FuncSection,
+	func_section: FuncSection,
 	table_section: TableSection,
 	mem_section: MemSection,
 	global_section: GlobalSection,
 	export_section: ExportSection,
 	start_section: StartSection,
 	elem_section: ElemSection,
+	code_section: CodeSection,
 	data_section: DataSection,
-	// TODO: more sections
 }
 
 pub trait Insert<T> {
@@ -116,10 +116,10 @@ pub struct GlobalSection {
 
 pub struct Global {
 	global_type: GlobalType,
-	init_expr: Expr,
+	init_expr: ConstExpr,
 }
 
-pub struct Expr {
+pub struct ConstExpr {
 	bytecode: Box<[u8]>,
 }
 
@@ -149,8 +149,16 @@ pub struct ElemSection {
 
 pub struct Elem {
 	table_idx: TableIdx,
-	offset: Expr,
+	offset: ConstExpr,
 	content: Vec<FuncIdx>,
+}
+
+pub struct CodeSection {
+	content: Vec<Code>,
+}
+
+pub struct Code {
+	func: Box<[u8]>, // `func` is pre-serialized by the CodeWriter.
 }
 
 pub struct DataSection {
@@ -159,7 +167,7 @@ pub struct DataSection {
 
 pub struct Data {
 	mem_idx: MemIdx,
-	offset: Expr,
+	offset: ConstExpr,
 	content: Vec<u8>,
 }
 
@@ -218,13 +226,14 @@ impl WasmSerialize for WasmModule {
 		receiver.extend(&[0x01, 0x00, 0x00, 0x00]); // WebAssembly version 1
 		self.type_section.wasm_serialize(receiver);
 		self.import_section.wasm_serialize(receiver);
-		self.function_section.wasm_serialize(receiver);
+		self.func_section.wasm_serialize(receiver);
 		self.table_section.wasm_serialize(receiver);
 		self.mem_section.wasm_serialize(receiver);
 		self.global_section.wasm_serialize(receiver);
 		self.export_section.wasm_serialize(receiver);
 		self.start_section.wasm_serialize(receiver);
 		self.elem_section.wasm_serialize(receiver);
+		self.code_section.wasm_serialize(receiver);
 		self.data_section.wasm_serialize(receiver);
 	}
 }
@@ -485,7 +494,7 @@ impl WasmSerialize for Global {
 	}
 }
 
-impl WasmSerialize for Expr {
+impl WasmSerialize for ConstExpr {
 	fn wasm_serialize<Rec>(&self, receiver: &mut Rec)
 		where
 			for<'a> Rec: std::iter::Extend<&'a u8> {
@@ -566,6 +575,24 @@ impl WasmSerialize for Elem {
 		self.table_idx.wasm_serialize(receiver);
 		self.offset.wasm_serialize(receiver);
 		self.content.wasm_serialize(receiver);
+	}
+}
+
+impl WasmSerialize for CodeSection {
+	fn wasm_serialize<Rec>(&self, receiver: &mut Rec)
+		where
+			for<'a> Rec: std::iter::Extend<&'a u8> {
+		receiver.extend(&[10u8]); // the magic value for Code Section
+		serialize_section(&self.content, receiver);
+	}
+}
+
+impl WasmSerialize for Code {
+	fn wasm_serialize<Rec>(&self, receiver: &mut Rec)
+		where
+			for<'a> Rec: std::iter::Extend<&'a u8> {
+		(self.func.len() as u32).leb_serialize(receiver);
+		receiver.extend(self.func.as_ref());
 	}
 }
 
