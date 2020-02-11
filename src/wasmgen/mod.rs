@@ -7,6 +7,9 @@ use std::vec::Vec;
 use std::option::Option;
 
 pub mod serialize;
+pub mod codewriter;
+pub use serialize::*;
+pub use codewriter::*;
 
 pub struct WasmModule {
 	type_section: TypeSection,
@@ -40,6 +43,7 @@ pub struct FuncType {
 	result_types: Vec<ValType>,
 }
 
+#[derive(Eq, PartialEq)]
 pub enum ValType {
 	I32,
 	I64,
@@ -118,10 +122,10 @@ pub struct GlobalSection {
 
 pub struct Global {
 	global_type: GlobalType,
-	init_expr: ConstExpr,
+	init_expr: Expr,
 }
 
-pub struct ConstExpr {
+pub struct Expr {
 	bytecode: Box<[u8]>,
 }
 
@@ -151,7 +155,7 @@ pub struct ElemSection {
 
 pub struct Elem {
 	table_idx: TableIdx,
-	offset: ConstExpr,
+	offset: Expr,
 	content: Vec<FuncIdx>,
 }
 
@@ -169,7 +173,7 @@ pub struct DataSection {
 
 pub struct Data {
 	mem_idx: MemIdx,
-	offset: ConstExpr,
+	offset: Expr,
 	content: Vec<u8>,
 }
 
