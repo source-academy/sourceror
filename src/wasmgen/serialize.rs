@@ -4,10 +4,17 @@
 
 use super::*;
 
-pub trait WasmSerialize {
+pub trait WasmSerialize { // Normal Wasm serialization
 	fn wasm_serialize<Rec>(&self, receiver: &mut Rec)
 		where
 			for<'a> Rec: std::iter::Extend<&'a u8>;
+}
+
+pub trait WasmContainerSerialize<E> { // Serialize a container, with an additional callback function to serialize each element
+	fn wasm_container_serialize<Rec, F>(&self, receiver: &mut Rec, serialize_elem: F)
+		where
+			for<'a> Rec: std::iter::Extend<&'a u8>,
+			F: Fn(&E, &mut Rec);
 }
 
 pub trait LebSerialize { // LEB serialization
@@ -296,7 +303,7 @@ impl WasmSerialize for Global {
 	}
 }
 
-impl WasmSerialize for ConstExpr {
+impl WasmSerialize for Expr {
 	fn wasm_serialize<Rec>(&self, receiver: &mut Rec)
 		where
 			for<'a> Rec: std::iter::Extend<&'a u8> {
@@ -423,7 +430,7 @@ impl WasmSerialize for Data {
 
 
 
-impl<T: WasmSerialize> WasmSerialize for Vec::<T> {
+impl<T: WasmSerialize> WasmSerialize for Vec<T> {
 	fn wasm_serialize<Rec>(&self, receiver: &mut Rec)
 		where
 			for<'a> Rec: std::iter::Extend<&'a u8> {
@@ -431,6 +438,20 @@ impl<T: WasmSerialize> WasmSerialize for Vec::<T> {
 		for elem in self {
 			elem.wasm_serialize(receiver);
 		}
+	}
+}
+
+impl<T> WasmContainerSerialize<T> for Vec<T> {
+	fn wasm_container_serialize<Rec, F>(&self, receiver: &mut Rec, serialize_elem: F)
+		where
+			for<'a> Rec: std::iter::Extend<&'a u8>,
+			F: Fn(&T, &mut Rec),
+	{
+		(self.len() as u32).leb_serialize(receiver);
+		for elem in self {
+			serialize_elem(elem, receiver);
+		}
+
 	}
 }
 
@@ -492,7 +513,7 @@ impl LebSerialize for i32 {
 
 #[cfg(test)]
 mod tests {
-	use crate::wasmgen::*;
+	use super::*;
 	fn wasm_serializer_wrapper<T: WasmSerialize + ?Sized>(val: &T) -> Vec::<u8> {
 		let mut tmp = Vec::<u8>::new();
         val.wasm_serialize(&mut tmp);

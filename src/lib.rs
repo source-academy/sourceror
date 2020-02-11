@@ -3,6 +3,7 @@ extern crate wasm_bindgen;
 use wasm_bindgen::prelude::*;
 
 mod wasmgen;
+mod iter;
 
 #[wasm_bindgen]
 extern {
