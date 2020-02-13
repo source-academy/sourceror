@@ -23,6 +23,12 @@ pub trait LebSerialize { // LEB serialization
 			for<'a> Rec: std::iter::Extend<&'a u8>;
 }
 
+pub trait BitwiseSerialize { // directly copying bits to output in little-endian order
+	fn bitwise_serialize<Rec>(&self, receiver: &mut Rec)
+		where
+			for<'a> Rec: std::iter::Extend<&'a u8>;
+}
+
 pub trait LebSerialize5Byte { // special LEB serialization for i32 and u32 that will use exactly 5 bytes (for relocation purposes)
 	fn leb_serialize_5_byte<'a, Rec: std::iter::Extend<u8> + std::iter::Extend<&'a u8>>(&self, receiver: &mut Rec);
 }
@@ -52,7 +58,7 @@ impl WasmSerialize for TypeSection {
 		where
 			for<'a> Rec: std::iter::Extend<&'a u8> {
 		receiver.extend(&[1u8]); // the magic value for Type Section
-		serialize_section(&self.content.vec, receiver);
+		serialize_section(self.content.vec(), receiver);
 	}
 }
 
@@ -70,12 +76,7 @@ impl WasmSerialize for ValType {
 	fn wasm_serialize<Rec>(&self, receiver: &mut Rec)
 		where
 			for<'a> Rec: std::iter::Extend<&'a u8> {
-		match *self {
-			ValType::I32 => receiver.extend(&[0x7F]),
-			ValType::I64 => receiver.extend(&[0x7E]),
-			ValType::F32 => receiver.extend(&[0x7D]),
-			ValType::F64 => receiver.extend(&[0x7C]),
-		}
+		receiver.extend(&[self.value()]);
 	}
 }
 
@@ -132,12 +133,20 @@ impl WasmSerialize for GlobalIdx {
 	}
 }
 
+impl WasmSerialize for LocalIdx {
+	fn wasm_serialize<Rec>(&self, receiver: &mut Rec)
+		where
+			for<'a> Rec: std::iter::Extend<&'a u8> {
+		self.idx.leb_serialize(receiver);
+	}
+}
+
 impl WasmSerialize for ImportSection {
 	fn wasm_serialize<Rec>(&self, receiver: &mut Rec)
 		where
 			for<'a> Rec: std::iter::Extend<&'a u8> {
 		receiver.extend(&[2u8]); // the magic value for Import Section
-		serialize_section(&self.content.vec, receiver);
+		serialize_section(&self.content, receiver);
 	}
 }
 
@@ -430,7 +439,7 @@ impl WasmSerialize for Data {
 
 
 
-impl<T: WasmSerialize> WasmSerialize for Vec<T> {
+impl<T: WasmSerialize> WasmSerialize for [T] {
 	fn wasm_serialize<Rec>(&self, receiver: &mut Rec)
 		where
 			for<'a> Rec: std::iter::Extend<&'a u8> {
@@ -441,7 +450,7 @@ impl<T: WasmSerialize> WasmSerialize for Vec<T> {
 	}
 }
 
-impl<T> WasmContainerSerialize<T> for Vec<T> {
+impl<T> WasmContainerSerialize<T> for [T] {
 	fn wasm_container_serialize<Rec, F>(&self, receiver: &mut Rec, serialize_elem: F)
 		where
 			for<'a> Rec: std::iter::Extend<&'a u8>,
@@ -451,7 +460,24 @@ impl<T> WasmContainerSerialize<T> for Vec<T> {
 		for elem in self {
 			serialize_elem(elem, receiver);
 		}
+	}
+}
 
+impl<T: WasmSerialize> WasmSerialize for Vec<T> {
+	fn wasm_serialize<Rec>(&self, receiver: &mut Rec)
+		where
+			for<'a> Rec: std::iter::Extend<&'a u8> {
+		self.as_slice().wasm_serialize(receiver);
+	}
+}
+
+impl<T> WasmContainerSerialize<T> for Vec<T> {
+	fn wasm_container_serialize<Rec, F>(&self, receiver: &mut Rec, serialize_elem: F)
+		where
+			for<'a> Rec: std::iter::Extend<&'a u8>,
+			F: Fn(&T, &mut Rec),
+	{
+		self.as_slice().wasm_container_serialize(receiver, serialize_elem);
 	}
 }
 
@@ -489,6 +515,25 @@ impl LebSerialize for u32 {
 		}
 	}
 }
+impl LebSerialize for u64 {
+	fn leb_serialize<Rec>(&self, receiver: &mut Rec)
+		where
+			for<'a> Rec: std::iter::Extend<&'a u8> {
+		// LEB128 conversion
+		let mut x: u64 = *self;
+		loop {
+			let b: u8 = (x & 127u64) as u8;
+			x >>= 7;
+			if x != 0 { // still have more bytes
+				receiver.extend(&[b | 128u8]); // set the 'more bytes' flag
+			}
+			else { // no more bytes
+				receiver.extend(&[b]);
+				break;
+			}
+		}
+	}
+}
 
 impl LebSerialize for i32 {
 	fn leb_serialize<Rec>(&self, receiver: &mut Rec)
@@ -508,6 +553,41 @@ impl LebSerialize for i32 {
 				break;
 			}
 		}
+	}
+}
+impl LebSerialize for i64 {
+	fn leb_serialize<Rec>(&self, receiver: &mut Rec)
+		where
+			for<'a> Rec: std::iter::Extend<&'a u8> {
+		// LEB128 conversion
+		let mut x: i64 = *self;
+		loop {
+			let b: u8 = (x & 127i64) as u8;
+			x >>= 7; // this does sign extension (i.e. arithmetic shift right) when the left argument is signed
+			if (x != 0 || b & 64u8 != 0) && (x != -1 || b & 64u8 == 0) { // still have more bytes
+				// note about condition above: `b & 64u8` will become the sign bit if there are no more bytes, so we need to check if the sign bit is actually what we want
+				receiver.extend(&[b | 128u8]); // set the 'more bytes' flag
+			}
+			else { // no more bytes
+				receiver.extend(&[b]);
+				break;
+			}
+		}
+	}
+}
+
+impl BitwiseSerialize for f32 {
+	fn bitwise_serialize<Rec>(&self, receiver: &mut Rec)
+		where
+			for<'a> Rec: std::iter::Extend<&'a u8> {
+		receiver.extend(&self.to_le_bytes());
+	}
+}
+impl BitwiseSerialize for f64 {
+	fn bitwise_serialize<Rec>(&self, receiver: &mut Rec)
+		where
+			for<'a> Rec: std::iter::Extend<&'a u8> {
+		receiver.extend(&self.to_le_bytes());
 	}
 }
 
