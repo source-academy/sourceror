@@ -1,8 +1,8 @@
 [package]
-name = "hello-wasm"
+name = "source-compiler"
 version = "0.1.0"
 authors = ["Bernard Teo <btzy1996@hotmail.com>"]
-description = "A sample project with wasm-pack"
+description = "Source to WebAssembly compiler"
 license = "MIT/Apache-2.0"
 edition = "2018"
 
