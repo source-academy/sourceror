@@ -7,14 +7,33 @@ mod iter;
 mod searchablevec;
 
 
-#[wasm_bindgen]
-extern {
-    pub fn alert(s: &str);
-}
+// #[wasm_bindgen]
+// extern {
+//     pub fn alert(s: &str);
+// }
+
+// #[wasm_bindgen]
+// pub fn greet(name: &str) {
+//     alert(&format!("Hello, {}!", name));
+// }
 
 #[wasm_bindgen]
-pub fn greet(name: &str) {
-    alert(&format!("Hello, {}!", name));
+pub fn compile(_source_code: &str) -> Box<[u8]> {
+    // for now we just generate a dummy function that returns 42
+    use crate::wasmgen::*;
+    let mut module = WasmModule::default();
+    let functype = FuncType::new(Box::new([]), Box::new([ValType::I32]));
+    let mut code_builder = CodeBuilder::new(functype);
+    {
+        let (_locals_builder, expr_builder) = code_builder.split();
+        expr_builder.i32_const(42); // put 42 onto the stack
+        expr_builder.end(); // return
+    }
+    let (_type_idx, func_idx) = module.add_func(code_builder);
+    module.export_func(func_idx, "main".to_string());
+    let mut receiver = std::vec::Vec::<u8>::new();
+    module.wasm_serialize(&mut receiver);
+    receiver.into_boxed_slice()
 }
 
 #[cfg(test)]
