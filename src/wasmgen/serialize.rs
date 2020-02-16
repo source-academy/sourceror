@@ -57,8 +57,8 @@ impl WasmSerialize for TypeSection {
 	fn wasm_serialize<Rec>(&self, receiver: &mut Rec)
 		where
 			for<'a> Rec: std::iter::Extend<&'a u8> {
-		receiver.extend(&[1u8]); // the magic value for Type Section
-		serialize_section(self.content.vec(), receiver);
+		// 1u8: the magic value for Type Section
+		serialize_section(1u8, self.content.vec(), receiver);
 	}
 }
 
@@ -80,13 +80,23 @@ impl WasmSerialize for ValType {
 	}
 }
 
-fn serialize_section<T: WasmSerialize, Rec>(content: &T, receiver: &mut Rec)
+fn serialize_section_content<T: WasmSerialize + ?Sized, Rec>(content: &T, receiver: &mut Rec)
 	where
 		for<'a> Rec: std::iter::Extend<&'a u8> {
 	let mut buf = Vec::<u8>::new();
 	content.wasm_serialize(&mut buf);
 	(buf.len() as u32).leb_serialize(receiver);
 	receiver.extend(&buf);
+}
+
+#[inline(always)]
+fn serialize_section<T: WasmSerialize, Rec>(magic: u8, content: &[T], receiver: &mut Rec)
+	where
+		for<'a> Rec: std::iter::Extend<&'a u8> {
+	if !content.is_empty() {
+		receiver.extend(&[magic]);
+		serialize_section_content(content, receiver);
+	}
 }
 
 
@@ -145,8 +155,8 @@ impl WasmSerialize for ImportSection {
 	fn wasm_serialize<Rec>(&self, receiver: &mut Rec)
 		where
 			for<'a> Rec: std::iter::Extend<&'a u8> {
-		receiver.extend(&[2u8]); // the magic value for Import Section
-		serialize_section(&self.content, receiver);
+		// 2u8: the magic value for Import Section
+		serialize_section(2u8, &self.content, receiver);
 	}
 }
 
@@ -255,8 +265,8 @@ impl WasmSerialize for FuncSection {
 	fn wasm_serialize<Rec>(&self, receiver: &mut Rec)
 		where
 			for<'a> Rec: std::iter::Extend<&'a u8> {
-		receiver.extend(&[3u8]); // the magic value for Function Section
-		serialize_section(&self.content, receiver);
+		// 3u8: the magic value for Function Section
+		serialize_section(3u8, &self.content, receiver);
 	}
 }
 
@@ -264,8 +274,8 @@ impl WasmSerialize for TableSection {
 	fn wasm_serialize<Rec>(&self, receiver: &mut Rec)
 		where
 			for<'a> Rec: std::iter::Extend<&'a u8> {
-		receiver.extend(&[4u8]); // the magic value for Table Section
-		serialize_section(&self.content, receiver);
+		// 4u8: the magic value for Table Section
+		serialize_section(4u8, &self.content, receiver);
 	}
 }
 
@@ -281,8 +291,8 @@ impl WasmSerialize for MemSection {
 	fn wasm_serialize<Rec>(&self, receiver: &mut Rec)
 		where
 			for<'a> Rec: std::iter::Extend<&'a u8> {
-		receiver.extend(&[5u8]); // the magic value for Memory Section
-		serialize_section(&self.content, receiver);
+		// 5u8: the magic value for Memory Section
+		serialize_section(5u8, &self.content, receiver);
 	}
 }
 
@@ -298,8 +308,8 @@ impl WasmSerialize for GlobalSection {
 	fn wasm_serialize<Rec>(&self, receiver: &mut Rec)
 		where
 			for<'a> Rec: std::iter::Extend<&'a u8> {
-		receiver.extend(&[6u8]); // the magic value for Global Section
-		serialize_section(&self.content, receiver);
+		// 6u8: the magic value for Global Section
+		serialize_section(6u8, &self.content, receiver);
 	}
 }
 
@@ -324,8 +334,8 @@ impl WasmSerialize for ExportSection {
 	fn wasm_serialize<Rec>(&self, receiver: &mut Rec)
 		where
 			for<'a> Rec: std::iter::Extend<&'a u8> {
-		receiver.extend(&[7u8]); // the magic value for Export Section
-		serialize_section(&self.content, receiver);
+		// 7u8: the magic value for Export Section
+		serialize_section(7u8, &self.content, receiver);
 	}
 }
 
@@ -370,7 +380,7 @@ impl WasmSerialize for StartSection {
 		match &self.start {
 			Some(start_idx) => {
 				receiver.extend(&[8u8]); // the magic value for Start Section
-				serialize_section(start_idx, receiver);
+				serialize_section_content(start_idx, receiver);
 			}
 			None => {} // don't generate the section at all if there is no start function
 		}
@@ -381,8 +391,8 @@ impl WasmSerialize for ElemSection {
 	fn wasm_serialize<Rec>(&self, receiver: &mut Rec)
 		where
 			for<'a> Rec: std::iter::Extend<&'a u8> {
-		receiver.extend(&[9u8]); // the magic value for Element Section
-		serialize_section(&self.content, receiver);
+		// 9u8: the magic value for Element Section
+		serialize_section(9u8, &self.content, receiver);
 	}
 }
 
@@ -400,8 +410,8 @@ impl WasmSerialize for CodeSection {
 	fn wasm_serialize<Rec>(&self, receiver: &mut Rec)
 		where
 			for<'a> Rec: std::iter::Extend<&'a u8> {
-		receiver.extend(&[10u8]); // the magic value for Code Section
-		serialize_section(&self.content, receiver);
+		// 10u8: the magic value for Code Section
+		serialize_section(10u8, &self.content, receiver);
 	}
 }
 
@@ -418,8 +428,8 @@ impl WasmSerialize for DataSection {
 	fn wasm_serialize<Rec>(&self, receiver: &mut Rec)
 		where
 			for<'a> Rec: std::iter::Extend<&'a u8> {
-		receiver.extend(&[11u8]); // the magic value for Data Section
-		serialize_section(&self.content, receiver);
+	    // 11u8: the magic value for Data Section
+		serialize_section(11u8, &self.content, receiver);
 	}
 }
 
