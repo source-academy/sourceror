@@ -1,7 +1,6 @@
 /**
  * Structs and implementations for encoding instructions in an expression.
  */
-
 use super::*;
 use projstd::iter::SequentialCountAdapter;
 
@@ -23,63 +22,73 @@ pub struct CodeBuilder {
 
 impl ExprBuilder {
     pub fn build(self) -> Expr {
-        Expr{ bytecode: self.bytecode.into_boxed_slice() }
-	}
+        Expr {
+            bytecode: self.bytecode.into_boxed_slice(),
+        }
+    }
     fn len(&self) -> usize {
         self.bytecode.len()
-	}
+    }
     fn write_to_slice(self, out: &mut [u8]) {
         out.copy_from_slice(self.bytecode.as_slice());
-	}
+    }
 }
 
 impl LocalsManager {
     pub fn add(&mut self, valtype: ValType) -> LocalIdx {
         let len = self.locals.len();
         self.locals.push(valtype);
-        LocalIdx{ idx: self.num_params + (len as u32) }
-	}
+        LocalIdx {
+            idx: self.num_params + (len as u32),
+        }
+    }
     pub fn param(&self, idx: u32) -> LocalIdx {
         assert!(idx < self.num_params as u32);
-        LocalIdx{ idx: idx }
-	}
+        LocalIdx { idx: idx }
+    }
 }
 
 impl CodeBuilder {
     pub fn new(functype: FuncType) -> CodeBuilder {
         let num_params = functype.param_types.len() as u32;
-        CodeBuilder{
+        CodeBuilder {
             functype: functype,
-            locals_builder: LocalsManager{
+            locals_builder: LocalsManager {
                 num_params: num_params,
                 locals: Default::default(),
             },
             expr: Default::default(),
-		}
-	}
+        }
+    }
     pub fn build(self) -> (FuncType, Code) {
         let mut receiver = Vec::<u8>::new();
         serialize_locals(self.locals_builder.locals, &mut receiver);
         let locals_len = receiver.len();
         receiver.resize_with(locals_len + self.expr.len(), Default::default);
         self.expr.write_to_slice(&mut receiver[locals_len..]);
-        (self.functype, Code{ func: receiver.into_boxed_slice() })
-	}
+        (
+            self.functype,
+            Code {
+                func: receiver.into_boxed_slice(),
+            },
+        )
+    }
     pub fn split(&mut self) -> (&mut LocalsManager, &mut ExprBuilder) {
         (&mut self.locals_builder, &mut self.expr)
-	}
+    }
 }
 
 fn serialize_locals(locals: Vec<ValType>, receiver: &mut Vec<u8>) {
     // special serialization by merging adjacent same-typed locals as specified by wasm binary format
-    let counted_vec = locals.into_iter().sequential_count().collect::<Vec<(ValType, usize)>>();
+    let counted_vec = locals
+        .into_iter()
+        .sequential_count()
+        .collect::<Vec<(ValType, usize)>>();
     counted_vec.wasm_container_serialize(receiver, |(val_type, len), receiver| {
         (*len as u32).leb_serialize(receiver);
         val_type.wasm_serialize(receiver);
     });
 }
-
-
 
 enum OpCode {
     Unreachable,
@@ -285,16 +294,16 @@ impl OpCode {
             OpCode::Return => &[0x0F],
             OpCode::Call => &[0x10],
             OpCode::CallIndirect => &[0x11],
-              
+
             OpCode::Drop => &[0x1A],
             OpCode::Select => &[0x1B],
-              
+
             OpCode::LocalGet => &[0x20],
             OpCode::LocalSet => &[0x21],
             OpCode::LocalTee => &[0x22],
             OpCode::GlobalGet => &[0x23],
             OpCode::GlobalSet => &[0x24],
-              
+
             OpCode::I32Load => &[0x28],
             OpCode::I64Load => &[0x29],
             OpCode::F32Load => &[0x2A],
@@ -457,10 +466,9 @@ impl OpCode {
             OpCode::I64ReinterpretF64 => &[0xBD],
             OpCode::F32ReinterpretI32 => &[0xBE],
             OpCode::F64ReinterpretI64 => &[0xBF],
-		}
-	}
+        }
+    }
 }
-
 
 #[derive(Copy, Clone)]
 pub struct MemArg {
@@ -473,35 +481,47 @@ impl MemArg {
      * Construct 1-byte aligned memarg
      */
     pub fn new1(offset: u32) -> MemArg {
-        MemArg {offset: offset, align: 0}
-	}
+        MemArg {
+            offset: offset,
+            align: 0,
+        }
+    }
     /**
      * Construct 2-byte aligned memarg
      */
     pub fn new2(offset: u32) -> MemArg {
-        MemArg {offset: offset, align: 1}
-	}
+        MemArg {
+            offset: offset,
+            align: 1,
+        }
+    }
     /**
      * Construct 4-byte aligned memarg
      */
     pub fn new4(offset: u32) -> MemArg {
-        MemArg {offset: offset, align: 2}
-	}
+        MemArg {
+            offset: offset,
+            align: 2,
+        }
+    }
     /**
      * Construct 8-byte aligned memarg
      */
     pub fn new8(offset: u32) -> MemArg {
-        MemArg {offset: offset, align: 3}
-	}
+        MemArg {
+            offset: offset,
+            align: 3,
+        }
+    }
 
     fn leb_serialize<Rec>(&self, receiver: &mut Rec)
-		where
-			for<'a> Rec: std::iter::Extend<&'a u8> {
+    where
+        for<'a> Rec: std::iter::Extend<&'a u8>,
+    {
         self.align.leb_serialize(receiver);
         self.offset.leb_serialize(receiver);
-	}
+    }
 }
-
 
 impl ExprBuilder {
     fn append_bytes(&mut self, bytes: &[u8]) {
@@ -511,578 +531,580 @@ impl ExprBuilder {
         self.append_bytes(op_code.value());
     }
     fn append_result_type(&mut self, result_type: &[ValType]) {
-        assert!(result_type.len() <= 1, "Wasm 1.0 only allows at most one result type");
+        assert!(
+            result_type.len() <= 1,
+            "Wasm 1.0 only allows at most one result type"
+        );
         if result_type.is_empty() {
             self.append_bytes(&[0x40]);
-		} else {
-            self.append_bytes(&[result_type[0].value()]);  
-		}
-	}
+        } else {
+            self.append_bytes(&[result_type[0].value()]);
+        }
+    }
     pub fn unreachable(&mut self) {
         self.append_opcode(OpCode::Unreachable);
-	}
+    }
     pub fn nop(&mut self) {
         self.append_opcode(OpCode::Nop);
-	}
+    }
     pub fn block(&mut self, blocktype: &[ValType]) {
         self.append_opcode(OpCode::Block);
         self.append_result_type(blocktype);
-	}
+    }
     pub fn loop_(&mut self, blocktype: &[ValType]) {
         self.append_opcode(OpCode::Loop);
         self.append_result_type(blocktype);
-	}
+    }
     pub fn if_(&mut self, blocktype: &[ValType]) {
         self.append_opcode(OpCode::If);
         self.append_result_type(blocktype);
-	}
+    }
     pub fn else_(&mut self) {
         self.append_opcode(OpCode::Else);
-	}
+    }
     pub fn end(&mut self) {
         self.append_opcode(OpCode::End);
-	}
+    }
     pub fn br(&mut self, labelidx: u32) {
         self.append_opcode(OpCode::Br);
         labelidx.leb_serialize(&mut self.bytecode);
-	}
+    }
     pub fn br_if(&mut self, labelidx: u32) {
         self.append_opcode(OpCode::BrIf);
         labelidx.leb_serialize(&mut self.bytecode);
-	}
+    }
     pub fn br_table(&mut self, labelidxs: &[u32], default_labelidx: u32) {
         self.append_opcode(OpCode::BrTable);
         (labelidxs.len() as u32).leb_serialize(&mut self.bytecode);
         for l in labelidxs {
-              l.leb_serialize(&mut self.bytecode);
-		}
+            l.leb_serialize(&mut self.bytecode);
+        }
         default_labelidx.leb_serialize(&mut self.bytecode);
-	}
+    }
     pub fn return_(&mut self) {
         self.append_opcode(OpCode::Return);
-	}
+    }
     pub fn call(&mut self, funcidx: FuncIdx) {
         self.append_opcode(OpCode::Call);
         funcidx.wasm_serialize(&mut self.bytecode);
-	}
+    }
     pub fn call_indirect(&mut self, typeidx: TypeIdx, tableidx: TableIdx) {
         assert!(tableidx.idx == 0, "Wasm 1.0 only allows one table");
         self.append_opcode(OpCode::CallIndirect);
         typeidx.wasm_serialize(&mut self.bytecode);
         tableidx.wasm_serialize(&mut self.bytecode);
-	}
+    }
     pub fn drop(&mut self) {
         self.append_opcode(OpCode::Drop);
-	}
+    }
     pub fn select(&mut self) {
         self.append_opcode(OpCode::Select);
-	}
+    }
     pub fn local_get(&mut self, localidx: LocalIdx) {
         self.append_opcode(OpCode::LocalGet);
         localidx.wasm_serialize(&mut self.bytecode);
-	}
+    }
     pub fn local_set(&mut self, localidx: LocalIdx) {
         self.append_opcode(OpCode::LocalSet);
         localidx.wasm_serialize(&mut self.bytecode);
-	}
+    }
     pub fn local_tee(&mut self, localidx: LocalIdx) {
         self.append_opcode(OpCode::LocalTee);
         localidx.wasm_serialize(&mut self.bytecode);
-	}
+    }
     pub fn global_get(&mut self, globalidx: GlobalIdx) {
         self.append_opcode(OpCode::GlobalGet);
         globalidx.wasm_serialize(&mut self.bytecode);
-	}
+    }
     pub fn global_set(&mut self, globalidx: GlobalIdx) {
         self.append_opcode(OpCode::GlobalSet);
         globalidx.wasm_serialize(&mut self.bytecode);
-	}
+    }
     pub fn i32_load(&mut self, m: MemArg) {
         self.append_opcode(OpCode::I32Load);
         m.leb_serialize(&mut self.bytecode);
-	}
+    }
     pub fn i64_load(&mut self, m: MemArg) {
         self.append_opcode(OpCode::I64Load);
         m.leb_serialize(&mut self.bytecode);
-	}
+    }
     pub fn f32_load(&mut self, m: MemArg) {
         self.append_opcode(OpCode::F32Load);
         m.leb_serialize(&mut self.bytecode);
-	}
+    }
     pub fn f64_load(&mut self, m: MemArg) {
         self.append_opcode(OpCode::F64Load);
         m.leb_serialize(&mut self.bytecode);
-	}
+    }
     pub fn i32_load8_s(&mut self, m: MemArg) {
         self.append_opcode(OpCode::I32Load8S);
         m.leb_serialize(&mut self.bytecode);
-	}
+    }
     pub fn i32_load8_u(&mut self, m: MemArg) {
         self.append_opcode(OpCode::I32Load8U);
         m.leb_serialize(&mut self.bytecode);
-	}
+    }
     pub fn i32_load16_s(&mut self, m: MemArg) {
         self.append_opcode(OpCode::I32Load16S);
         m.leb_serialize(&mut self.bytecode);
-	}
+    }
     pub fn i32_load16_u(&mut self, m: MemArg) {
         self.append_opcode(OpCode::I32Load16U);
         m.leb_serialize(&mut self.bytecode);
-	}
+    }
     pub fn i64_load8_s(&mut self, m: MemArg) {
         self.append_opcode(OpCode::I64Load8S);
         m.leb_serialize(&mut self.bytecode);
-	}
+    }
     pub fn i64_load8_u(&mut self, m: MemArg) {
         self.append_opcode(OpCode::I64Load8U);
         m.leb_serialize(&mut self.bytecode);
-	}
+    }
     pub fn i64_load16_s(&mut self, m: MemArg) {
         self.append_opcode(OpCode::I64Load16S);
         m.leb_serialize(&mut self.bytecode);
-	}
+    }
     pub fn i64_load16_u(&mut self, m: MemArg) {
         self.append_opcode(OpCode::I64Load16U);
         m.leb_serialize(&mut self.bytecode);
-	}
+    }
     pub fn i64_load32_s(&mut self, m: MemArg) {
         self.append_opcode(OpCode::I64Load32S);
         m.leb_serialize(&mut self.bytecode);
-	}
+    }
     pub fn i64_load32_u(&mut self, m: MemArg) {
         self.append_opcode(OpCode::I64Load32U);
         m.leb_serialize(&mut self.bytecode);
-	}
+    }
     pub fn i32_store(&mut self, m: MemArg) {
         self.append_opcode(OpCode::I32Store);
         m.leb_serialize(&mut self.bytecode);
-	}
+    }
     pub fn i64_store(&mut self, m: MemArg) {
         self.append_opcode(OpCode::I64Store);
         m.leb_serialize(&mut self.bytecode);
-	}
+    }
     pub fn f32_store(&mut self, m: MemArg) {
         self.append_opcode(OpCode::F32Store);
         m.leb_serialize(&mut self.bytecode);
-	}
+    }
     pub fn f64_store(&mut self, m: MemArg) {
         self.append_opcode(OpCode::F64Store);
         m.leb_serialize(&mut self.bytecode);
-	}
+    }
     pub fn i32_store8(&mut self, m: MemArg) {
         self.append_opcode(OpCode::I32Store8);
         m.leb_serialize(&mut self.bytecode);
-	}
+    }
     pub fn i32_store16(&mut self, m: MemArg) {
         self.append_opcode(OpCode::I32Store16);
         m.leb_serialize(&mut self.bytecode);
-	}
+    }
     pub fn i64_store8(&mut self, m: MemArg) {
         self.append_opcode(OpCode::I64Store8);
         m.leb_serialize(&mut self.bytecode);
-	}
+    }
     pub fn i64_store16(&mut self, m: MemArg) {
         self.append_opcode(OpCode::I64Store16);
         m.leb_serialize(&mut self.bytecode);
-	}
+    }
     pub fn i64_store32(&mut self, m: MemArg) {
         self.append_opcode(OpCode::I64Store32);
         m.leb_serialize(&mut self.bytecode);
-	}
+    }
     pub fn memory_size(&mut self, memidx: MemIdx) {
         assert!(memidx.idx == 0, "Wasm 1.0 only allows one memory");
         self.append_opcode(OpCode::MemorySize);
         memidx.wasm_serialize(&mut self.bytecode);
-	}
+    }
     pub fn memory_grow(&mut self, memidx: MemIdx) {
         assert!(memidx.idx == 0, "Wasm 1.0 only allows one memory");
         self.append_opcode(OpCode::MemoryGrow);
         memidx.wasm_serialize(&mut self.bytecode);
-	}
+    }
     pub fn i32_const(&mut self, val: i32) {
         self.append_opcode(OpCode::I32Const);
         val.leb_serialize(&mut self.bytecode);
-	}
+    }
     pub fn i64_const(&mut self, val: i64) {
         self.append_opcode(OpCode::I64Const);
         val.leb_serialize(&mut self.bytecode);
-	}
+    }
     pub fn f32_const(&mut self, val: f32) {
         self.append_opcode(OpCode::F32Const);
         val.bitwise_serialize(&mut self.bytecode);
-	}
+    }
     pub fn f64_const(&mut self, val: f64) {
         self.append_opcode(OpCode::F64Const);
         val.bitwise_serialize(&mut self.bytecode);
-	}
+    }
     pub fn i32_eqz(&mut self) {
         self.append_opcode(OpCode::I32Eqz);
-	}
+    }
     pub fn i32_eq(&mut self) {
         self.append_opcode(OpCode::I32Eq);
-	}
+    }
     pub fn i32_ne(&mut self) {
         self.append_opcode(OpCode::I32Ne);
-	}
+    }
     pub fn i32_lt_s(&mut self) {
         self.append_opcode(OpCode::I32LtS);
-	}
+    }
     pub fn i32_lt_u(&mut self) {
         self.append_opcode(OpCode::I32LtU);
-	}
+    }
     pub fn i32_gt_s(&mut self) {
         self.append_opcode(OpCode::I32GtS);
-	}
+    }
     pub fn i32_gt_u(&mut self) {
         self.append_opcode(OpCode::I32GtU);
-	}
+    }
     pub fn i32_le_s(&mut self) {
         self.append_opcode(OpCode::I32LeS);
-	}
+    }
     pub fn i32_le_u(&mut self) {
         self.append_opcode(OpCode::I32LeU);
-	}
+    }
     pub fn i32_ge_s(&mut self) {
         self.append_opcode(OpCode::I32GeS);
-	}
+    }
     pub fn i32_ge_u(&mut self) {
         self.append_opcode(OpCode::I32GeU);
-	}
+    }
     pub fn i64_eqz(&mut self) {
         self.append_opcode(OpCode::I64Eqz);
-	}
+    }
     pub fn i64_eq(&mut self) {
         self.append_opcode(OpCode::I64Eq);
-	}
+    }
     pub fn i64_ne(&mut self) {
         self.append_opcode(OpCode::I64Ne);
-	}
+    }
     pub fn i64_lt_s(&mut self) {
         self.append_opcode(OpCode::I64LtS);
-	}
+    }
     pub fn i64_lt_u(&mut self) {
         self.append_opcode(OpCode::I64LtU);
-	}
+    }
     pub fn i64_gt_s(&mut self) {
         self.append_opcode(OpCode::I64GtS);
-	}
+    }
     pub fn i64_gt_u(&mut self) {
         self.append_opcode(OpCode::I64GtU);
-	}
+    }
     pub fn i64_le_s(&mut self) {
         self.append_opcode(OpCode::I64LeS);
-	}
+    }
     pub fn i64_le_u(&mut self) {
         self.append_opcode(OpCode::I64LeU);
-	}
+    }
     pub fn i64_ge_s(&mut self) {
         self.append_opcode(OpCode::I64GeS);
-	}
+    }
     pub fn i64_ge_u(&mut self) {
         self.append_opcode(OpCode::I64GeU);
-	}
+    }
     pub fn f32_eq(&mut self) {
         self.append_opcode(OpCode::F32Eq);
-	}
+    }
     pub fn f32_ne(&mut self) {
         self.append_opcode(OpCode::F32Ne);
-	}
+    }
     pub fn f32_lt(&mut self) {
         self.append_opcode(OpCode::F32Lt);
-	}
+    }
     pub fn f32_gt(&mut self) {
         self.append_opcode(OpCode::F32Gt);
-	}
+    }
     pub fn f32_le(&mut self) {
         self.append_opcode(OpCode::F32Le);
-	}
+    }
     pub fn f32_ge(&mut self) {
         self.append_opcode(OpCode::F32Ge);
-	}
+    }
     pub fn f64_eq(&mut self) {
         self.append_opcode(OpCode::F64Eq);
-	}
+    }
     pub fn f64_ne(&mut self) {
         self.append_opcode(OpCode::F64Ne);
-	}
+    }
     pub fn f64_lt(&mut self) {
         self.append_opcode(OpCode::F64Lt);
-	}
+    }
     pub fn f64_gt(&mut self) {
         self.append_opcode(OpCode::F64Gt);
-	}
+    }
     pub fn f64_le(&mut self) {
         self.append_opcode(OpCode::F64Le);
-	}
+    }
     pub fn f64_ge(&mut self) {
         self.append_opcode(OpCode::F64Ge);
-	}
+    }
     pub fn i32_clz(&mut self) {
         self.append_opcode(OpCode::I32Clz);
-	}
+    }
     pub fn i32_ctz(&mut self) {
         self.append_opcode(OpCode::I32Ctz);
-	}
+    }
     pub fn i32_popcnt(&mut self) {
         self.append_opcode(OpCode::I32Popcnt);
-	}
+    }
     pub fn i32_add(&mut self) {
         self.append_opcode(OpCode::I32Add);
-	}
+    }
     pub fn i32_sub(&mut self) {
         self.append_opcode(OpCode::I32Sub);
-	}
+    }
     pub fn i32_mul(&mut self) {
         self.append_opcode(OpCode::I32Mul);
-	}
+    }
     pub fn i32_div_s(&mut self) {
         self.append_opcode(OpCode::I32DivS);
-	}
+    }
     pub fn i32_div_u(&mut self) {
         self.append_opcode(OpCode::I32DivU);
-	}
+    }
     pub fn i32_rem_s(&mut self) {
         self.append_opcode(OpCode::I32RemS);
-	}
+    }
     pub fn i32_rem_u(&mut self) {
         self.append_opcode(OpCode::I32RemU);
-	}
+    }
     pub fn i32_and(&mut self) {
         self.append_opcode(OpCode::I32And);
-	}
+    }
     pub fn i32_or(&mut self) {
         self.append_opcode(OpCode::I32Or);
-	}
+    }
     pub fn i32_xor(&mut self) {
         self.append_opcode(OpCode::I32Xor);
-	}
+    }
     pub fn i32_shl(&mut self) {
         self.append_opcode(OpCode::I32Shl);
-	}
+    }
     pub fn i32_shr_s(&mut self) {
         self.append_opcode(OpCode::I32ShrS);
-	}
+    }
     pub fn i32_shr_u(&mut self) {
         self.append_opcode(OpCode::I32ShrU);
-	}
+    }
     pub fn i32_rotl(&mut self) {
         self.append_opcode(OpCode::I32Rotl);
-	}
+    }
     pub fn i32_rotr(&mut self) {
         self.append_opcode(OpCode::I32Rotr);
-	}
+    }
     pub fn i64_clz(&mut self) {
         self.append_opcode(OpCode::I64Clz);
-	}
+    }
     pub fn i64_ctz(&mut self) {
         self.append_opcode(OpCode::I64Ctz);
-	}
+    }
     pub fn i64_popcnt(&mut self) {
         self.append_opcode(OpCode::I64Popcnt);
-	}
+    }
     pub fn i64_add(&mut self) {
         self.append_opcode(OpCode::I64Add);
-	}
+    }
     pub fn i64_sub(&mut self) {
         self.append_opcode(OpCode::I64Sub);
-	}
+    }
     pub fn i64_mul(&mut self) {
         self.append_opcode(OpCode::I64Mul);
-	}
+    }
     pub fn i64_div_s(&mut self) {
         self.append_opcode(OpCode::I64DivS);
-	}
+    }
     pub fn i64_div_u(&mut self) {
         self.append_opcode(OpCode::I64DivU);
-	}
+    }
     pub fn i64_rem_s(&mut self) {
         self.append_opcode(OpCode::I64RemS);
-	}
+    }
     pub fn i64_rem_u(&mut self) {
         self.append_opcode(OpCode::I64RemU);
-	}
+    }
     pub fn i64_and(&mut self) {
         self.append_opcode(OpCode::I64And);
-	}
+    }
     pub fn i64_or(&mut self) {
         self.append_opcode(OpCode::I64Or);
-	}
+    }
     pub fn i64_xor(&mut self) {
         self.append_opcode(OpCode::I64Xor);
-	}
+    }
     pub fn i64_shl(&mut self) {
         self.append_opcode(OpCode::I64Shl);
-	}
+    }
     pub fn i64_shr_s(&mut self) {
         self.append_opcode(OpCode::I64ShrS);
-	}
+    }
     pub fn i64_shr_u(&mut self) {
         self.append_opcode(OpCode::I64ShrU);
-	}
+    }
     pub fn i64_rotl(&mut self) {
         self.append_opcode(OpCode::I64Rotl);
-	}
+    }
     pub fn i64_rotr(&mut self) {
         self.append_opcode(OpCode::I64Rotr);
-	}
+    }
     pub fn f32_abs(&mut self) {
         self.append_opcode(OpCode::F32Abs);
-	}
+    }
     pub fn f32_neg(&mut self) {
         self.append_opcode(OpCode::F32Neg);
-	}
+    }
     pub fn f32_ceil(&mut self) {
         self.append_opcode(OpCode::F32Ceil);
-	}
+    }
     pub fn f32_floor(&mut self) {
         self.append_opcode(OpCode::F32Floor);
-	}
+    }
     pub fn f32_trunc(&mut self) {
         self.append_opcode(OpCode::F32Trunc);
-	}
+    }
     pub fn f32_nearest(&mut self) {
         self.append_opcode(OpCode::F32Nearest);
-	}
+    }
     pub fn f32_sqrt(&mut self) {
         self.append_opcode(OpCode::F32Sqrt);
-	}
+    }
     pub fn f32_add(&mut self) {
         self.append_opcode(OpCode::F32Add);
-	}
+    }
     pub fn f32_sub(&mut self) {
         self.append_opcode(OpCode::F32Sub);
-	}
+    }
     pub fn f32_mul(&mut self) {
         self.append_opcode(OpCode::F32Mul);
-	}
+    }
     pub fn f32_div(&mut self) {
         self.append_opcode(OpCode::F32Div);
-	}
+    }
     pub fn f32_min(&mut self) {
         self.append_opcode(OpCode::F32Min);
-	}
+    }
     pub fn f32_max(&mut self) {
         self.append_opcode(OpCode::F32Max);
-	}
+    }
     pub fn f32_copysign(&mut self) {
         self.append_opcode(OpCode::F32Copysign);
-	}
+    }
     pub fn f64_abs(&mut self) {
         self.append_opcode(OpCode::F64Abs);
-	}
+    }
     pub fn f64_neg(&mut self) {
         self.append_opcode(OpCode::F64Neg);
-	}
+    }
     pub fn f64_ceil(&mut self) {
         self.append_opcode(OpCode::F64Ceil);
-	}
+    }
     pub fn f64_floor(&mut self) {
         self.append_opcode(OpCode::F64Floor);
-	}
+    }
     pub fn f64_trunc(&mut self) {
         self.append_opcode(OpCode::F64Trunc);
-	}
+    }
     pub fn f64_nearest(&mut self) {
         self.append_opcode(OpCode::F64Nearest);
-	}
+    }
     pub fn f64_sqrt(&mut self) {
         self.append_opcode(OpCode::F64Sqrt);
-	}
+    }
     pub fn f64_add(&mut self) {
         self.append_opcode(OpCode::F64Add);
-	}
+    }
     pub fn f64_sub(&mut self) {
         self.append_opcode(OpCode::F64Sub);
-	}
+    }
     pub fn f64_mul(&mut self) {
         self.append_opcode(OpCode::F64Mul);
-	}
+    }
     pub fn f64_div(&mut self) {
         self.append_opcode(OpCode::F64Div);
-	}
+    }
     pub fn f64_min(&mut self) {
         self.append_opcode(OpCode::F64Min);
-	}
+    }
     pub fn f64_max(&mut self) {
         self.append_opcode(OpCode::F64Max);
-	}
+    }
     pub fn f64_copysign(&mut self) {
         self.append_opcode(OpCode::F64Copysign);
-	}
+    }
     pub fn i32_wrap_i64(&mut self) {
         self.append_opcode(OpCode::I32WrapI64);
-	}
+    }
     pub fn i32_trunc_f32_s(&mut self) {
         self.append_opcode(OpCode::I32TruncF32S);
-	}
+    }
     pub fn i32_trunc_f32_u(&mut self) {
         self.append_opcode(OpCode::I32TruncF32U);
-	}
+    }
     pub fn i32_trunc_f64_s(&mut self) {
         self.append_opcode(OpCode::I32TruncF64S);
-	}
+    }
     pub fn i32_trunc_f64_u(&mut self) {
         self.append_opcode(OpCode::I32TruncF64U);
-	}
+    }
     pub fn i64_extend_i32_s(&mut self) {
         self.append_opcode(OpCode::I64ExtendI32S);
-	}
+    }
     pub fn i64_extend_i32_u(&mut self) {
         self.append_opcode(OpCode::I64ExtendI32U);
-	}
+    }
     pub fn i64_trunc_f32_s(&mut self) {
         self.append_opcode(OpCode::I64TruncF32S);
-	}
+    }
     pub fn i64_trunc_f32_u(&mut self) {
         self.append_opcode(OpCode::I64TruncF32U);
-	}
+    }
     pub fn i64_trunc_f64_s(&mut self) {
         self.append_opcode(OpCode::I64TruncF64S);
-	}
+    }
     pub fn i64_trunc_f64_u(&mut self) {
         self.append_opcode(OpCode::I64TruncF64U);
-	}
+    }
     pub fn f32_convert_i32_s(&mut self) {
         self.append_opcode(OpCode::F32ConvertI32S);
-	}
+    }
     pub fn f32_convert_i32_u(&mut self) {
         self.append_opcode(OpCode::F32ConvertI32U);
-	}
+    }
     pub fn f32_convert_i64_s(&mut self) {
         self.append_opcode(OpCode::F32ConvertI64S);
-	}
+    }
     pub fn f32_convert_i64_u(&mut self) {
         self.append_opcode(OpCode::F32ConvertI64U);
-	}
+    }
     pub fn f32_demote_f64(&mut self) {
         self.append_opcode(OpCode::F32DemoteF64);
-	}
+    }
     pub fn f64_convert_i32_s(&mut self) {
         self.append_opcode(OpCode::F64ConvertI32S);
-	}
+    }
     pub fn f64_convert_i32_u(&mut self) {
         self.append_opcode(OpCode::F64ConvertI32U);
-	}
+    }
     pub fn f64_convert_i64_s(&mut self) {
         self.append_opcode(OpCode::F64ConvertI64S);
-	}
+    }
     pub fn f64_convert_i64_u(&mut self) {
         self.append_opcode(OpCode::F64ConvertI64U);
-	}
+    }
     pub fn f64_promote_f32(&mut self) {
         self.append_opcode(OpCode::F64PromoteF32);
-	}
+    }
     pub fn i32_reinterpret_f32(&mut self) {
         self.append_opcode(OpCode::I32ReinterpretF32);
-	}
+    }
     pub fn i64_reinterpret_f64(&mut self) {
         self.append_opcode(OpCode::I64ReinterpretF64);
-	}
+    }
     pub fn f32_reinterpret_i32(&mut self) {
         self.append_opcode(OpCode::F32ReinterpretI32);
-	}
+    }
     pub fn f64_reinterpret_i64(&mut self) {
         self.append_opcode(OpCode::F64ReinterpretI64);
-	}
-    
+    }
 }

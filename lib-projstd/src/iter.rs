@@ -8,22 +8,27 @@ use std::iter::Peekable;
 // https://stackoverflow.com/questions/32702386/iterator-adapter-that-counts-repeated-characters
 
 pub struct SequentialCount<I>
-    where I: Iterator
+where
+    I: Iterator,
 {
     iter: Peekable<I>,
 }
 
 impl<I> SequentialCount<I>
-    where I: Iterator
+where
+    I: Iterator,
 {
     fn new(iter: I) -> Self {
-        SequentialCount { iter: iter.peekable() }
+        SequentialCount {
+            iter: iter.peekable(),
+        }
     }
 }
 
 impl<I> Iterator for SequentialCount<I>
-    where I: Iterator,
-          I::Item: Eq
+where
+    I: Iterator,
+    I::Item: Eq,
 {
     type Item = (I::Item, usize);
 
@@ -33,7 +38,7 @@ impl<I> Iterator for SequentialCount<I>
             // There is a value, so keep it
             Some(head) => {
                 // We've seen one value so far
-                let mut count : usize = 1;
+                let mut count: usize = 1;
                 // Check to see what the next value is without
                 // actually advancing the inner iterator
                 while self.iter.peek() == Some(&head) {
@@ -41,8 +46,8 @@ impl<I> Iterator for SequentialCount<I>
                     self.iter.next();
                     count += 1;
                 }
-                // The next element doesn't match the current value 
-                // complete this iteration 
+                // The next element doesn't match the current value
+                // complete this iteration
                 Some((head, count))
             }
             // The inner iterator is complete, so we are also complete
@@ -53,7 +58,8 @@ impl<I> Iterator for SequentialCount<I>
 
 pub trait SequentialCountAdapter: Iterator {
     fn sequential_count(self) -> SequentialCount<Self>
-        where Self: Sized
+    where
+        Self: Sized,
     {
         SequentialCount::new(self)
     }
@@ -63,18 +69,71 @@ impl<I> SequentialCountAdapter for I where I: Iterator {}
 
 #[cfg(test)]
 mod tests {
-	use super::*;
+    use super::*;
 
     #[test]
     fn sequential_count() {
-        assert_eq!(Vec::<char>::new().into_iter().sequential_count().collect::<Vec::<(char, usize)>>(), Vec::<(char, usize)>::new());
-        assert_eq!([8].iter().cloned().sequential_count().collect::<Vec::<(i32, usize)>>(), [(8, 1)]);
-        assert_eq!([1, 2].iter().cloned().sequential_count().collect::<Vec::<(i32, usize)>>(), [(1, 1), (2, 1)]);
-        assert_eq!([1, 1, 1].iter().cloned().sequential_count().collect::<Vec::<(i32, usize)>>(), [(1, 3)]);
-        assert_eq!([1, 1, 1, 9].iter().cloned().sequential_count().collect::<Vec::<(i32, usize)>>(), [(1, 3), (9, 1)]);
-        assert_eq!([9, 1, 1, 1].iter().cloned().sequential_count().collect::<Vec::<(i32, usize)>>(), [(9, 1), (1, 3)]);
-        assert_eq!([9, 9, 1, 1, 1].iter().cloned().sequential_count().collect::<Vec::<(i32, usize)>>(), [(9, 2), (1, 3)]);
-        assert_eq!([3, 3, 5, 7, 7, 7, 6, 6, 7, 7].iter().cloned().sequential_count().collect::<Vec::<(i32, usize)>>(), [(3, 2), (5, 1), (7, 3), (6, 2), (7, 2)]);
+        assert_eq!(
+            Vec::<char>::new()
+                .into_iter()
+                .sequential_count()
+                .collect::<Vec::<(char, usize)>>(),
+            Vec::<(char, usize)>::new()
+        );
+        assert_eq!(
+            [8].iter()
+                .cloned()
+                .sequential_count()
+                .collect::<Vec::<(i32, usize)>>(),
+            [(8, 1)]
+        );
+        assert_eq!(
+            [1, 2]
+                .iter()
+                .cloned()
+                .sequential_count()
+                .collect::<Vec::<(i32, usize)>>(),
+            [(1, 1), (2, 1)]
+        );
+        assert_eq!(
+            [1, 1, 1]
+                .iter()
+                .cloned()
+                .sequential_count()
+                .collect::<Vec::<(i32, usize)>>(),
+            [(1, 3)]
+        );
+        assert_eq!(
+            [1, 1, 1, 9]
+                .iter()
+                .cloned()
+                .sequential_count()
+                .collect::<Vec::<(i32, usize)>>(),
+            [(1, 3), (9, 1)]
+        );
+        assert_eq!(
+            [9, 1, 1, 1]
+                .iter()
+                .cloned()
+                .sequential_count()
+                .collect::<Vec::<(i32, usize)>>(),
+            [(9, 1), (1, 3)]
+        );
+        assert_eq!(
+            [9, 9, 1, 1, 1]
+                .iter()
+                .cloned()
+                .sequential_count()
+                .collect::<Vec::<(i32, usize)>>(),
+            [(9, 2), (1, 3)]
+        );
+        assert_eq!(
+            [3, 3, 5, 7, 7, 7, 6, 6, 7, 7]
+                .iter()
+                .cloned()
+                .sequential_count()
+                .collect::<Vec::<(i32, usize)>>(),
+            [(3, 2), (5, 1), (7, 3), (6, 2), (7, 2)]
+        );
     }
-
 }

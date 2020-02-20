@@ -2,7 +2,6 @@ use wasm_bindgen::prelude::*;
 
 use wasmgen;
 
-
 // #[wasm_bindgen]
 // extern {
 //     pub fn alert(s: &str);
