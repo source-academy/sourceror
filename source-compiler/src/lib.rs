@@ -1,10 +1,6 @@
-extern crate wasm_bindgen;
-
 use wasm_bindgen::prelude::*;
 
-mod wasmgen;
-mod iter;
-mod searchablevec;
+use wasmgen;
 
 
 // #[wasm_bindgen]
@@ -20,8 +16,8 @@ mod searchablevec;
 #[wasm_bindgen]
 pub fn compile(_source_code: &str) -> Box<[u8]> {
     // for now we just generate a dummy function that returns 42
-    use crate::wasmgen::*;
-    let mut module = WasmModule::default();
+    use wasmgen::*;
+    let mut module = WasmModule::new_builder().build();
     let functype = FuncType::new(Box::new([]), Box::new([ValType::I32]));
     let mut code_builder = CodeBuilder::new(functype);
     {
@@ -43,7 +39,7 @@ mod tests {
         use crate::wasmgen::*;
         use std::fs::File;
         use std::io::prelude::*;
-        let mut module = WasmModule::default();
+        let mut module = WasmModule::new_builder().build();
         let functype = FuncType::new(Box::new([ValType::I32]), Box::new([ValType::I32]));
         let mut code_builder = CodeBuilder::new(functype);
         {

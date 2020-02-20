@@ -5,7 +5,7 @@
 
 use std::vec::Vec;
 use std::option::Option;
-use crate::searchablevec::SearchableVec;
+use projstd::searchablevec::SearchableVec;
 
 pub mod serialize;
 pub mod write;
@@ -108,11 +108,13 @@ pub enum Mut {
 #[derive(Default)]
 pub struct FuncSection {
 	content: Vec<TypeIdx>,
+	idx_offset: u32, // the number of imports
 }
 
 #[derive(Default)]
 pub struct TableSection {
 	content: Vec<Table>,
+	idx_offset: u32, // the number of imports
 }
 
 pub struct Table {
@@ -122,6 +124,7 @@ pub struct Table {
 #[derive(Default)]
 pub struct MemSection {
 	content: Vec<Mem>,
+	idx_offset: u32, // the number of imports
 }
 
 pub struct Mem {
@@ -131,6 +134,7 @@ pub struct Mem {
 #[derive(Default)]
 pub struct GlobalSection {
 	content: Vec<Global>,
+	idx_offset: u32, // the number of imports
 }
 
 pub struct Global {
