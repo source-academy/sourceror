@@ -3,7 +3,7 @@
  */
 
 use super::*;
-use crate::iter::SequentialCountAdapter;
+use projstd::iter::SequentialCountAdapter;
 
 #[derive(Default)]
 pub struct ExprBuilder {
@@ -472,25 +472,25 @@ impl MemArg {
     /**
      * Construct 1-byte aligned memarg
      */
-    fn new1(offset: u32) -> MemArg {
+    pub fn new1(offset: u32) -> MemArg {
         MemArg {offset: offset, align: 0}
 	}
     /**
      * Construct 2-byte aligned memarg
      */
-    fn new2(offset: u32) -> MemArg {
+    pub fn new2(offset: u32) -> MemArg {
         MemArg {offset: offset, align: 1}
 	}
     /**
      * Construct 4-byte aligned memarg
      */
-    fn new4(offset: u32) -> MemArg {
+    pub fn new4(offset: u32) -> MemArg {
         MemArg {offset: offset, align: 2}
 	}
     /**
      * Construct 8-byte aligned memarg
      */
-    fn new8(offset: u32) -> MemArg {
+    pub fn new8(offset: u32) -> MemArg {
         MemArg {offset: offset, align: 3}
 	}
 
