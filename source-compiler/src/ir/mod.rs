@@ -27,13 +27,13 @@ pub struct Program {
     entry_point: u32, // index of function to run when the program is started
 }
 
-
 pub enum VarType {
     Any, // used if we don't know the type contained in the variable.  Most of the time we will use this.  Generates a variant in the output program unless it gets optimised away.
     Undefined,
     Number,
     Boolean,
     String, // reference type
+    Func, // holds a function ptr and a closure
     StructT{typeidx: u32}, // reference type; typeid starts from zero and should be in range [0, object_types.len()).
 }
 impl Default for VarType {
@@ -75,14 +75,15 @@ pub struct StructField {
     next: Option<Box<StructField>>, // if the field is a struct, then this can (but not necessarily) refer to a field inside the struct
 }
 
-
 pub enum ExprKind {
-    PrimitiveNumber{val: f64}, // e.g. `2`
-    PrimitiveBoolean{val: bool}, // e.g. `true`
-    PrimitiveString{val: String}, // e.g. `"hello world"`, may be placed in a region of memory immune to garbage collection
+    PrimUndefined,
+    PrimNumber{val: f64}, // e.g. `2`
+    PrimBoolean{val: bool}, // e.g. `true`
+    PrimString{val: String}, // e.g. `"hello world"`, may be placed in a region of memory immune to garbage collection
+    PrimFunc{funcidx: u32}, // e.g. `() => {}`
     VarName{source: TargetExpr}, // something that is located somewhere in memory (i.e. an lvalue), e.g. `x`
     PrimAppl{prim_func: PrimFunc, args: Box<[Expr]>}, // primitive operations (e.g. number+number) hardcoded into the compiler.  Expr must have the correct VarType.  Should not be added directly by semantic analyser, because parser is not type-aware.
-    FuncAppl{funcidx: u32, args: Box<[Expr]>}, // function application (operators are functions too)
+    Appl{func: Box<Expr>, args: Box<[Expr]>}, // function application (operators are functions too)
 }
 
 // private enum of possible primitive functions, used by pre-declared operators, or added during type-checking optimisation
