@@ -46,8 +46,17 @@ type Block = Vec<Statement>;
 
 pub struct Func {
     params: Vec<VarType>, // list of function parameters
+    result: VarType,
     locals: Vec<VarType>, // list of local variables
     statements: Block, // body of the function
+    signature_filter: Vec<(Vec<VarType>, VarType, u32)>, // list of possibly acceptable signatures (param_types, return_type, constrained_func).
+                                                        // If a signature is not in this list, then it will be guaranteed to error;
+                                                        // but converse need not be true.  All entries must be a subtype of `params`.
+                                                        // `constrained_func` (funcidx) is a version of this function that has the specified param_types and return_type of this entry.
+                                                        // (i.e. if the caller can guarantee to have the correct types,
+                                                        // then it can emit code to call the constrained_func instead of the current one)
+                                                        // this list should not contain the entry where all the param types and return type are identical to the current one
+                                                        // (because there is no use for a self-reference)
 }
  
 pub enum Statement {
