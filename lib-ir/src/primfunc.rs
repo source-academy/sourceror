@@ -67,63 +67,70 @@ fn generate_number_binary_operator_wrapper(prim_funcidx: FuncIdx) -> Func
 
     // set the statements to check the type
     // Equivalent code:
-    // typeassert(local#0, NUMBER);
-    // typeassert(local#1, NUMBER);
-    // return `prim_funcidx`(local#0, local#1);
+    // if (typeof(local#0, NUMBER) && typeof(local#1, NUMBER)) {
+    //     return `prim_funcidx`(local#0, local#1);
+	// } else {
+    //      Trap
+    // }
     func.statements.push(
-        Statement::Expr{
-            expr: Expr{
-                vartype: VarType::Undefined,
-                kind: ExprKind::TypeAssert{expr: Box::new(
+        Statement::If{
+            cond: Expr{
+                vartype: VarType::Boolean,
+                kind: ExprKind::PrimAppl{prim_inst: PrimInst::BooleanAnd, args: Box::new([
                     Expr{
-                        vartype: VarType::Any,
-                        kind: ExprKind::VarName{
-                            source: TargetExpr::Local{localidx: 0, next: None}
-                            }
-                        }
-				    ),
-                    vartype: VarType::Number},
-			    }  
-		    }
-        );
-    func.statements.push(
-        Statement::Expr{
-            expr: Expr{
-                vartype: VarType::Undefined,
-                kind: ExprKind::TypeAssert{expr: Box::new(
+                        vartype: VarType::Boolean,
+                        kind: ExprKind::TypeOf{expr: Box::new(
+                            Expr{
+                                vartype: VarType::Any,
+                                kind: ExprKind::VarName{
+                                    source: TargetExpr::Local{localidx: 0, next: None}
+                                    }
+                                }
+				            ),
+                            expected: VarType::Number},
+			            },
                     Expr{
-                        vartype: VarType::Any,
-                        kind: ExprKind::VarName{
-                            source: TargetExpr::Local{localidx: 1, next: None}
-                            }
-                        }
-				    ),
-                    vartype: VarType::Number},
-			    }  
-		    }
-        );
-    func.statements.push(
-        Statement::Return{
-            expr: Expr{
-                vartype: VarType::Number,
-                kind: ExprKind::DirectAppl{
-                    funcidx: prim_funcidx,
-                    args: Box::new([
-                        Expr{
-                            vartype: VarType::Number,
-                            kind: ExprKind::VarName{
-                                source: TargetExpr::Local{localidx: 0, next: None}
+                        vartype: VarType::Boolean,
+                        kind: ExprKind::TypeOf{expr: Box::new(
+                            Expr{
+                                vartype: VarType::Any,
+                                kind: ExprKind::VarName{
+                                    source: TargetExpr::Local{localidx: 1, next: None}
+                                    }
                                 }
-                            },
-                        Expr{
-                            vartype: VarType::Number,
-                            kind: ExprKind::VarName{
-                                source: TargetExpr::Local{localidx: 1, next: None}
+				            ),
+                            expected: VarType::Number},
+			            }
+				    ])},
+			    },
+            true_stmts: vec!(Statement::Return{
+                expr: Expr{
+                    vartype: VarType::Number,
+                    kind: ExprKind::DirectAppl{
+                        funcidx: prim_funcidx,
+                        args: Box::new([
+                            Expr{
+                                vartype: VarType::Number,
+                                kind: ExprKind::VarName{
+                                    source: TargetExpr::Local{localidx: 0, next: None}
+                                    }
+                                },
+                            Expr{
+                                vartype: VarType::Number,
+                                kind: ExprKind::VarName{
+                                    source: TargetExpr::Local{localidx: 1, next: None}
+                                    }
                                 }
-                            }
-                        ])
+                            ])
+                        },
+			        }  
+		        }),
+            false_stmts: vec!(Statement::Void{
+                expr_kind: ExprKind::PrimAppl{
+                    prim_inst: PrimInst::Trap,
+                    args: Box::new([])
                     },
-			    }  
+		        })
 		    }
         );
 
