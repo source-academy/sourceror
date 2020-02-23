@@ -105,10 +105,11 @@ pub enum ExprKind {
     DirectAppl{funcidx: FuncIdx, args: Box<[Expr]>}, // direct function application (operators are functions too)
 }
 
-// private enum of possible primitive functions, used by pre-declared operators, or added during type-checking optimisation
+// enum of possible primitive functions, used by pre-declared operators, or added during type-checking optimisation
 // these functions expect a particular type signature
-// this is an implementation detail of the IR, and subject to change
-enum PrimInst {
+// this is subject to change
+// but the code that converts IR to Wasm needs to use this to generate the appropriate bytecode.
+pub enum PrimInst {
     NumberAdd,
     NumberSub,
     NumberMul,

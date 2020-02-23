@@ -1,17 +1,14 @@
 [package]
-name = "source-compiler"
+name = "ir"
 version = "0.1.0"
 authors = ["Bernard Teo <btzy1996@hotmail.com>"]
-description = "Source to WebAssembly compiler"
+description = "Source compiler intermediate representation"
 license = "MIT/Apache-2.0"
 edition = "2018"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [lib]
-crate-type = ["cdylib"]
+crate-type = ["lib"]
 
 [dependencies]
-wasmgen = { path = "../lib-wasmgen" }
-ir = { path = "../lib-ir" }
-wasm-bindgen = "0.2"
