@@ -60,7 +60,7 @@ impl CodeBuilder {
             expr: Default::default(),
         }
     }
-    pub fn build(self) -> (FuncType, Code) {
+    pub fn build(self) -> (FuncType, Box<[u8]>) {
         let mut receiver = Vec::<u8>::new();
         serialize_locals(self.locals_builder.locals, &mut receiver);
         let locals_len = receiver.len();
@@ -68,9 +68,7 @@ impl CodeBuilder {
         self.expr.write_to_slice(&mut receiver[locals_len..]);
         (
             self.functype,
-            Code {
-                func: receiver.into_boxed_slice(),
-            },
+            receiver.into_boxed_slice()
         )
     }
     pub fn split(&mut self) -> (&mut LocalsManager, &mut ExprBuilder) {

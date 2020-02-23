@@ -458,8 +458,16 @@ impl WasmSerialize for Code {
     where
         for<'a> Rec: std::iter::Extend<&'a u8>,
     {
-        (self.func.len() as u32).leb_serialize(receiver);
-        receiver.extend(self.func.as_ref());
+        match &self.func {
+            Some(bytes) => {
+                (bytes.len() as u32).leb_serialize(receiver);
+                receiver.extend(bytes.as_ref());
+			},
+            None => {
+                panic!("ICE: Some functions were registered but not committed")     
+			}
+		}
+        
     }
 }
 

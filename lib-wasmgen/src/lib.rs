@@ -184,7 +184,9 @@ pub struct CodeSection {
 }
 
 pub struct Code {
-    func: Box<[u8]>, // `func` is pre-serialized by the CodeWriter.
+    func: Option<Box<[u8]>>,
+    // `func` is pre-serialized by the CodeWriter.
+    // If `func` is None, then this function has been registered but not yet committed.
 }
 
 #[derive(Default)]

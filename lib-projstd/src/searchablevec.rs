@@ -31,6 +31,14 @@ impl<T: Eq + Hash + Clone> SearchableVec<T> {
         }
         return 0;
     }
+    pub fn insert_copy(&mut self, value: &T) -> usize {
+        let curr_len = self.vec.len();
+        let new_idx = *(self.index.entry(value.clone()).or_insert(curr_len));
+        if new_idx == curr_len {
+            self.vec.push(value.clone());
+        }
+        return 0;
+    }
     pub fn vec(&self) -> &Vec<T> {
         &self.vec
     }
