@@ -13,16 +13,28 @@ pub struct WasmImportBuilderModule {
     num_globals: u32,
 }
 
+/**
+ * To make a new function:
+ * 1. Call register_func(functype) to get a typeidx and funcidx for the new function
+ * This typeidx/funcidx may be used in other code (e.g. call instruction).
+ * 2. Create your function using `CodeBuilder::new(functype)`.
+ * 3. Call commit_func(funcidx, codebuilder) when you are done appending instructions.
+ * This will 'commit' your function body so it cannot be changed any more.
+ * Note: You can export your function using export_func() at any time after completing step 1.
+ */
 impl WasmModule {
     pub fn new_builder() -> write::WasmImportBuilderModule {
         Default::default()
     }
-    pub fn add_func(&mut self, code_builder: CodeBuilder) -> (TypeIdx, FuncIdx) {
-        let (functype, code) = code_builder.build();
-        let typeidx = self.type_section.insert(functype);
+    pub fn register_func(&mut self, functype: &FuncType) -> (TypeIdx, FuncIdx) {
+        let typeidx = self.type_section.insert_copy(functype);
         let funcidx = self.func_section.push(typeidx);
-        self.code_section.push(code);
+        self.code_section.push(Code{func: None});
         (typeidx, funcidx)
+    }
+    pub fn commit_func(&mut self, funcidx: FuncIdx, code_builder: CodeBuilder) {
+        let (functype_, bytes) = code_builder.build();
+        self.code_section.content[funcidx.idx as usize].func = Some(bytes);
     }
     pub fn export_func(&mut self, funcidx: FuncIdx, exported_name: String) {
         self.export_section.push_func(exported_name, funcidx);
@@ -47,6 +59,11 @@ impl TypeSection {
     fn insert(&mut self, functype: FuncType) -> TypeIdx {
         TypeIdx {
             idx: self.content.insert(functype) as u32,
+        }
+    }
+    fn insert_copy(&mut self, functype: &FuncType) -> TypeIdx {
+        TypeIdx {
+            idx: self.content.insert_copy(functype) as u32,
         }
     }
 }
