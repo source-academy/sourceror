@@ -202,32 +202,32 @@ pub struct Data {
 
 #[derive(Eq, PartialEq, Copy, Clone, Hash)]
 pub struct TypeIdx {
-    idx: u32,
+    pub idx: u32,
 }
 
 #[derive(Eq, PartialEq, Copy, Clone, Hash)]
 pub struct FuncIdx {
-    idx: u32,
+    pub idx: u32,
 }
 
 #[derive(Eq, PartialEq, Copy, Clone, Hash)]
 pub struct TableIdx {
-    idx: u32,
+    pub idx: u32,
 }
 
 #[derive(Eq, PartialEq, Copy, Clone, Hash)]
 pub struct MemIdx {
-    idx: u32,
+    pub idx: u32,
 }
 
 #[derive(Eq, PartialEq, Copy, Clone, Hash)]
 pub struct GlobalIdx {
-    idx: u32,
+    pub idx: u32,
 }
 
 #[derive(Eq, PartialEq, Copy, Clone, Hash)]
 pub struct LocalIdx {
-    idx: u32,
+    pub idx: u32,
 }
 
 impl ValType {
@@ -254,6 +254,42 @@ impl Default for TypeSection {
     fn default() -> TypeSection {
         TypeSection {
             content: SearchableVec::new(),
+        }
+    }
+}
+
+impl std::ops::Add<u32> for LocalIdx {
+    type Output = Self;
+    fn add(self, other: u32) -> Self {
+        Self {
+            idx: self.idx + other,
+        }
+    }
+}
+
+impl std::ops::Sub<u32> for LocalIdx {
+    type Output = Self;
+    fn sub(self, other: u32) -> Self {
+        Self {
+            idx: self.idx - other,
+        }
+    }
+}
+
+impl std::ops::Add<u32> for GlobalIdx {
+    type Output = Self;
+    fn add(self, other: u32) -> Self {
+        Self {
+            idx: self.idx + other,
+        }
+    }
+}
+
+impl std::ops::Sub<u32> for GlobalIdx {
+    type Output = Self;
+    fn sub(self, other: u32) -> Self {
+        Self {
+            idx: self.idx - other,
         }
     }
 }

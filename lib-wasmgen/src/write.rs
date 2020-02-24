@@ -33,7 +33,7 @@ impl WasmModule {
         (typeidx, funcidx)
     }
     pub fn commit_func(&mut self, funcidx: FuncIdx, code_builder: CodeBuilder) {
-        let (functype_, bytes) = code_builder.build();
+        let (_functype, bytes) = code_builder.build();
         self.code_section.content[funcidx.idx as usize].func = Some(bytes);
     }
     pub fn export_func(&mut self, funcidx: FuncIdx, exported_name: String) {
@@ -56,11 +56,11 @@ impl WasmImportBuilderModule {
 }
 
 impl TypeSection {
-    fn insert(&mut self, functype: FuncType) -> TypeIdx {
+    /*fn insert(&mut self, functype: FuncType) -> TypeIdx {
         TypeIdx {
             idx: self.content.insert(functype) as u32,
         }
-    }
+    }*/
     fn insert_copy(&mut self, functype: &FuncType) -> TypeIdx {
         TypeIdx {
             idx: self.content.insert_copy(functype) as u32,

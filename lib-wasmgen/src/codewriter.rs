@@ -74,6 +74,12 @@ impl CodeBuilder {
     pub fn split(&mut self) -> (&mut LocalsManager, &mut ExprBuilder) {
         (&mut self.locals_builder, &mut self.expr)
     }
+    pub fn locals_builder(&mut self) -> &mut LocalsManager {
+        &mut self.locals_builder
+    }
+    pub fn expr_builder(&mut self) -> &mut ExprBuilder {
+        &mut self.expr
+    }
 }
 
 fn serialize_locals(locals: Vec<ValType>, receiver: &mut Vec<u8>) {
