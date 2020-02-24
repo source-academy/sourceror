@@ -2,6 +2,8 @@ use wasm_bindgen::prelude::*;
 
 use wasmgen;
 
+mod backend;
+
 // #[wasm_bindgen]
 // extern {
 //     pub fn alert(s: &str);
