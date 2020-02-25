@@ -8,7 +8,8 @@
  * Note: When in locals or globals, the left has smaller index
  * Note: for i32 widening as i64, only the low bits of the i64 are used
  * Note: When encoding multiple things in the i64 (e.g. Func), left uses lower bits
- * Note: The closure can be any type that fits in i32 (i.e. Undefined, Unassigned, Boolean, String, StructT), but usually it is StructT.  To store something else, put it in a StructT.
+ * Note: The closure must be a pointer type (i.e. StructT or String) allocated at the binding site, in order to make function equality work.
+ *       Function equality is simply closure reference equality.  No need to compare the function ptr.
  * Note: The type of a closure must be known at compile time.  It is an i32 (tag) stored in closures[func.tableidx] (generated in data section).
  * Undefined -> <nothing>
  * Unassigned -> <nothing>
@@ -355,7 +356,7 @@ fn encode_target_addr_post(target: &ir::TargetExpr, incoming_vartype: ir::VarTyp
 	}
 }
 
-// stores a ir variable from the protected stack to a local variable
+// stores a ir variable from the protected stack to local variable(s)
 // net wasm stack: [<ir_source_vartype>] -> []
 fn encode_store_local(wasm_localidx: wasmgen::LocalIdx, ir_dest_vartype: ir::VarType, ir_source_vartype: ir::VarType, expr_builder: &mut wasmgen::ExprBuilder)
 {
@@ -373,7 +374,7 @@ fn encode_store_local(wasm_localidx: wasmgen::LocalIdx, ir_dest_vartype: ir::Var
 			},
             ir::VarType::Undefined => {}
             ir::VarType::Unassigned => {
-                panic!("ICE: IR->Wasm: Cannot assign from unassigned value");
+                panic!("ICE: IR->Wasm: Local static vartype cannot be unassigned");
 			}
 		}
 	}
@@ -388,7 +389,7 @@ fn encode_store_local(wasm_localidx: wasmgen::LocalIdx, ir_dest_vartype: ir::Var
                 expr_builder.local_set(wasm_localidx);
 			},
             ir::VarType::Unassigned => {
-                panic!("ICE: IR->Wasm: Cannot assign from unassigned value");
+                panic!("ICE: IR->Wasm: Cannot assign to local from unassigned value");
 			},
             ir::VarType::Number => {
                 expr_builder.i32_const(ir_source_vartype.tag());
@@ -424,7 +425,7 @@ fn encode_store_local(wasm_localidx: wasmgen::LocalIdx, ir_dest_vartype: ir::Var
 		}
 	}
     else {
-        panic!("ICE: IR->Wasm: Assignment not equivalent or widening conversion");
+        panic!("ICE: IR->Wasm: Assignment to local is not equivalent or widening conversion");
 	}
 }
 
@@ -441,15 +442,15 @@ fn encode_store_memory(wasm_struct_offset: u32, ir_dest_vartype: ir::VarType, ir
                 expr_builder.local_set(localidx_tag);
                 expr_builder.local_set(localidx_data);
                 expr_builder.local_tee(localidx_ptr);
-                expr_builder.local_get(localidx_ptr);
                 expr_builder.local_get(localidx_tag);
                 expr_builder.i32_store(wasmgen::MemArg::new4(wasm_struct_offset));
+                expr_builder.local_get(localidx_ptr);
                 expr_builder.local_get(localidx_data);
                 expr_builder.i64_store(wasmgen::MemArg::new4(wasm_struct_offset + 4));
                 scratch.pop_i32();
                 scratch.pop_i64();
                 scratch.pop_i32();
-			},
+			}
             ir::VarType::Unassigned => {
                 panic!("ICE: IR->Wasm: Cannot assign from unassigned value");
 			}
@@ -470,9 +471,9 @@ fn encode_store_memory(wasm_struct_offset: u32, ir_dest_vartype: ir::VarType, ir
                 expr_builder.local_set(localidx_tableidx);
                 expr_builder.local_set(localidx_closure);
                 expr_builder.local_tee(localidx_ptr);
-                expr_builder.local_get(localidx_ptr);
                 expr_builder.local_get(localidx_tableidx);
                 expr_builder.i32_store(wasmgen::MemArg::new4(wasm_struct_offset));
+                expr_builder.local_get(localidx_ptr);
                 expr_builder.local_get(localidx_closure);
                 expr_builder.i32_store(wasmgen::MemArg::new4(wasm_struct_offset + 4));
                 scratch.pop_i32();
@@ -502,12 +503,11 @@ fn encode_store_memory(wasm_struct_offset: u32, ir_dest_vartype: ir::VarType, ir
                 let localidx_ptr: wasmgen::LocalIdx = scratch.push_i32();
                 expr_builder.local_set(localidx_val);
                 expr_builder.local_tee(localidx_ptr);
-                expr_builder.local_get(localidx_ptr);
                 expr_builder.i32_const(ir_source_vartype.tag());
                 expr_builder.i32_store(wasmgen::MemArg::new4(wasm_struct_offset));
+                expr_builder.local_get(localidx_ptr);
                 expr_builder.local_get(localidx_val);
-                expr_builder.i64_reinterpret_f64(); // convert f64 to i64
-                expr_builder.i64_store(wasmgen::MemArg::new4(wasm_struct_offset + 4));
+                expr_builder.f64_store(wasmgen::MemArg::new4(wasm_struct_offset + 4));
                 scratch.pop_i32();
                 scratch.pop_f64();
 			},
@@ -516,9 +516,9 @@ fn encode_store_memory(wasm_struct_offset: u32, ir_dest_vartype: ir::VarType, ir
                 let localidx_ptr: wasmgen::LocalIdx = scratch.push_i32();
                 expr_builder.local_set(localidx_val);
                 expr_builder.local_tee(localidx_ptr);
-                expr_builder.local_get(localidx_ptr);
                 expr_builder.i32_const(ir_source_vartype.tag());
                 expr_builder.i32_store(wasmgen::MemArg::new4(wasm_struct_offset));
+                expr_builder.local_get(localidx_ptr);
                 expr_builder.local_get(localidx_val);
                 expr_builder.i32_store(wasmgen::MemArg::new4(wasm_struct_offset + 4)); // note: high bytes of memory not used
                 scratch.pop_i32();
@@ -529,9 +529,9 @@ fn encode_store_memory(wasm_struct_offset: u32, ir_dest_vartype: ir::VarType, ir
                 let localidx_ptr: wasmgen::LocalIdx = scratch.push_i32();
                 expr_builder.local_set(localidx_val);
                 expr_builder.local_tee(localidx_ptr);
-                expr_builder.local_get(localidx_ptr);
                 expr_builder.i32_const(ir_source_vartype.tag());
                 expr_builder.i32_store(wasmgen::MemArg::new4(wasm_struct_offset));
+                expr_builder.local_get(localidx_ptr);
                 expr_builder.local_get(localidx_val);
                 expr_builder.i32_store(wasmgen::MemArg::new4(wasm_struct_offset + 4)); // note: high bytes of memory not used
                 scratch.pop_i32();
@@ -544,12 +544,12 @@ fn encode_store_memory(wasm_struct_offset: u32, ir_dest_vartype: ir::VarType, ir
                 expr_builder.local_set(localidx_tableidx);
                 expr_builder.local_set(localidx_closure);
                 expr_builder.local_tee(localidx_ptr);
-                expr_builder.local_get(localidx_ptr);
                 expr_builder.i32_const(ir_source_vartype.tag());
                 expr_builder.i32_store(wasmgen::MemArg::new4(wasm_struct_offset));
                 expr_builder.local_get(localidx_ptr);
                 expr_builder.local_get(localidx_tableidx);
                 expr_builder.i32_store(wasmgen::MemArg::new4(wasm_struct_offset + 4));
+                expr_builder.local_get(localidx_ptr);
                 expr_builder.local_get(localidx_closure);
                 expr_builder.i32_store(wasmgen::MemArg::new4(wasm_struct_offset + 8));
                 scratch.pop_i32();
@@ -686,14 +686,135 @@ fn encode_target_value(source: &ir::TargetExpr, outgoing_vartype: ir::VarType, c
 	}
 }
 
+// loads a ir variable into the protected stack from local variable(s)
 // net wasm stack: [] -> [<outgoing_vartype>]
 fn encode_load_local(wasm_localidx: wasmgen::LocalIdx, ir_local_vartype: ir::VarType, ir_outgoing_vartype: ir::VarType, expr_builder: &mut wasmgen::ExprBuilder)
 {
-    unimplemented!();
+    if ir_local_vartype == ir_outgoing_vartype {
+        match ir_local_vartype {
+            ir::VarType::Any | ir::VarType::Func => {
+                expr_builder.local_get(wasm_localidx + 1);
+                expr_builder.local_get(wasm_localidx);
+			},
+            ir::VarType::Number | ir::VarType::Boolean | ir::VarType::String => {
+                expr_builder.local_get(wasm_localidx);
+			},
+            ir::VarType::StructT{typeidx: _} => {
+                expr_builder.local_get(wasm_localidx);
+			},
+            ir::VarType::Undefined => {}
+            ir::VarType::Unassigned => {
+                panic!("ICE: IR->Wasm: Local static vartype cannot be unassigned");
+			}
+		}
+	}
+    else if ir_local_vartype == ir::VarType::Any {
+        // loading from Any type to a specific type
+        match ir_outgoing_vartype {
+            ir::VarType::Any => {
+                panic!("ICE");
+			},
+            ir::VarType::Undefined => {},
+            ir::VarType::Unassigned => {
+                panic!("ICE: IR->Wasm: Cannot load from unassigned local");
+			},
+            ir::VarType::Number => {
+                expr_builder.local_get(wasm_localidx + 1);
+                expr_builder.f64_reinterpret_i64(); // convert i64 to f64
+			},
+            ir::VarType::Boolean | ir::VarType::String => {
+                expr_builder.local_get(wasm_localidx + 1);
+                expr_builder.i32_wrap_i64(); // convert i64 to i32
+			},
+            ir::VarType::StructT{typeidx: _} => {
+                expr_builder.local_get(wasm_localidx + 1);
+                expr_builder.i32_wrap_i64(); // convert i64 to i32
+			},
+            ir::VarType::Func => {
+                // get high bits into i32
+                expr_builder.local_get(wasm_localidx + 1);
+                expr_builder.i64_const(32);
+                expr_builder.i64_shr_u();
+                expr_builder.i32_wrap_i64();
+                // get low bits into i32
+                expr_builder.local_get(wasm_localidx + 1);
+                expr_builder.i32_wrap_i64();
+			},
+		}
+	}
+    else {
+        panic!("ICE: IR->Wasm: Load from local is not equivalent or narrowing conversion");
+	}
 }
 
 // net wasm stack: [struct_ptr] -> [<outgoing_vartype>]
 fn encode_load_memory(wasm_struct_offset: u32, ir_local_vartype: ir::VarType, ir_outgoing_vartype: ir::VarType, scratch: &mut Scratch, expr_builder: &mut wasmgen::ExprBuilder)
 {
-    unimplemented!();
+    if ir_local_vartype == ir_outgoing_vartype {
+        match ir_local_vartype {
+            ir::VarType::Any => {
+                let localidx_ptr: wasmgen::LocalIdx = scratch.push_i32();
+                expr_builder.local_tee(localidx_ptr);
+                expr_builder.i64_load(wasmgen::MemArg::new4(wasm_struct_offset + 4));
+                expr_builder.local_get(localidx_ptr);
+                expr_builder.i32_load(wasmgen::MemArg::new4(wasm_struct_offset));
+                scratch.pop_i32();
+			}
+            ir::VarType::Undefined => {}
+            ir::VarType::Unassigned => {
+                panic!("ICE: IR->Wasm: Cannot load from unassigned memory");
+			}
+            ir::VarType::Number => {
+                expr_builder.f64_load(wasmgen::MemArg::new4(wasm_struct_offset));
+            }
+            ir::VarType::Boolean => {
+                expr_builder.i32_load(wasmgen::MemArg::new4(wasm_struct_offset));
+            }
+            ir::VarType::String => {
+                expr_builder.i32_load(wasmgen::MemArg::new4(wasm_struct_offset));
+            }
+            ir::VarType::Func => {
+                let localidx_ptr: wasmgen::LocalIdx = scratch.push_i32();
+                expr_builder.local_tee(localidx_ptr);
+                expr_builder.i32_load(wasmgen::MemArg::new4(wasm_struct_offset + 4));
+                expr_builder.local_get(localidx_ptr);
+                expr_builder.i32_load(wasmgen::MemArg::new4(wasm_struct_offset));
+                scratch.pop_i32();
+            }
+            ir::VarType::StructT{typeidx: _} => {
+                expr_builder.i32_load(wasmgen::MemArg::new4(wasm_struct_offset));
+            }
+		}
+	}
+    else if ir_local_vartype == ir::VarType::Any {
+        match ir_outgoing_vartype {
+            ir::VarType::Any => {
+                panic!("ICE");
+			}
+            ir::VarType::Unassigned => {
+                panic!("ICE: IR->Wasm: Cannot load from unassigned memory");
+			}
+            ir::VarType::Undefined => {}
+            ir::VarType::Number => {
+                expr_builder.f64_load(wasmgen::MemArg::new4(wasm_struct_offset + 4));
+			}
+            ir::VarType::Boolean | ir::VarType::String => {
+                expr_builder.i32_load(wasmgen::MemArg::new4(wasm_struct_offset + 4)); // note: high bytes of memory not used
+			}
+            ir::VarType::StructT{typeidx: _} => {
+                expr_builder.i32_load(wasmgen::MemArg::new4(wasm_struct_offset + 4)); // note: high bytes of memory not used
+            }
+            ir::VarType::Func => {
+                let localidx_ptr: wasmgen::LocalIdx = scratch.push_i32();
+                expr_builder.local_tee(localidx_ptr);
+                expr_builder.i32_load(wasmgen::MemArg::new4(wasm_struct_offset + 8));
+                expr_builder.local_get(localidx_ptr);
+                expr_builder.i32_load(wasmgen::MemArg::new4(wasm_struct_offset + 4));
+                scratch.pop_i32();
+			}
+		}
+	}
+    else {
+        panic!("ICE: IR->Wasm: Load from memory is not equivalent or narrowing conversion");
+	}
 }
