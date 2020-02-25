@@ -462,12 +462,9 @@ impl WasmSerialize for Code {
             Some(bytes) => {
                 (bytes.len() as u32).leb_serialize(receiver);
                 receiver.extend(bytes.as_ref());
-			},
-            None => {
-                panic!("ICE: Some functions were registered but not committed")     
-			}
-		}
-        
+            }
+            None => panic!("ICE: Some functions were registered but not committed"),
+        }
     }
 }
 

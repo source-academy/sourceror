@@ -29,7 +29,7 @@ impl WasmModule {
     pub fn register_func(&mut self, functype: &FuncType) -> (TypeIdx, FuncIdx) {
         let typeidx = self.type_section.insert_copy(functype);
         let funcidx = self.func_section.push(typeidx);
-        self.code_section.push(Code{func: None});
+        self.code_section.push(Code { func: None });
         (typeidx, funcidx)
     }
     pub fn commit_func(&mut self, funcidx: FuncIdx, code_builder: CodeBuilder) {
