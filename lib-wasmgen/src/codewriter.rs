@@ -66,10 +66,7 @@ impl CodeBuilder {
         let locals_len = receiver.len();
         receiver.resize_with(locals_len + self.expr.len(), Default::default);
         self.expr.write_to_slice(&mut receiver[locals_len..]);
-        (
-            self.functype,
-            receiver.into_boxed_slice()
-        )
+        (self.functype, receiver.into_boxed_slice())
     }
     pub fn split(&mut self) -> (&mut LocalsManager, &mut ExprBuilder) {
         (&mut self.locals_builder, &mut self.expr)
