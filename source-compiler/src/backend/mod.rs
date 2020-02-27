@@ -23,6 +23,10 @@
  * Most functions have a comment that looks like: net wasm stack: [...] -> [...]
  * This refers to net change to the wasm protected stack (top of stack on the right side, which agrees with the webassembly specification).
  * Stack elements in quotes (e.g. <ir_vartype>) means that that position of the stack contains a value (or values) of the given `ir_vartype` (not necessarily Any).
+ *
+ * Booleans are encoded as 0 (false) or 1 (true), which is the same as wasm representation.
+ *
+ * Note: When comparing Anys for ===, the unused space might be anything!  So we need to switch on the vartype first.
  */
 use ir;
 use wasmgen;
@@ -759,7 +763,7 @@ fn encode_expr(
             encode_target_value(source, expr.vartype, ctx, mutctx, expr_builder);
         }
         ir::ExprKind::PrimAppl { prim_inst, args } => {
-            unimplemented!();
+            encode_returnable_prim_inst(expr.vartype, *prim_inst, args, ctx, mutctx, expr_builder);
         }
         ir::ExprKind::Appl { func, args } => {
             unimplemented!();
@@ -992,5 +996,169 @@ fn encode_load_memory(
         }
     } else {
         panic!("ICE: IR->Wasm: Load from memory is not equivalent or narrowing conversion");
+    }
+}
+
+// Requires: the primitive instruction actually has the correct number of parameters,
+// and the primitive instruction requires parameters with type equal to or wider than the types in `args`.
+// and the return type is exactly the correct type of the primitive instruction.
+// (so we allow widening for params, and it must be exact for returns)
+// net wasm stack: [] -> [<return_type>]
+fn encode_returnable_prim_inst(
+    return_type: ir::VarType,
+    prim_inst: ir::PrimInst,
+    args: &[ir::Expr],
+    ctx: EncodeContext,
+    mutctx: &mut MutContext,
+    expr_builder: &mut wasmgen::ExprBuilder,
+) {
+    match prim_inst.signature() {
+        (prim_param_types, Some(prim_return_type)) => {
+            assert!(
+                prim_return_type == return_type,
+                "Return type of PrimInst must match the type of Expr"
+            );
+            // net wasm stack: [] -> [<prim_param_types[0]>, <prim_param_types[1]>, ...]
+            encode_args_to_call_function(prim_param_types, args, ctx, mutctx, expr_builder);
+            // net wasm stack: [<prim_param_types[0]>, <prim_param_types[1]>, ...] -> [<return_type>]
+            match prim_inst {
+                ir::PrimInst::NumberAdd => expr_builder.f64_add(),
+                ir::PrimInst::NumberSub => expr_builder.f64_sub(),
+                ir::PrimInst::NumberMul => expr_builder.f64_mul(),
+                ir::PrimInst::NumberDiv => expr_builder.f64_div(),
+                ir::PrimInst::NumberRem => {
+                    // webassembly has not floating point remainder operation...
+                    // we have to manually do it
+                    // https://stackoverflow.com/questions/26342823/implementation-of-fmod-function
+                    // note: not very numerically rigourous, there might be some rounding errors
+                    // algorithm used here for `a % b`:
+                    // a - (trunc(a / b) * b)
+                    let localidx_first: wasmgen::LocalIdx = mutctx.scratch.push_f64();
+                    let localidx_second: wasmgen::LocalIdx = mutctx.scratch.push_f64();
+                    expr_builder.local_set(localidx_second);
+                    expr_builder.local_tee(localidx_first);
+                    expr_builder.local_get(localidx_first);
+                    expr_builder.local_get(localidx_second);
+                    expr_builder.f64_div();
+                    expr_builder.f64_trunc();
+                    expr_builder.local_get(localidx_second);
+                    expr_builder.f64_mul();
+                    expr_builder.f64_sub();
+                    mutctx.scratch.pop_f64();
+                    mutctx.scratch.pop_f64();
+                }
+                ir::PrimInst::NumberEq => expr_builder.f64_eq(),
+                ir::PrimInst::NumberNeq => expr_builder.f64_ne(),
+                ir::PrimInst::NumberGt => expr_builder.f64_gt(),
+                ir::PrimInst::NumberLt => expr_builder.f64_lt(),
+                ir::PrimInst::NumberGe => expr_builder.f64_ge(),
+                ir::PrimInst::NumberLe => expr_builder.f64_le(),
+                ir::PrimInst::BooleanEq => expr_builder.i32_eq(),
+                ir::PrimInst::BooleanNeq => expr_builder.i32_ne(),
+                ir::PrimInst::BooleanAnd => expr_builder.i32_and(),
+                ir::PrimInst::BooleanOr => expr_builder.i32_or(),
+                ir::PrimInst::BooleanNot => {
+                    // webassembly has not boolean negation operation...
+                    // we have to manually do it
+                    // not(0) -> 1
+                    // not(1) -> 0
+                    // algorithm used here for `!a`:
+                    // a xor 1
+                    expr_builder.i32_const(1);
+                    expr_builder.i32_xor();
+                }
+                ir::PrimInst::NumberNegate => expr_builder.f64_neg(),
+                ir::PrimInst::StringAdd => {
+                    unimplemented!("String needs GC support, not implemented yet");
+                }
+                ir::PrimInst::Trap => {
+                    // causes a trap (crashes the webassembly instance):
+                    expr_builder.unreachable();
+                    // in the future, PrimInst::Trap should take a error code parameter, and maybe source location
+                    // and call a noreturn function to the embedder (JavaScript).
+                }
+            }
+        }
+        _ => {
+            panic!("Cannot encode noreturn function in an expression");
+        }
+    }
+}
+
+// This function prepares subexpressions when calling a function.
+// It evaluates arguments in left-to-right order, which is required for Source.
+// Each `expected_param_types` must be at least as wide as each `[args[i].vartype, ...]`
+// Otherwise we will panic.
+// net wasm stack: [] -> [<expected_param_types[0]>, <expected_param_types[1]>, ...]
+fn encode_args_to_call_function(
+    expected_param_types: &[ir::VarType],
+    args: &[ir::Expr],
+    ctx: EncodeContext,
+    mutctx: &mut MutContext,
+    expr_builder: &mut wasmgen::ExprBuilder,
+) {
+    assert!(
+        expected_param_types.len() == args.len(),
+        "expected_param_types and args must be same length when encoding args to call function"
+    );
+    for (expected_type, arg) in expected_param_types.iter().zip(args.iter()) {
+        // net wasm stack: [] -> [<arg.vartype>]
+        encode_expr(arg, ctx, mutctx, expr_builder);
+        // net wasm stack: [<arg.vartype>] -> [<expected_type>]
+        encode_widening_operation(
+            *expected_type,
+            arg.vartype,
+            &mut mutctx.scratch,
+            expr_builder,
+        );
+    }
+}
+
+fn encode_widening_operation(
+    target_type: ir::VarType,
+    source_type: ir::VarType,
+    scratch: &mut Scratch,
+    expr_builder: &mut wasmgen::ExprBuilder,
+) {
+    if target_type == source_type {
+        // The widening operation is a no-op, because the source type is the same as the target type
+    } else if target_type == ir::VarType::Any {
+        // We are widening from a specific type to Any
+        match source_type {
+            ir::VarType::Any => {
+                panic!("ICE");
+            }
+            ir::VarType::Undefined => {
+                expr_builder.i64_const(0); // unused data
+                expr_builder.i32_const(source_type.tag());
+            }
+            ir::VarType::Unassigned => {
+                panic!("ICE: IR->Wasm: Cannot push to stack from unassigned value");
+            }
+            ir::VarType::Number => {
+                expr_builder.i64_reinterpret_f64(); // convert f64 to i64
+                expr_builder.i32_const(source_type.tag());
+            }
+            ir::VarType::Boolean | ir::VarType::String => {
+                expr_builder.i64_extend_i32_u(); // convert i32 to i64
+                expr_builder.i32_const(source_type.tag());
+            }
+            ir::VarType::StructT { typeidx: _ } => {
+                expr_builder.i64_extend_i32_u(); // convert i32 to i64
+                expr_builder.i32_const(source_type.tag());
+            }
+            ir::VarType::Func => {
+                let localidx_tableidx: wasmgen::LocalIdx = scratch.push_i32();
+                expr_builder.local_set(localidx_tableidx);
+                expr_builder.i64_extend_i32_u(); // convert i32 to i64 (ptr to closure)
+                expr_builder.i64_const(32);
+                expr_builder.i64_shl();
+                expr_builder.local_get(localidx_tableidx);
+                expr_builder.i64_extend_i32_u(); // convert i32 to i64 (index in table)
+                expr_builder.i64_or();
+                expr_builder.i32_const(source_type.tag());
+                scratch.pop_i32();
+            }
+        }
     }
 }
