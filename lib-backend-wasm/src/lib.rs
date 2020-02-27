@@ -310,7 +310,7 @@ fn encode_vartype(ir_vartype: ir::VarType) -> &'static [wasmgen::ValType] {
         ir::VarType::Boolean => &[wasmgen::ValType::I32],
         ir::VarType::String => &[wasmgen::ValType::I32],
         ir::VarType::Func => &[wasmgen::ValType::I32, wasmgen::ValType::I32],
-        ir::VarType::StructT { typeidx } => &[wasmgen::ValType::I32],
+        ir::VarType::StructT { typeidx: _ } => &[wasmgen::ValType::I32],
     }
 }
 
@@ -357,9 +357,9 @@ fn encode_statement(
 // the pre and post fns should be read and understood together
 fn encode_target_addr_pre(
     target: &ir::TargetExpr,
-    incoming_vartype: ir::VarType,
+    _incoming_vartype: ir::VarType,
     ctx: EncodeContext,
-    mutctx: &mut MutContext,
+    _mutctx: &mut MutContext,
     expr_builder: &mut wasmgen::ExprBuilder,
 ) {
     match target {

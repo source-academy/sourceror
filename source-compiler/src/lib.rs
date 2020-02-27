@@ -2,7 +2,7 @@ use wasm_bindgen::prelude::*;
 
 use wasmgen;
 
-mod backend;
+use backend_wasm;
 
 // #[wasm_bindgen]
 // extern {
