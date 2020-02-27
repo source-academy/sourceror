@@ -1,8 +1,10 @@
 [workspace]
 members = [
     "source-compiler",
-    "lib-wasmgen",
     "lib-projstd",
+    "lib-wasmgen",
+    "lib-ir",
+    "lib-backend-wasm",
 ]
 
 [profile.release]

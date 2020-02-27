@@ -1,18 +1,16 @@
 [package]
-name = "source-compiler"
+name = "backend-wasm"
 version = "0.1.0"
 authors = ["Bernard Teo <btzy1996@hotmail.com>"]
-description = "Source to WebAssembly compiler"
+description = "Compiler backend that converts IR to Wasm binary"
 license = "MIT/Apache-2.0"
 edition = "2018"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [lib]
-crate-type = ["cdylib"]
+crate-type = ["lib"]
 
 [dependencies]
 wasmgen = { path = "../lib-wasmgen" }
 ir = { path = "../lib-ir" }
-backend-wasm = { path = "../lib-backend-wasm" }
-wasm-bindgen = "0.2"
