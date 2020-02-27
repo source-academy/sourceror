@@ -246,3 +246,34 @@ impl Func {
         }
     }
 }
+
+impl PrimInst {
+    // returns the (param_types, result_type)
+    // if result is None, then it is guaranteed to never return
+    pub fn signature(&self) -> (&'static [VarType], Option<VarType>) {
+        match self {
+            Self::NumberAdd
+            | Self::NumberSub
+            | Self::NumberMul
+            | Self::NumberDiv
+            | Self::NumberRem => (&[VarType::Number, VarType::Number], Some(VarType::Number)),
+            Self::NumberEq
+            | Self::NumberNeq
+            | Self::NumberGt
+            | Self::NumberLt
+            | Self::NumberGe
+            | Self::NumberLe => (&[VarType::Number, VarType::Number], Some(VarType::Boolean)),
+            Self::BooleanEq
+            | Self::BooleanNeq
+            | Self::BooleanAnd
+            | Self::BooleanOr
+            | Self::BooleanNot => (
+                &[VarType::Boolean, VarType::Boolean],
+                Some(VarType::Boolean),
+            ),
+            Self::NumberNegate => (&[VarType::Number], Some(VarType::Number)),
+            Self::StringAdd => (&[VarType::String, VarType::String], Some(VarType::String)),
+            Self::Trap => (&[], None),
+        }
+    }
+}
