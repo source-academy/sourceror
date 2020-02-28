@@ -245,6 +245,9 @@ impl Func {
             signature_filter: Default::default(),
         }
     }
+    pub fn signature(&self) -> (&[VarType], Option<VarType>) {
+        (&self.params, self.result)
+    }
 }
 
 impl PrimInst {
