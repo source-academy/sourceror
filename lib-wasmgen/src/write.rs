@@ -26,16 +26,23 @@ impl WasmModule {
     pub fn new_builder() -> write::WasmImportBuilderModule {
         Default::default()
     }
+    // Gets the typeidx of a given type, adding it to the type section if necessary
+    pub fn insert_type_into(&mut self, functype: FuncType) -> TypeIdx {
+        self.type_section.insert(functype)
+    }
+    // Register a new function with the given type
     pub fn register_func(&mut self, functype: &FuncType) -> (TypeIdx, FuncIdx) {
         let typeidx = self.type_section.insert_copy(functype);
         let funcidx = self.func_section.push(typeidx);
         self.code_section.push(Code { func: None });
         (typeidx, funcidx)
     }
+    // Commit a function that has been previously registered
     pub fn commit_func(&mut self, funcidx: FuncIdx, code_builder: CodeBuilder) {
         let (_functype, bytes) = code_builder.build();
         self.code_section.content[funcidx.idx as usize].func = Some(bytes);
     }
+    // Export a function so that the environment (i.e. JavaScript) can call it
     pub fn export_func(&mut self, funcidx: FuncIdx, exported_name: String) {
         self.export_section.push_func(exported_name, funcidx);
     }
@@ -56,11 +63,11 @@ impl WasmImportBuilderModule {
 }
 
 impl TypeSection {
-    /*fn insert(&mut self, functype: FuncType) -> TypeIdx {
+    fn insert(&mut self, functype: FuncType) -> TypeIdx {
         TypeIdx {
             idx: self.content.insert(functype) as u32,
         }
-    }*/
+    }
     fn insert_copy(&mut self, functype: &FuncType) -> TypeIdx {
         TypeIdx {
             idx: self.content.insert_copy(functype) as u32,

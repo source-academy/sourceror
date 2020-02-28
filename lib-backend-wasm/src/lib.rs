@@ -11,8 +11,10 @@
  * Note: The closure must be a pointer type (i.e. StructT or String) allocated at the binding site, in order to make function equality work.
  *       Function equality is simply closure reference equality.  No need to compare the function ptr.
  * Note: The type of a closure must be known at compile time.  It is an i32 (tag) stored in closures[func.tableidx] (generated in data section).
- * Undefined -> <nothing>
+ * Note: When the target of a function is not known (i.e. non-direct appl), all parameters must be Any.
+ * * At the call site of call_indirect, we need to specify the list of parameter types.  It will all be Any, but we will exploit wasm
  * Unassigned -> <nothing>
+ * Undefined -> <nothing>
  * Number -> f64
  * Boolean -> i32 (1: true; 0: false)
  * String -> i32 (ptr to unsized mem)
@@ -98,8 +100,9 @@ struct EncodeContext<'a, 'b, 'c, 'd, 'e> {
                            // will also include function indices
 }
 
-struct MutContext<'a> {
+struct MutContext<'a, 'b> {
     scratch: Scratch<'a>,
+    module_wrapper: ModuleEncodeWrapper<'b>,
     // will also include function indices
 }
 
@@ -195,6 +198,28 @@ impl<'a> Scratch<'a> {
     }
 }
 
+/**
+ * Wraps the WasmModule, to only allow operations that are allows while encoding a function body.
+ * (Because a raw WasmModule might allow a lot of other things which shouldn't be done midway encoding the function body.)
+ */
+struct ModuleEncodeWrapper<'a> {
+    wasm_module: &'a mut wasmgen::WasmModule,
+}
+impl<'a> ModuleEncodeWrapper<'a> {
+    fn add_wasm_type(&mut self, wasm_functype: wasmgen::FuncType) -> wasmgen::TypeIdx {
+        self.wasm_module.insert_type_into(wasm_functype)
+    }
+    fn add_ir_type(
+        &mut self,
+        ir_params: &[ir::VarType],
+        ir_result: Option<ir::VarType>,
+    ) -> wasmgen::TypeIdx {
+        let (wasm_params, _) = encode_param_list(ir_params);
+        let wasm_functype = wasmgen::FuncType::new(wasm_params, encode_result(ir_result));
+        self.add_wasm_type(wasm_functype)
+    }
+}
+
 fn encode_funcs(
     ir_funcs: &[ir::Func],
     ir_struct_types: &[Box<[ir::VarType]>],
@@ -205,71 +230,83 @@ fn encode_funcs(
         typeidx: wasmgen::TypeIdx,
         funcidx: wasmgen::FuncIdx,
         var_map: Box<[wasmgen::LocalIdx]>, // varmap converts ir param/local index to wasm param/local index
-        code_builder: wasmgen::CodeBuilder,
+        //code_builder: wasmgen::CodeBuilder,
         params_locals_types: Box<[ir::VarType]>,
     }
 
     // register all the funcs first, in order of ir::funcidx
     // also encode the params and the locals and the return type
-    let mut registry_list: Box<[WasmRegistry]> = ir_funcs
-        .iter()
-        .map(|ir_func| {
-            let (wasm_params, param_map) = encode_param_list(&ir_func.params);
-            let num_wasm_params = wasm_params.len() as u32;
-            let wasm_functype = wasmgen::FuncType::new(wasm_params, encode_result(&ir_func.result));
-            let (wasm_typeidx, wasm_funcidx) = wasm_module.register_func(&wasm_functype);
-            let (wasm_locals, local_map) = encode_param_list(&ir_func.locals);
-            let mut code_builder = wasmgen::CodeBuilder::new(wasm_functype);
-            let locals_builder = code_builder.locals_builder();
-            for local in wasm_locals.into_iter() {
-                locals_builder.add(*local);
-            }
-            let var_map = param_map
-                .iter()
-                .cloned()
-                .chain(local_map.into_iter().map(|x| num_wasm_params + x))
-                .map(|x| wasmgen::LocalIdx { idx: x })
-                .collect();
-            let params_locals_types = ir_func
-                .params
-                .iter()
-                .chain(ir_func.locals.iter())
-                .cloned()
-                .collect();
-            WasmRegistry {
-                typeidx: wasm_typeidx,
-                funcidx: wasm_funcidx,
-                var_map: var_map,
-                code_builder: code_builder,
-                params_locals_types: params_locals_types,
-            }
-        })
-        .collect();
+    let (mut registry_list, code_builder_list): (Vec<WasmRegistry>, Vec<wasmgen::CodeBuilder>) =
+        ir_funcs
+            .iter()
+            .map(|ir_func| {
+                let (wasm_params, param_map) = encode_param_list(&ir_func.params);
+                let num_wasm_params = wasm_params.len() as u32;
+                let wasm_functype =
+                    wasmgen::FuncType::new(wasm_params, encode_result(ir_func.result));
+                let (wasm_typeidx, wasm_funcidx) = wasm_module.register_func(&wasm_functype);
+                let (wasm_locals, local_map) = encode_param_list(&ir_func.locals);
+                let mut code_builder = wasmgen::CodeBuilder::new(wasm_functype);
+                let locals_builder = code_builder.locals_builder();
+                for local in wasm_locals.into_iter() {
+                    locals_builder.add(*local);
+                }
+                let var_map = param_map
+                    .iter()
+                    .cloned()
+                    .chain(local_map.into_iter().map(|x| num_wasm_params + x))
+                    .map(|x| wasmgen::LocalIdx { idx: x })
+                    .collect();
+                let params_locals_types = ir_func
+                    .params
+                    .iter()
+                    .chain(ir_func.locals.iter())
+                    .cloned()
+                    .collect();
+                (
+                    WasmRegistry {
+                        typeidx: wasm_typeidx,
+                        funcidx: wasm_funcidx,
+                        var_map: var_map,
+                        //code_builder: code_builder,
+                        params_locals_types: params_locals_types,
+                    },
+                    code_builder,
+                )
+            })
+            .unzip();
 
     // use the wasmgen::codewriter to encode the function body
     ir_funcs
         .iter()
+        .zip(code_builder_list.into_iter())
         .enumerate()
-        .for_each(|(ir_funcidx, ir_func)| {
+        .for_each(|(ir_funcidx, (ir_func, mut code_builder))| {
             let registry: &mut WasmRegistry = &mut registry_list[ir_funcidx];
-            let code_builder: &mut wasmgen::CodeBuilder = &mut registry.code_builder;
-            let (locals_builder, expr_builder) = code_builder.split();
-            let scratch: Scratch = Scratch::new(locals_builder);
-            let ctx = EncodeContext {
-                var_map: &registry.var_map,
-                params_locals_types: &registry.params_locals_types,
-                struct_types: ir_struct_types,
-                struct_field_byte_offsets: ir_struct_field_byte_offsets,
-                funcs: ir_funcs,
-            };
-            let mut mutctx = MutContext { scratch: scratch };
-            encode_statements(
-                ir_func.statements.as_slice(),
-                ctx,
-                &mut mutctx,
-                expr_builder,
-            );
-            expr_builder.end(); // append the end instruction to end the function
+            {
+                let (locals_builder, expr_builder) = code_builder.split();
+                let scratch: Scratch = Scratch::new(locals_builder);
+                let ctx = EncodeContext {
+                    var_map: &registry.var_map,
+                    params_locals_types: &registry.params_locals_types,
+                    struct_types: ir_struct_types,
+                    struct_field_byte_offsets: ir_struct_field_byte_offsets,
+                    funcs: ir_funcs,
+                };
+                let mut mutctx = MutContext {
+                    scratch: scratch,
+                    module_wrapper: ModuleEncodeWrapper { wasm_module },
+                };
+                encode_statements(
+                    ir_func.statements.as_slice(),
+                    ctx,
+                    &mut mutctx,
+                    expr_builder,
+                );
+                expr_builder.end(); // append the end instruction to end the function
+            }
+            // commit the function:
+            wasm_module.commit_func(registry.funcidx, code_builder);
         });
 }
 
@@ -293,10 +330,10 @@ fn encode_param_list(ir_params: &[ir::VarType]) -> (Box<[wasmgen::ValType]>, Box
     (wasm_params, param_map)
 }
 
-fn encode_result(ir_results: &Option<ir::VarType>) -> Box<[wasmgen::ValType]> {
+fn encode_result(ir_results: Option<ir::VarType>) -> Box<[wasmgen::ValType]> {
     ir_results
-        .iter()
-        .flat_map(|ir_result| encode_vartype(*ir_result).iter())
+        .into_iter()
+        .flat_map(|ir_result| encode_vartype(ir_result).iter())
         .cloned()
         .collect()
 }
@@ -348,8 +385,28 @@ fn encode_statement(
             true_stmts,
             false_stmts,
         } => unimplemented!(),
-        ir::Statement::Expr { expr } => unimplemented!(),
-        ir::Statement::Void { expr_kind } => unimplemented!(),
+        ir::Statement::Expr { expr } => {
+            // encode the expression
+            encode_expr(expr, ctx, mutctx, expr_builder);
+            // remove the value from the stack
+            encode_drop_value(expr.vartype, expr_builder);
+        }
+        ir::Statement::Void { expr_kind } => {
+            encode_void_expr(expr_kind, ctx, mutctx, expr_builder);
+        }
+    }
+}
+
+fn encode_drop_value(ir_vartype: ir::VarType, expr_builder: &mut wasmgen::ExprBuilder) {
+    match ir_vartype {
+        ir::VarType::Any | ir::VarType::Func => {
+            expr_builder.drop();
+            expr_builder.drop();
+        }
+        ir::VarType::Number | ir::VarType::Boolean | ir::VarType::String => expr_builder.drop(),
+        ir::VarType::StructT { typeidx: _ } => expr_builder.drop(),
+        ir::VarType::Undefined => {}
+        ir::VarType::Unassigned => panic!("Unassigned variable must not exist on the stack"),
     }
 }
 
@@ -766,10 +823,39 @@ fn encode_expr(
             encode_returnable_prim_inst(expr.vartype, *prim_inst, args, ctx, mutctx, expr_builder);
         }
         ir::ExprKind::Appl { func, args } => {
-            unimplemented!();
+            encode_returnable_appl(expr.vartype, func, args, ctx, mutctx, expr_builder);
         }
         ir::ExprKind::DirectAppl { funcidx, args } => {
             unimplemented!();
+        }
+    }
+}
+
+// Encodes a function that never returns
+// net wasm stack: [] -> []
+// Note: for validation, we still need to ensure stack consistency.
+fn encode_void_expr(
+    expr_kind: &ir::ExprKind,
+    ctx: EncodeContext,
+    mutctx: &mut MutContext,
+    expr_builder: &mut wasmgen::ExprBuilder,
+) {
+    match expr_kind {
+        ir::ExprKind::PrimAppl {
+            prim_inst: ir::PrimInst::Trap,
+            args,
+        } => {
+            if !args.is_empty() {
+                panic!("Trap should currently not take any arguments");
+            } else {
+                expr_builder.unreachable();
+            }
+        }
+        ir::ExprKind::DirectAppl { funcidx, args } => {
+            unimplemented!();
+        }
+        _ => {
+            panic!("This expr_kind is not allowed for void expr");
         }
     }
 }
@@ -1083,6 +1169,83 @@ fn encode_returnable_prim_inst(
             panic!("Cannot encode noreturn function in an expression");
         }
     }
+}
+
+// Requires: the callee actually has the correct number of parameters,
+// and the func_expr has type VarType::Func or VarType::Any
+// and the callee must have all params of type Any, and return type must also be Any.
+// (to use more specific types, we must know the target function at compilation time, and hence use the DirectAppl)
+// net wasm stack: [] -> [<return_type>]
+fn encode_returnable_appl(
+    return_type: ir::VarType,
+    func_expr: &ir::Expr,
+    args: &[ir::Expr],
+    ctx: EncodeContext,
+    mutctx: &mut MutContext,
+    expr_builder: &mut wasmgen::ExprBuilder,
+) {
+    // todo! How to figure out at runtime if a function call has the correct number of arguments?
+    // For now, we will just let wasm trap automatically for us if we call the function wrongly (but we might not get a proper error message)
+    // Eventually we might want to check the signature manually.
+
+    // Assert that the return type is Any (calling a function indirectly should return Any)
+    assert!(return_type == ir::VarType::Any);
+
+    // Evaluate the `func_expr`:
+    // net wasm stack: [] -> [<func_expr.vartype>]
+    encode_expr(func_expr, ctx, mutctx, expr_builder);
+
+    // Emit the convertion to function if necessary, storing the tableidx in a i32 local variable
+    // net wasm stack: [<func_expr.vartype>] -> [i32(closure ptr)]
+    let localidx_tableidx: wasmgen::LocalIdx = mutctx.scratch.push_i32();
+    {
+        match func_expr.vartype {
+            ir::VarType::Func => {
+                // already a function, just pop out the tableidx from the stack
+                expr_builder.local_set(localidx_tableidx);
+            }
+            ir::VarType::Any => {
+                // emit the check if it is a function type
+                expr_builder.i32_const(ir::VarType::Func.tag());
+                expr_builder.i32_eq();
+                expr_builder.if_(&[]);
+                expr_builder.unreachable(); // todo! change to a call to javascript to specify the kind of trap
+                expr_builder.end();
+                // now it is a function type, we have to reinterpret the i64 as two i32s
+                {
+                    let localidx_data: wasmgen::LocalIdx = mutctx.scratch.push_i64();
+                    expr_builder.local_tee(localidx_data);
+                    expr_builder.local_get(localidx_data);
+                    mutctx.scratch.pop_i64();
+                    expr_builder.i32_wrap_i64();
+                    expr_builder.local_set(localidx_tableidx);
+                    expr_builder.i64_const(32);
+                    expr_builder.i32_shr_u();
+                    expr_builder.i32_wrap_i64();
+                }
+            }
+            _ => {
+                panic!("Cannot call function with static VarType that is not Func or Any");
+            }
+        }
+    }
+
+    // Encode all the arguments
+    let anys: Box<[ir::VarType]> = args.iter().map(|_| ir::VarType::Any).collect();
+    encode_args_to_call_function(&anys, args, ctx, mutctx, expr_builder);
+
+    // push the tableidx onto the stack
+    expr_builder.local_get(localidx_tableidx);
+
+    // call the function (indirectly)
+    expr_builder.call_indirect(
+        mutctx
+            .module_wrapper
+            .add_ir_type(&anys, Some(ir::VarType::Any)),
+        wasmgen::TableIdx { idx: 0 },
+    );
+
+    mutctx.scratch.pop_i32();
 }
 
 // This function prepares subexpressions when calling a function.
