@@ -9,7 +9,7 @@ struct Point {
 
 fn main() {
     let point = Point { x: 1, y: 2 };
-
+    asttoir::ReadFromFile();
     // Convert the Point to a JSON string.
     let serialized = serde_json::to_string(&point).unwrap();
 

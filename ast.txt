@@ -1,0 +1,20 @@
+Node {
+  type: 'Program',
+  start: 0,
+  end: 51,
+  loc:
+   SourceLocation {
+     start: Position { line: 1, column: 0 },
+     end: Position { line: 2, column: 0 } },
+  body:
+   [ Node {
+       type: 'FunctionDeclaration',
+       start: 0,
+       end: 50,
+       loc: [SourceLocation],
+       id: [Node],
+       expression: false,
+       generator: false,
+       params: [Array],
+       body: [Node] } ],
+  sourceType: 'module' }
