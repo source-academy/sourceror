@@ -3,6 +3,7 @@ members = [
     "source-compiler",
     "lib-wasmgen",
     "lib-projstd",
+    "lib-asttoir",
 ]
 
 [profile.release]

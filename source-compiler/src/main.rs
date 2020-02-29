@@ -1,8 +1,4 @@
-/**
- * This module converts the AST to our IR
- * it requires the `ir` and `serde` crates.
- */
-use ir;
+use asttoir;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug)]
