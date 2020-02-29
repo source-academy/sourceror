@@ -90,6 +90,7 @@ pub enum Statement {
         expr: Expr,
     }, // Return statmenent,
     // todo!: Should If be an Expr instead of a separate statement?  (Wasm if-statements can return a value.)
+    // `cond.vartype` can be either Any or Boolean.  If cond.vartype is Any, then we will emit a runtime type check.
     If {
         cond: Expr,
         true_stmts: Block,
