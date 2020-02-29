@@ -384,7 +384,20 @@ fn encode_statement(
             cond,
             true_stmts,
             false_stmts,
-        } => unimplemented!(),
+        } => {
+            // encode the condition
+            // net wasm stack: [] -> [<cond.vartype>]
+            encode_expr(cond, ctx, mutctx, expr_builder);
+            // convert the condition
+            // net wasm stack: [<cond.vartype>] -> [i32 (condition)]
+            encode_narrowing_operation(ir::VarType::Boolean, cond.vartype, &mut mutctx.scratch, expr_builder);
+            // emit the if statement
+            expr_builder.if_(&[]);
+            encode_statements(true_stmts, ctx, mutctx, expr_builder);
+            expr_builder.else_();
+            encode_statements(false_stmts, ctx, mutctx, expr_builder);
+            expr_builder.end();
+        },
         ir::Statement::Expr { expr } => {
             // encode the expression
             encode_expr(expr, ctx, mutctx, expr_builder);
@@ -1207,7 +1220,7 @@ fn encode_returnable_appl(
             ir::VarType::Any => {
                 // emit the check if it is a function type
                 expr_builder.i32_const(ir::VarType::Func.tag());
-                expr_builder.i32_eq();
+                expr_builder.i32_ne();
                 expr_builder.if_(&[]);
                 expr_builder.unreachable(); // todo! change to a call to javascript to specify the kind of trap
                 expr_builder.end();
@@ -1277,6 +1290,7 @@ fn encode_args_to_call_function(
     }
 }
 
+// net wasm stack: [<source_type>] -> [<target_type>]
 fn encode_widening_operation(
     target_type: ir::VarType,
     source_type: ir::VarType,
@@ -1324,4 +1338,62 @@ fn encode_widening_operation(
             }
         }
     }
+    else {
+        panic!("Widening operation target not a supertype of source");
+	}
+}
+
+// net wasm stack: [<source_type>] -> [<target_type>]
+fn encode_narrowing_operation(
+    target_type: ir::VarType,
+    source_type: ir::VarType,
+    scratch: &mut Scratch,
+    expr_builder: &mut wasmgen::ExprBuilder,
+) {
+    if target_type == source_type {
+        // The narrowing operation is a no-op, because the source type is the same as the target type
+    } else if source_type == ir::VarType::Any {
+        // We are narrowing from Any to a specific type
+        // emit type check (trap if not correct)
+
+        // net wasm stack: [i64(data), i32(tag)] -> [i64(data)]
+        expr_builder.i32_const(target_type.tag());
+        expr_builder.i32_ne();
+        expr_builder.if_(&[]);
+        expr_builder.unreachable();
+        expr_builder.end();
+
+        // now the i64(data) is guaranteed to actually contain the target source_type
+        // net wasm stack: [i64(data)] -> [<target_type>]
+        match target_type {
+            ir::VarType::Any => {
+                panic!("ICE");
+            }
+            ir::VarType::Undefined => {
+                expr_builder.drop(); // i64(data) unused
+            }
+            ir::VarType::Unassigned => {
+                panic!("ICE: IR->Wasm: Cannot push unassigned value to stack");
+            }
+            ir::VarType::Number => {
+                expr_builder.f64_reinterpret_i64(); // convert i64 to f64
+            }
+            ir::VarType::Boolean | ir::VarType::String | ir::VarType::StructT { typeidx: _ } => {
+                expr_builder.i32_wrap_i64(); // convert i64 to i32
+            }
+            ir::VarType::Func => {
+                let localidx_data: wasmgen::LocalIdx = scratch.push_i64();
+                expr_builder.local_tee(localidx_data);
+                expr_builder.i64_const(32);
+                expr_builder.i64_shr_u();
+                expr_builder.i32_wrap_i64();
+                expr_builder.local_get(localidx_data);
+                expr_builder.i32_wrap_i64();
+                scratch.pop_i64();
+            }
+        }
+    }
+    else {
+        panic!("Narrowing operation source not a supertype of target");
+	}
 }
