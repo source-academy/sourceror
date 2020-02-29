@@ -29,6 +29,10 @@
  * Booleans are encoded as 0 (false) or 1 (true), which is the same as wasm representation.
  *
  * Note: When comparing Anys for ===, the unused space might be anything!  So we need to switch on the vartype first.
+ *
+ * todo! unimplemented! Indirect function calls and functions returning functions are probably broken now because they need to be able to return a tuple of values.
+ * The fix (not yet implemented) is to allocate space on the stack to transfer those values.
+ * We need to define a proper calling convention for this (i.e. when to put it on the stack, and when to use the return value field).
  */
 use ir;
 use wasmgen;
@@ -91,13 +95,13 @@ fn size_in_memory(ir_vartype: ir::VarType) -> u32 {
 }
 
 #[derive(Copy, Clone)]
-struct EncodeContext<'a, 'b, 'c, 'd, 'e> {
+struct EncodeContext<'a, 'b, 'c, 'd, 'e, 'f> {
     var_map: &'a [wasmgen::LocalIdx],
     params_locals_types: &'b [ir::VarType],
     struct_types: &'c [Box<[ir::VarType]>],
     struct_field_byte_offsets: &'d [Box<[u32]>], // has same sizes as `struct_types`, but instead stores the byte offset of each field from the beginning of the struct
     funcs: &'e [ir::Func], // ir functions, so that callers can check the param type of return type
-                           // will also include function indices
+    wasm_funcidxs: &'f [wasmgen::FuncIdx], // mapping from ir::FuncIdx to wasmgen::FuncIdx (used when we need to invoke a DirectAppl)
 }
 
 struct MutContext<'a, 'b> {
@@ -276,13 +280,15 @@ fn encode_funcs(
             })
             .unzip();
 
+    let wasm_funcidxs: Box<[wasmgen::FuncIdx]> = registry_list.iter().map(|x| x.funcidx).collect();
+
     // use the wasmgen::codewriter to encode the function body
     ir_funcs
         .iter()
         .zip(code_builder_list.into_iter())
         .enumerate()
         .for_each(|(ir_funcidx, (ir_func, mut code_builder))| {
-            let registry: &mut WasmRegistry = &mut registry_list[ir_funcidx];
+            let registry: &WasmRegistry = &registry_list[ir_funcidx];
             {
                 let (locals_builder, expr_builder) = code_builder.split();
                 let scratch: Scratch = Scratch::new(locals_builder);
@@ -292,6 +298,7 @@ fn encode_funcs(
                     struct_types: ir_struct_types,
                     struct_field_byte_offsets: ir_struct_field_byte_offsets,
                     funcs: ir_funcs,
+                    wasm_funcidxs: &wasm_funcidxs,
                 };
                 let mut mutctx = MutContext {
                     scratch: scratch,
@@ -390,14 +397,19 @@ fn encode_statement(
             encode_expr(cond, ctx, mutctx, expr_builder);
             // convert the condition
             // net wasm stack: [<cond.vartype>] -> [i32 (condition)]
-            encode_narrowing_operation(ir::VarType::Boolean, cond.vartype, &mut mutctx.scratch, expr_builder);
+            encode_narrowing_operation(
+                ir::VarType::Boolean,
+                cond.vartype,
+                &mut mutctx.scratch,
+                expr_builder,
+            );
             // emit the if statement
             expr_builder.if_(&[]);
             encode_statements(true_stmts, ctx, mutctx, expr_builder);
             expr_builder.else_();
             encode_statements(false_stmts, ctx, mutctx, expr_builder);
             expr_builder.end();
-        },
+        }
         ir::Statement::Expr { expr } => {
             // encode the expression
             encode_expr(expr, ctx, mutctx, expr_builder);
@@ -839,7 +851,7 @@ fn encode_expr(
             encode_returnable_appl(expr.vartype, func, args, ctx, mutctx, expr_builder);
         }
         ir::ExprKind::DirectAppl { funcidx, args } => {
-            unimplemented!();
+            encode_returnable_direct_appl(expr.vartype, *funcidx, args, ctx, mutctx, expr_builder);
         }
     }
 }
@@ -865,7 +877,7 @@ fn encode_void_expr(
             }
         }
         ir::ExprKind::DirectAppl { funcidx, args } => {
-            unimplemented!();
+            encode_void_direct_appl(*funcidx, args, ctx, mutctx, expr_builder);
         }
         _ => {
             panic!("This expr_kind is not allowed for void expr");
@@ -1261,6 +1273,60 @@ fn encode_returnable_appl(
     mutctx.scratch.pop_i32();
 }
 
+// Requires: the callee actually has the correct number of parameters,
+// and the each parameter of the callee must have a type at least as wide as (i.e. be a supertype of) the corresponding args[i].vartype,
+// and the return type of the callee is exactly return_type.
+// net wasm stack: [] -> [<return_type>]
+fn encode_returnable_direct_appl(
+    return_type: ir::VarType,
+    funcidx: ir::FuncIdx,
+    args: &[ir::Expr],
+    ctx: EncodeContext,
+    mutctx: &mut MutContext,
+    expr_builder: &mut wasmgen::ExprBuilder,
+) {
+    // Assert that this funcidx exists
+    assert!(funcidx < ctx.funcs.len(), "invalid funcidx");
+
+    let func: &ir::Func = &ctx.funcs[funcidx];
+
+    // Assert that the function has correct return type
+    assert!(Some(return_type) == func.result);
+
+    // Encode all the arguments
+    encode_args_to_call_function(&func.params, args, ctx, mutctx, expr_builder);
+
+    // call the function
+    expr_builder.call(ctx.wasm_funcidxs[funcidx]);
+}
+
+// Like `encode_returnable_direct_appl`, but the encoded function is guaranteed to never return.
+// Requires: the callee actually has the correct number of parameters,
+// and the each parameter of the callee must have a type at least as wide as (i.e. be a supertype of) the corresponding args[i].vartype,
+// and the callee is specified to not return.
+// net wasm stack: [] -> []
+fn encode_void_direct_appl(
+    funcidx: ir::FuncIdx,
+    args: &[ir::Expr],
+    ctx: EncodeContext,
+    mutctx: &mut MutContext,
+    expr_builder: &mut wasmgen::ExprBuilder,
+) {
+    // Assert that this funcidx exists
+    assert!(funcidx < ctx.funcs.len(), "invalid funcidx");
+
+    let func: &ir::Func = &ctx.funcs[funcidx];
+
+    // Assert that the function does not return
+    assert!(None == func.result);
+
+    // Encode all the arguments
+    encode_args_to_call_function(&func.params, args, ctx, mutctx, expr_builder);
+
+    // call the function (the function at funcidx is guaranteed to not return)
+    expr_builder.call(ctx.wasm_funcidxs[funcidx]);
+}
+
 // This function prepares subexpressions when calling a function.
 // It evaluates arguments in left-to-right order, which is required for Source.
 // Each `expected_param_types` must be at least as wide as each `[args[i].vartype, ...]`
@@ -1337,10 +1403,9 @@ fn encode_widening_operation(
                 scratch.pop_i32();
             }
         }
-    }
-    else {
+    } else {
         panic!("Widening operation target not a supertype of source");
-	}
+    }
 }
 
 // net wasm stack: [<source_type>] -> [<target_type>]
@@ -1392,8 +1457,7 @@ fn encode_narrowing_operation(
                 scratch.pop_i64();
             }
         }
-    }
-    else {
+    } else {
         panic!("Narrowing operation source not a supertype of target");
-	}
+    }
 }
