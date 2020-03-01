@@ -6,13 +6,14 @@ pub fn hello() {
     println!("Hello, world!");
 }
 
-pub fn ReadFromFile() {
+pub fn ReadFromFile() -> std::string::String {
     // Read in Sample
     println!("In file {}", FILENAME);
 
     let contents = fs::read_to_string(FILENAME).expect("Something went wrong reading the file");
 
-    println!("With text:\n{}", contents);
+    println!("With text:\n");
+    return contents;
 }
 
 #[cfg(test)]
