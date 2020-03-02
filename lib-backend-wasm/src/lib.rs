@@ -75,6 +75,7 @@ fn encode_program(ir_program: &ir::Program) -> wasmgen::WasmModule {
         &ir_program.funcs,
         &ir_program.struct_types,
         &struct_field_byte_offsets,
+        ir_program.entry_point,
         &mut wasm_module,
     );
 
@@ -233,6 +234,7 @@ fn encode_funcs(
     ir_funcs: &[ir::Func],
     ir_struct_types: &[Box<[ir::VarType]>],
     ir_struct_field_byte_offsets: &[Box<[u32]>],
+    ir_entry_point_funcidx: ir::FuncIdx,
     wasm_module: &mut wasmgen::WasmModule,
 ) {
     struct WasmRegistry {
@@ -245,7 +247,7 @@ fn encode_funcs(
 
     // register all the funcs first, in order of ir::funcidx
     // also encode the params and the locals and the return type
-    let (mut registry_list, code_builder_list): (Vec<WasmRegistry>, Vec<wasmgen::CodeBuilder>) =
+    let (registry_list, code_builder_list): (Vec<WasmRegistry>, Vec<wasmgen::CodeBuilder>) =
         ir_funcs
             .iter()
             .map(|ir_func| {
@@ -321,6 +323,14 @@ fn encode_funcs(
             // commit the function:
             wasm_module.commit_func(registry.funcidx, code_builder);
         });
+
+    // encode the entry point
+    // Note: this is not the wasm start function (the wasm start function is invoked immediately on instantiation, before exported functions are callable)
+    // By our convention this function is exported as "main"
+    wasm_module.export_func(
+        registry_list[ir_entry_point_funcidx].funcidx,
+        "main".to_string(),
+    );
 }
 
 // returns (wasm_param_list, param_map)
