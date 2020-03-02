@@ -16,6 +16,8 @@ pub fn ReadFromFile() -> std::string::String {
     return contents;
 }
 
+// Program::new()
+
 #[cfg(test)]
 mod tests {
     #[test]
