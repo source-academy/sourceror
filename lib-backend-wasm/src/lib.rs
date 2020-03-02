@@ -96,8 +96,11 @@ fn size_in_memory(ir_vartype: ir::VarType) -> u32 {
 
 #[derive(Copy, Clone)]
 struct EncodeContext<'a, 'b, 'c, 'd, 'e, 'f> {
+    // Local to this function
     var_map: &'a [wasmgen::LocalIdx],
     params_locals_types: &'b [ir::VarType],
+    return_type: Option<ir::VarType>,
+    // Global for whole program
     struct_types: &'c [Box<[ir::VarType]>],
     struct_field_byte_offsets: &'d [Box<[u32]>], // has same sizes as `struct_types`, but instead stores the byte offset of each field from the beginning of the struct
     funcs: &'e [ir::Func], // ir functions, so that callers can check the param type of return type
@@ -105,7 +108,9 @@ struct EncodeContext<'a, 'b, 'c, 'd, 'e, 'f> {
 }
 
 struct MutContext<'a, 'b> {
+    // Local to this function
     scratch: Scratch<'a>,
+    // Global for whole program
     module_wrapper: ModuleEncodeWrapper<'b>,
     // will also include function indices
 }
@@ -295,6 +300,7 @@ fn encode_funcs(
                 let ctx = EncodeContext {
                     var_map: &registry.var_map,
                     params_locals_types: &registry.params_locals_types,
+                    return_type: ir_func.result,
                     struct_types: ir_struct_types,
                     struct_field_byte_offsets: ir_struct_field_byte_offsets,
                     funcs: ir_funcs,
@@ -386,7 +392,19 @@ fn encode_statement(
             // write the value from the stack to the target
             encode_target_addr_post(target, expr.vartype, ctx, mutctx, expr_builder);
         }
-        ir::Statement::Return { expr } => unimplemented!(),
+        ir::Statement::Return { expr } => {
+            match ctx.return_type {
+                None => panic!("Cannot have return expression in a function that returns Void"),
+                Some(ret) => {
+                    // net wasm stack: [] -> [<expr.vartype>]
+                    encode_expr(expr, ctx, mutctx, expr_builder);
+                    // net wasm stack: [<expr.vartype>] -> [<ctx.return_type.unwrap()>]
+                    encode_widening_operation(ret, expr.vartype, &mut mutctx.scratch, expr_builder);
+                    // return the value on the stack (which now has the correct type)
+                    expr_builder.return_();
+                }
+            }
+        }
         ir::Statement::If {
             cond,
             true_stmts,
