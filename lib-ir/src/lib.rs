@@ -25,7 +25,7 @@ mod primfunc;
 pub type FuncIdx = usize;
 
 pub struct Program {
-    pub struct_types: Vec<Box<[VarType]>>, // stores the list of fields of all structs (i.e. objects) in the program
+    pub struct_types: Vec<Box<[VarType]>>, // stores the list of fields of all structs (i.e. objects) in the program (indexed with typeidx)
     pub funcs: Vec<Func>, // list of functions (some will be pre-generated for the pre-declared operators, e.g. + - * / % === and more)
     pub globals: Vec<VarType>, // list of global variables
     pub entry_point: FuncIdx, // index of function to run when the program is started
@@ -141,7 +141,7 @@ pub enum ExprKind {
     }, // e.g. `"hello world"`, may be placed in a region of memory immune to garbage collection
     PrimStructT {
         typeidx: usize,
-    }, // a struct (zero-initialized)
+    }, // a struct (Any will be set to Unassigned variant, String, Func::closure, StructT will be set to something that the GC can recognise as a "null pointer" for that VarType)
     PrimFunc {
         funcidx: FuncIdx,
         closure: Box<Expr>,
