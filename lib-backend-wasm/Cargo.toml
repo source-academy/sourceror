@@ -14,3 +14,4 @@ crate-type = ["lib"]
 [dependencies]
 wasmgen = { path = "../lib-wasmgen" }
 ir = { path = "../lib-ir" }
+projstd = { path = "../lib-projstd" }

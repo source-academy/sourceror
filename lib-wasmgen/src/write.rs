@@ -46,6 +46,28 @@ impl WasmModule {
     pub fn export_func(&mut self, funcidx: FuncIdx, exported_name: String) {
         self.export_section.push_func(exported_name, funcidx);
     }
+    pub fn add_bounded_memory(&mut self, initial_num_pages: u32, max_num_pages: u32) -> MemIdx {
+        self.mem_section
+            .add_bounded(initial_num_pages, max_num_pages)
+    }
+    pub fn add_unbounded_memory(&mut self, initial_num_pages: u32) -> MemIdx {
+        self.mem_section.add_unbounded(initial_num_pages)
+    }
+    pub fn add_global(&mut self, valtype: ValType, mutability: Mut, init_expr: Expr) -> GlobalIdx {
+        self.global_section.add(valtype, mutability, init_expr)
+    }
+    pub fn add_i32_global(&mut self, mutability: Mut, init_val: i32) -> GlobalIdx {
+        self.add_global(ValType::I32, mutability, make_init_expr_from_i32(init_val))
+    }
+    pub fn add_i64_global(&mut self, mutability: Mut, init_val: i64) -> GlobalIdx {
+        self.add_global(ValType::I64, mutability, make_init_expr_from_i64(init_val))
+    }
+    pub fn add_f32_global(&mut self, mutability: Mut, init_val: f32) -> GlobalIdx {
+        self.add_global(ValType::F32, mutability, make_init_expr_from_f32(init_val))
+    }
+    pub fn add_f64_global(&mut self, mutability: Mut, init_val: f64) -> GlobalIdx {
+        self.add_global(ValType::F64, mutability, make_init_expr_from_f64(init_val))
+    }
 }
 
 impl WasmImportBuilderModule {
@@ -78,7 +100,7 @@ impl TypeSection {
 impl FuncSection {
     fn push(&mut self, typeidx: TypeIdx) -> FuncIdx {
         let funcidx = FuncIdx {
-            idx: self.content.len() as u32 + self.idx_offset,
+            idx: self.idx_offset + self.content.len() as u32,
         }; // the offset is the number of imported functions, which precedes the functions defined in this module
         self.content.push(typeidx);
         funcidx
@@ -107,6 +129,36 @@ impl MemSection {
             ..Default::default()
         }
     }
+    fn add_bounded(&mut self, initial_num_pages: u32, max_num_pages: u32) -> MemIdx {
+        assert!(initial_num_pages <= max_num_pages);
+        let memidx = MemIdx {
+            idx: self.idx_offset + self.content.len() as u32,
+        };
+        assert!(memidx.idx == 0); // for wasm 1.0, only can have one memory.
+        self.content.push(Mem {
+            mem_type: MemType {
+                limits: Limits::Bounded {
+                    min: initial_num_pages,
+                    max: max_num_pages,
+                },
+            },
+        });
+        memidx
+    }
+    fn add_unbounded(&mut self, initial_num_pages: u32) -> MemIdx {
+        let memidx = MemIdx {
+            idx: self.idx_offset + self.content.len() as u32,
+        };
+        assert!(memidx.idx == 0); // for wasm 1.0, only can have one memory.
+        self.content.push(Mem {
+            mem_type: MemType {
+                limits: Limits::Unbounded {
+                    min: initial_num_pages,
+                },
+            },
+        });
+        memidx
+    }
 }
 
 impl GlobalSection {
@@ -115,6 +167,19 @@ impl GlobalSection {
             idx_offset: idx_offset,
             ..Default::default()
         }
+    }
+    fn add(&mut self, valtype: ValType, mutability: Mut, expr: Expr) -> GlobalIdx {
+        let globalidx = GlobalIdx {
+            idx: self.idx_offset + self.content.len() as u32,
+        };
+        self.content.push(Global {
+            global_type: GlobalType {
+                val_type: valtype,
+                mutability: mutability,
+            },
+            init_expr: expr,
+        });
+        globalidx
     }
 }
 
@@ -131,4 +196,29 @@ impl ExportSection {
             desc: ExportDesc::Func(funcidx),
         });
     }
+}
+
+fn make_init_expr_from_i32(init_val: i32) -> Expr {
+    let mut expr_builder: ExprBuilder = Default::default();
+    expr_builder.i32_const(init_val);
+    expr_builder.end();
+    expr_builder.build()
+}
+fn make_init_expr_from_i64(init_val: i64) -> Expr {
+    let mut expr_builder: ExprBuilder = Default::default();
+    expr_builder.i64_const(init_val);
+    expr_builder.end();
+    expr_builder.build()
+}
+fn make_init_expr_from_f32(init_val: f32) -> Expr {
+    let mut expr_builder: ExprBuilder = Default::default();
+    expr_builder.f32_const(init_val);
+    expr_builder.end();
+    expr_builder.build()
+}
+fn make_init_expr_from_f64(init_val: f64) -> Expr {
+    let mut expr_builder: ExprBuilder = Default::default();
+    expr_builder.f64_const(init_val);
+    expr_builder.end();
+    expr_builder.build()
 }
