@@ -17,6 +17,12 @@ use std::option::Option;
  * * There is no difference between constant declarations and variable declarations in the IR.
  * *
  * * Pre-generated functions can be something like `+(any, any) -> any`, which will internally query the type of its arguments and then forward it to the `Add` primitive or the builtin concat(string, string) function.
+ * *
+ * * todo!: For optimisation of eliding storage locals in gc roots during a function call, we need to have information about the lifetime of each local.  This IR should be modified to accomodate it.
+ * * * Or we could do some control flow analysis to figure out when the value in a variable is actually useful.
+ * * * * E.g. if the current statement never leads to any reads (before being overwritten), then this variable doesn't contain useful information.
+ * * * It should also figure out if a variable is read but never written between two function calls, then we can know if we need to pop then push it back to the gc roots, or just tee it from the gc roots into locals.
+ * * todo!: Also, functions should be annotated with a flag whether they might do heap allocations.
  */
 use std::vec::Vec;
 
