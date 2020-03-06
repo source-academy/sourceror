@@ -91,4 +91,30 @@ pub trait HeapManager {
         scratch: &mut Scratch,
         expr_builder: &mut wasmgen::ExprBuilder,
     );
+
+    // Encodes instructions to read a local variable from an arbitary position in the gc_roots stack, relative to the past-the-top position.
+    // The stack size and content is unchanged.
+    // This is not strictly necessary, but may help with optimisations to minimise the number of reads/writes to the stack.
+    // Note: the local variable must contain the same data that was there at the previous call to encode_local_root_write or encode_local_roots_prologue, because this will not do anything if the local variable is guaranteed to have it's value unchanged (e.g. mark and sweep GC).
+    // Note: `depth` is sufficient to find the variable because all values are encoded as Any on the gc_roots stack.
+    // net wasm stack: [] -> []
+    fn encode_local_root_read(
+        &self,
+        local_root: (ir::VarType, wasmgen::LocalIdx),
+        depth: u32,
+        scratch: &mut Scratch,
+        expr_builder: &mut wasmgen::ExprBuilder,
+    );
+
+    // Encodes instructions to write a local variable to an arbitary position in the gc_roots stack, relative to the past-the-top position.
+    // The stack size is unchanged.
+    // This is not strictly necessary, but may help with optimisations to minimise the number of reads/writes to the stack.
+    // net wasm stack: [] -> []
+    fn encode_local_root_write(
+        &self,
+        local_root: (ir::VarType, wasmgen::LocalIdx),
+        depth: u32,
+        scratch: &mut Scratch,
+        expr_builder: &mut wasmgen::ExprBuilder,
+    );
 }

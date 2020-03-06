@@ -261,4 +261,28 @@ impl<'a, 'b, 'c> super::HeapManager for Leaky<'a, 'b, 'c> {
     ) {
         // Do nothing - because our memory manager will never collect garbage.  The garbage will leak.
     }
+
+    // Encodes instructions to read a local variable from an arbitary position in the gc_roots stack, relative to the past-the-top position.
+    // net wasm stack: [] -> []
+    fn encode_local_root_read(
+        &self,
+        _local_root: (ir::VarType, wasmgen::LocalIdx),
+        _depth: u32,
+        _scratch: &mut Scratch,
+        _expr_builder: &mut wasmgen::ExprBuilder,
+    ) {
+        // Do nothing - because our memory manager will never collect garbage.  The garbage will leak.
+	}
+
+    // Encodes instructions to write a local variable to an arbitary position in the gc_roots stack, relative to the past-the-top position.
+    // net wasm stack: [] -> []
+    fn encode_local_root_write(
+        &self,
+        _local_root: (ir::VarType, wasmgen::LocalIdx),
+        _depth: u32,
+        _scratch: &mut Scratch,
+        _expr_builder: &mut wasmgen::ExprBuilder,
+    ) {
+        // Do nothing - because our memory manager will never collect garbage.  The garbage will leak.
+	}
 }

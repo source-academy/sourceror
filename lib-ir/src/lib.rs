@@ -23,6 +23,7 @@ use std::option::Option;
  * * * * E.g. if the current statement never leads to any reads (before being overwritten), then this variable doesn't contain useful information.
  * * * It should also figure out if a variable is read but never written between two function calls, then we can know if we need to pop then push it back to the gc roots, or just tee it from the gc roots into locals.
  * * todo!: Also, functions should be annotated with a flag whether they might do heap allocations.
+ * * todo!: Local variables should be owned by Blocks, not Funcs.  Also each statement should store the list of variables which are first written here, and the list of variables which are last read here (this is after false dependencies are removed).
  */
 use std::vec::Vec;
 
