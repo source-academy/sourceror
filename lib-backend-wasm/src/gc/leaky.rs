@@ -22,6 +22,8 @@ pub struct Leaky<'a, 'b, 'c> {
     heap_begin: u32,         // in page units
 }
 
+const MEM_INITIAL_HEAP_SIZE: u32 = 1 << 4; // 1 MiB of initial heap space
+
 impl<'a, 'b, 'c> Leaky<'a, 'b, 'c> {
     // Constructs a new leaky GC, and initializes it appropriately.
     pub fn new(
@@ -33,6 +35,7 @@ impl<'a, 'b, 'c> Leaky<'a, 'b, 'c> {
         heap_initial_end: u32,
         wasm_module: &mut wasmgen::WasmModule,
     ) -> Self {
+        assert!(heap_begin + MEM_INITIAL_HEAP_SIZE == heap_initial_end);
         Leaky {
             struct_types: struct_types,
             struct_field_byte_offsets: struct_field_byte_offsets,
@@ -152,6 +155,11 @@ impl<'a, 'b, 'c> Leaky<'a, 'b, 'c> {
 }
 
 impl<'a, 'b, 'c> super::HeapManager for Leaky<'a, 'b, 'c> {
+    // Returns the initial number of pages required by this heap HeapManager.
+    fn initial_heap_size() -> u32 {
+        MEM_INITIAL_HEAP_SIZE
+    }
+
     // Encodes instructions to get a chunk of memory suitable for the given struct type specified by ir_vartype.
     // It is guaranteed to be 4-byte aligned.
     // net wasm stack: [] -> [i32(ptr)]
@@ -212,7 +220,7 @@ impl<'a, 'b, 'c> super::HeapManager for Leaky<'a, 'b, 'c> {
             ir::VarType::String => {
                 let localidx_mem_size: wasmgen::LocalIdx = scratch.push_i32();
                 // Algorithm: mem_size = ((num_bytes + 7) & (~3))   // equivalent to (4 + round_up_to_multiple_of_4(num_bytes))
-                // net wasm stack: [i32(num_bytes)] => []
+                // net wasm stack: [i32(num_bytes)] -> []
                 expr_builder.i32_const(7);
                 expr_builder.i32_add();
                 expr_builder.i32_const(-4); // equivalent to (~3) in two's complement
@@ -272,7 +280,7 @@ impl<'a, 'b, 'c> super::HeapManager for Leaky<'a, 'b, 'c> {
         _expr_builder: &mut wasmgen::ExprBuilder,
     ) {
         // Do nothing - because our memory manager will never collect garbage.  The garbage will leak.
-	}
+    }
 
     // Encodes instructions to write a local variable to an arbitary position in the gc_roots stack, relative to the past-the-top position.
     // net wasm stack: [] -> []
@@ -284,5 +292,5 @@ impl<'a, 'b, 'c> super::HeapManager for Leaky<'a, 'b, 'c> {
         _expr_builder: &mut wasmgen::ExprBuilder,
     ) {
         // Do nothing - because our memory manager will never collect garbage.  The garbage will leak.
-	}
+    }
 }

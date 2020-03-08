@@ -175,7 +175,7 @@ pub struct ElemSection {
 pub struct Elem {
     table_idx: TableIdx,
     offset: Expr,
-    content: Vec<FuncIdx>,
+    content: Box<[FuncIdx]>,
 }
 
 #[derive(Default)]

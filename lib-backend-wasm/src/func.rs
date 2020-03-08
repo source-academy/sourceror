@@ -619,8 +619,14 @@ fn encode_store_memory(
 }
 
 // temporary function until proper local scoping is available to the IR
-fn get_local_roots_for_allocation<H: HeapManager>(ctx: EncodeContext<H>) -> Box<[(ir::VarType, wasmgen::LocalIdx)]> {
-    ctx.params_locals_types.iter().cloned().zip(ctx.var_map.iter().cloned()).collect()
+fn get_local_roots_for_allocation<H: HeapManager>(
+    ctx: EncodeContext<H>,
+) -> Box<[(ir::VarType, wasmgen::LocalIdx)]> {
+    ctx.params_locals_types
+        .iter()
+        .cloned()
+        .zip(ctx.var_map.iter().cloned())
+        .collect()
 }
 
 // net wasm stack: [] -> [<irvartype>] where `<irvartype>` is a valid encoding of an object with IR type expr.vartype
@@ -665,7 +671,12 @@ fn encode_expr<H: HeapManager>(
                 "ICE: IR->Wasm: PrimStructT does not have correct type, or typeidx is incorrect"
             );
             // todo!(Only store locals that are in scope at this point, instead of all of them.  This requires modifications ot the IR to get scoped locals.)
-            ctx.heap.encode_fixed_allocation(expr.vartype, &get_local_roots_for_allocation(ctx), &mut mutctx.scratch, expr_builder);
+            ctx.heap.encode_fixed_allocation(
+                expr.vartype,
+                &get_local_roots_for_allocation(ctx),
+                &mut mutctx.scratch,
+                expr_builder,
+            );
         }
         ir::ExprKind::PrimFunc { funcidx, closure } => {
             assert!(
@@ -1133,8 +1144,12 @@ fn encode_returnable_appl<H: HeapManager>(
         // This function might allocate memory, so we need to store the locals in the gc_roots stack first.
 
         // encode local roots prologue
-        ctx.heap.encode_local_roots_prologue(&get_local_roots_for_allocation(ctx), &mut mutctx.scratch, expr_builder);
-        
+        ctx.heap.encode_local_roots_prologue(
+            &get_local_roots_for_allocation(ctx),
+            &mut mutctx.scratch,
+            expr_builder,
+        );
+
         // call the function (indirectly)
         expr_builder.call_indirect(
             mutctx
@@ -1144,9 +1159,12 @@ fn encode_returnable_appl<H: HeapManager>(
         );
 
         // encode local roots prologue
-        ctx.heap.encode_local_roots_epilogue(&get_local_roots_for_allocation(ctx), &mut mutctx.scratch, expr_builder);
-	}
-    else {
+        ctx.heap.encode_local_roots_epilogue(
+            &get_local_roots_for_allocation(ctx),
+            &mut mutctx.scratch,
+            expr_builder,
+        );
+    } else {
         // This function is guaranteed not to allocate memory, so we don't need to put the locals on the gc_roots stack.
 
         // call the function (indirectly)
@@ -1156,7 +1174,7 @@ fn encode_returnable_appl<H: HeapManager>(
                 .add_ir_type(&anys, Some(ir::VarType::Any)),
             wasmgen::TableIdx { idx: 0 },
         );
-	}
+    }
 
     mutctx.scratch.pop_i32();
 }
@@ -1190,21 +1208,27 @@ fn encode_returnable_direct_appl<H: HeapManager>(
         // This function might allocate memory, so we need to store the locals in the gc_roots stack first.
 
         // encode local roots prologue
-        ctx.heap.encode_local_roots_prologue(&get_local_roots_for_allocation(ctx), &mut mutctx.scratch, expr_builder);
-        
+        ctx.heap.encode_local_roots_prologue(
+            &get_local_roots_for_allocation(ctx),
+            &mut mutctx.scratch,
+            expr_builder,
+        );
+
         // call the function
         expr_builder.call(ctx.wasm_funcidxs[funcidx]);
 
         // encode local roots prologue
-        ctx.heap.encode_local_roots_epilogue(&get_local_roots_for_allocation(ctx), &mut mutctx.scratch, expr_builder);
-	}
-    else {
+        ctx.heap.encode_local_roots_epilogue(
+            &get_local_roots_for_allocation(ctx),
+            &mut mutctx.scratch,
+            expr_builder,
+        );
+    } else {
         // This function is guaranteed not to allocate memory, so we don't need to put the locals on the gc_roots stack.
 
         // call the function
         expr_builder.call(ctx.wasm_funcidxs[funcidx]);
-	}
-
+    }
 }
 
 // Like `encode_returnable_direct_appl`, but the encoded function is guaranteed to never return.
@@ -1229,26 +1253,33 @@ fn encode_void_direct_appl<H: HeapManager>(
 
     // Encode all the arguments
     encode_args_to_call_function(&func.params, args, ctx, mutctx, expr_builder);
-        
+
     // todo!(For optimisation, encode_local_roots_prologue and encode_local_roots_epilogue should only be called if the callee might allocate)
     if true {
         // This function might allocate memory, so we need to store the locals in the gc_roots stack first.
 
         // encode local roots prologue
-        ctx.heap.encode_local_roots_prologue(&get_local_roots_for_allocation(ctx), &mut mutctx.scratch, expr_builder);
-        
+        ctx.heap.encode_local_roots_prologue(
+            &get_local_roots_for_allocation(ctx),
+            &mut mutctx.scratch,
+            expr_builder,
+        );
+
         // call the function
         expr_builder.call(ctx.wasm_funcidxs[funcidx]);
 
         // encode local roots prologue
-        ctx.heap.encode_local_roots_epilogue(&get_local_roots_for_allocation(ctx), &mut mutctx.scratch, expr_builder);
-	}
-    else {
+        ctx.heap.encode_local_roots_epilogue(
+            &get_local_roots_for_allocation(ctx),
+            &mut mutctx.scratch,
+            expr_builder,
+        );
+    } else {
         // This function is guaranteed not to allocate memory, so we don't need to put the locals on the gc_roots stack.
 
         // call the function
         expr_builder.call(ctx.wasm_funcidxs[funcidx]);
-	}
+    }
 }
 
 // This function prepares subexpressions when calling a function.
