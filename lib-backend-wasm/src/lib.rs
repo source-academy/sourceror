@@ -14,6 +14,7 @@
  * Note: The type of a closure must be known at compile time.  It is an i32 (tag) stored in closures[func.tableidx] (generated in data section).
  * Note: When the target of a function is not known (i.e. non-direct appl), all parameters must be Any.
  * * At the call site of call_indirect, we need to specify the list of parameter types.  It will all be Any, but we will exploit wasm
+ * Note: Unused bytes may not be zero.  You should not assume it.
  * Unassigned -> <nothing>
  * Undefined -> <nothing>
  * Number -> f64
@@ -60,7 +61,8 @@ mod func;
 mod gc;
 mod scratch;
 
-use gc::leaky;
+use gc::leaky::Leaky;
+use gc::HeapManager;
 
 use projstd::iter::*;
 use projstd::tuple::*;
@@ -71,7 +73,6 @@ const WASM_PAGE_SIZE: u32 = 65536;
 
 // In units of WASM_PAGE_SIZE
 const MEM_STACK_SIZE: u32 = 1 << 4; // 1 MiB of stack space
-const MEM_INITIAL_HEAP_SIZE: u32 = 1 << 4; // 1 MiB of initial heap space
 
 /**
  * This is the main function that invokes everything in the backend.
@@ -122,13 +123,13 @@ fn encode_program(ir_program: &ir::Program) -> wasmgen::WasmModule {
     let memidx: wasmgen::MemIdx = encode_mem(global_data_size, &mut wasm_module);
 
     // garbage collector
-    let heap = gc::leaky::Leaky::new(
+    let heap = Leaky::new(
         &ir_program.struct_types,
         &struct_field_byte_offsets,
         &struct_sizes,
         memidx,
         MEM_STACK_SIZE + global_data_size,
-        MEM_STACK_SIZE + global_data_size + MEM_INITIAL_HEAP_SIZE,
+        MEM_STACK_SIZE + global_data_size + Leaky::initial_heap_size(),
         &mut wasm_module,
     );
 
@@ -160,5 +161,6 @@ fn size_in_memory(ir_vartype: ir::VarType) -> u32 {
 // encodes the linear memory
 // currently it will not reserve any space for global memory
 fn encode_mem(globals_num_pages: u32, wasm_module: &mut wasmgen::WasmModule) -> wasmgen::MemIdx {
-    wasm_module.add_unbounded_memory(MEM_STACK_SIZE + globals_num_pages + MEM_INITIAL_HEAP_SIZE)
+    wasm_module
+        .add_unbounded_memory(MEM_STACK_SIZE + globals_num_pages + Leaky::initial_heap_size())
 }

@@ -1,3 +1,4 @@
+pub mod cheney;
 pub mod leaky;
 
 use crate::WASM_PAGE_SIZE;
@@ -31,6 +32,9 @@ pub trait HeapManager {
     ) -> Self;
     */
 
+    // Returns the initial number of pages required by this heap HeapManager.
+    fn initial_heap_size() -> u32;
+
     // Encodes instructions to get a chunk of memory suitable for the given vartype.
     // Caller is responsible for putting this object on the gc_roots stack if necessary.
     // `ir_vartype`: vartype of the object we want (must be a pointer type, cannot be Any, Boolean, Number, Func).
@@ -38,10 +42,12 @@ pub trait HeapManager {
     // * These types are only written to the gc_roots stack after we realise that we really need to run the gc.
     // The returned ptr guaranteed to be 4-byte aligned.
     //
-    // This function generates code equivalent to, but possibly more efficient to doing this:
+    // If `local_roots` is not empty, this function generates code equivalent to, but possibly more efficient to doing this:
     // self.encode_local_roots_prologue(local_roots, expr_builder);
     // self.encode_fixed_allocation(ir_vartype, &[], expr_builder);
     // self.encode_local_roots_elilogue(local_roots, expr_builder);
+    //
+    // Note: the values in all the variables in `local_roots` must be valid!  This means that the caller should only add it if it has been assigned a value!
     //
     // net wasm stack: [] -> [i32(ptr)]
     fn encode_fixed_allocation(
@@ -52,13 +58,13 @@ pub trait HeapManager {
         expr_builder: &mut wasmgen::ExprBuilder,
     );
 
-    // Encodes instructions to get a chunk of memory for an string/array of unknown size.  See `encode_fixed_allocation` for more detauls.
-    // The size need not be a multiple of 4.
+    // Encodes instructions to get a chunk of memory for an string/array of unknown size.  See `encode_fixed_allocation` for more details.
+    // The size need not be a multiple of 4.  (But the allocator will round up to nearest 4-byte boundary.)
     //
     // This function generates code equivalent to, but possibly more efficient to doing this:
     // self.encode_local_roots_prologue(local_roots, expr_builder);
     // self.encode_dynamic_allocation(ir_vartype, &[], expr_builder);
-    // self.encode_local_roots_elilogue(local_roots, expr_builder);
+    // self.encode_local_roots_epilogue(local_roots, expr_builder);
     //
     // net wasm stack: [i32(num_bytes)] -> [i32(ptr)]
     fn encode_dynamic_allocation(
@@ -73,6 +79,7 @@ pub trait HeapManager {
     // This should be called before a function which might allocate memory is called.
     // It should be paired with a call to `encode_local_roots_epilogue()`.
     // It is safe to make multiple calls to this function (with different `local_roots`), but the corresponding calls to `encode_local_roots_epilogue()` must be made in the reverse order.  In other words, it works like a stack.
+    // Note: the values in all the variables in `local_roots` must be valid!  This means that the caller should only add it if it has been assigned a value!
     // net wasm stack: [] -> []
     fn encode_local_roots_prologue(
         &self,

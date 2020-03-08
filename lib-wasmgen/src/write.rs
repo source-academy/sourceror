@@ -68,6 +68,24 @@ impl WasmModule {
     pub fn add_f64_global(&mut self, mutability: Mut, init_val: f64) -> GlobalIdx {
         self.add_global(ValType::F64, mutability, make_init_expr_from_f64(init_val))
     }
+    pub fn get_or_add_table(&mut self) -> TableIdx {
+        self.table_section.get_or_add_table()
+    }
+    // returns the offset of the 0-th element
+    pub fn reserve_table_elements(&mut self, tableidx: TableIdx, length: u32) -> u32 {
+        self.table_section.increase_table_limit(tableidx, length)
+    }
+    // use the offset returned by `reserve_table_elements`, and must have the correct length specified earlier.
+    // it is allowed to have multiple reserved but uncommitted elements
+    // it is also allowed to reserve without committing, or commiting separate chunks (so we can leave some entries empty, which will automatically trap if accessed at runtime)
+    pub fn commit_table_elements(
+        &mut self,
+        tableidx: TableIdx,
+        offset: u32,
+        content: Box<[FuncIdx]>,
+    ) {
+        self.elem_section.add(tableidx, offset, content);
+    }
 }
 
 impl WasmImportBuilderModule {
@@ -119,6 +137,42 @@ impl TableSection {
             idx_offset: idx_offset,
             ..Default::default()
         }
+    }
+    pub fn get_or_add_table(&mut self) -> TableIdx {
+        if self.content.is_empty() {
+            self.content.push(Table {
+                table_type: TableType {
+                    elem_type: ElemType::FuncRef,
+                    limits: Limits::Bounded { min: 0, max: 0 },
+                },
+            });
+        }
+        assert!(self.content.len() == 1);
+        TableIdx { idx: 0 }
+    }
+    // returns the old size (which is the index of the 0th element being added)
+    pub fn increase_table_limit(&mut self, tableidx: TableIdx, increment: u32) -> u32 {
+        let limits: &mut Limits = &mut self.content.last_mut().unwrap().table_type.limits;
+        match limits {
+            Limits::Unbounded { min: _ } => {
+                panic!("incorrect limit for table, needs to be bounded");
+            }
+            Limits::Bounded { min: _, max } => {
+                let ret = *max;
+                *max += increment;
+                return ret;
+            }
+        }
+    }
+}
+
+impl ElemSection {
+    fn add(&mut self, tableidx: TableIdx, offset: u32, content: Box<[FuncIdx]>) {
+        self.content.push(Elem {
+            table_idx: tableidx,
+            offset: make_init_expr_from_i32(offset as i32),
+            content: content,
+        })
     }
 }
 

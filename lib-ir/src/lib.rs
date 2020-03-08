@@ -66,10 +66,11 @@ impl VarType {
             VarType::Boolean => 3,
             VarType::String => 4,
             VarType::Func => 5,
-            VarType::StructT { typeidx } => 6 + typeidx as i32,
+            VarType::StructT { typeidx } => (NUM_PRIMITIVE_TAG_TYPES + typeidx) as i32,
         }
     }
 }
+pub const NUM_PRIMITIVE_TAG_TYPES: usize = 6; // does not include Any
 
 pub type Block = Vec<Statement>;
 
@@ -148,7 +149,7 @@ pub enum ExprKind {
     }, // e.g. `"hello world"`, may be placed in a region of memory immune to garbage collection
     PrimStructT {
         typeidx: usize,
-    }, // a struct (Any will be set to Unassigned variant, String, Func::closure, StructT will be set to something that the GC can recognise as a "null pointer" for that VarType)
+    }, // a struct (Any will be set to Unassigned variant; String, Func::closure, StructT will be set to something that the GC can recognise as a "null pointer" for that VarType)
     PrimFunc {
         funcidx: FuncIdx,
         closure: Box<Expr>,
