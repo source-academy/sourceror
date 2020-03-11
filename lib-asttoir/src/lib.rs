@@ -1,7 +1,7 @@
+use ir;
+use serde::{Deserialize, Serialize};
 use std::env;
 use std::fs;
-use serde::{Deserialize, Serialize};
-
 /**
  * The structs functions serve as utility functions to extract information from the AST
  * into a suitable Intermediate Representation.
@@ -22,14 +22,20 @@ return z;
 * *
  */
 
-pub fn read_from_file(filename: Option<std::string::String>) -> std::string::String {
-    let default_filename = "ast.txt".to_string();
-    let contents = std::fs::read_to_string(filename.unwrap_or(default_filename)).expect("Something went wrong reading the file");
+pub fn read_from_file(filename: Option<std::string::String>) -> serde_json::Value {
+    let default_filename = "../ast.txt".to_string();
+    let contents = std::fs::read_to_string(filename.unwrap_or(default_filename))
+        .expect("Something went wrong reading the file");
     let json_contents: serde_json::Value = serde_json::from_str(&contents).unwrap();
     // TODO: [Joel] (Find Semantic meaning for these constants)
-    let program_code_excluding_imports = &json_contents["body"][11]["expression"]["callee"]["body"]["body"][0]["argument"]["callee"]["body"]["body"][0]["body"][58];
-    println!("User entered code section is {}", program_code_excluding_imports["body"][0]["body"][0]);
-    return contents;
+    let program_code_excluding_imports = json_contents["body"][11]["expression"]["callee"]["body"]
+        ["body"][0]["argument"]["callee"]["body"]["body"][0]["body"][58]
+        .clone();
+    println!(
+        "User entered code section is {}",
+        program_code_excluding_imports["body"][0]["body"][0]
+    );
+    return program_code_excluding_imports;
 }
 
 pub fn populate_funcs() {
@@ -37,51 +43,45 @@ pub fn populate_funcs() {
     todo!();
 }
 
-
 pub fn populate_func() {
-    populate_func_params();
-    populate_func_result();
-    populate_func_locals();
-    populate_func_statements();
     todo!();
 }
 
-pub fn populate_func_params() {
-        // Look through array one. Since function is global, it should not need 
-        // to be filled 
+pub fn populate_func_params(ast: serde_json::Value) -> Box<[ir::VarType]> {
+    // Look through array one. Since function is global, it should not need
     todo!();
 }
 
-
-pub fn populate_func_result() {
+pub fn populate_func_result(ast: serde_json::Value) -> Option<ir::VarType> {
     // Check the last index of the array to get the result.
+    return Some(ir::VarType::Any);
 }
 
-
-pub fn populate_func_locals() {
+pub fn populate_func_locals(ast: serde_json::Value) -> Vec<ir::VarType> {
     // Go to body, loop through declarations to  get all variables
-    // Check index 1 of the code section, 
-    todo!();
+    let func_local = vec![ir::VarType::Any];
+    return func_local;
 }
 
-pub fn populate_func_statements() {
+pub fn populate_func_statements(ast: serde_json::Value) -> ir::Block {
     // Statements can be If, Expr, return
     todo!();
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[test]
-    fn it_works() {
-        assert_eq!(2 + 2, 4);
+
+    fn setup() {
+        let ast = read_from_file(None);
     }
 
     #[test]
     fn it_can_read_default_file() {
         let ast = read_from_file(None);
-        assert_eq!(2 + 3, 4);
+        let expected = vec![ir::VarType::Any];
+        let result = populate_func_locals(ast);
+        assert_eq!(expected, result);
     }
 
     #[test]
@@ -93,24 +93,25 @@ mod tests {
     fn it_can_populate_locals() {
         let ast = read_from_file(None);
         todo!();
-        // assert_eq!(2 + 3, 4);
     }
 
     #[test]
     fn it_can_populate_result() {
+        tests::setup();
         let ast = read_from_file(None);
-        todo!();
+        let expected_locals = populate_func_result(ast);
+        assert_eq!(expected_locals, Some(ir::VarType::Any));
     }
 
     #[test]
     fn it_can_populate_func_params() {
-        let ast = read_from_file(None);
+        tests::setup();
         todo!();
     }
 
     #[test]
     fn it_can_populate_func_statements() {
-        let ast = read_from_file(None);
+        tests::setup();
         todo!();
     }
 }
