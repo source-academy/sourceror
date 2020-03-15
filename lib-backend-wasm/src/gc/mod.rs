@@ -75,6 +75,8 @@ pub trait HeapManager {
         expr_builder: &mut wasmgen::ExprBuilder,
     );
 
+    type RootsStackHandle;
+
     // Encodes instructions to push local variables to gc_roots stack.
     // This should be called before a function which might allocate memory is called.
     // It should be paired with a call to `encode_local_roots_epilogue()`.
@@ -86,7 +88,7 @@ pub trait HeapManager {
         local_roots: &[(ir::VarType, wasmgen::LocalIdx)],
         scratch: &mut Scratch,
         expr_builder: &mut wasmgen::ExprBuilder,
-    );
+    ) -> Self::RootsStackHandle;
 
     // Encodes instructions to pop local variables from gc_roots stack.
     // This should be called after a function which might allocate memory is called.
@@ -103,12 +105,12 @@ pub trait HeapManager {
     // The stack size and content is unchanged.
     // This is not strictly necessary, but may help with optimisations to minimise the number of reads/writes to the stack.
     // Note: the local variable must contain the same data that was there at the previous call to encode_local_root_write or encode_local_roots_prologue, because this will not do anything if the local variable is guaranteed to have it's value unchanged (e.g. mark and sweep GC).
-    // Note: `depth` is sufficient to find the variable because all values are encoded as Any on the gc_roots stack.
+    // Note: `handle` is the value returned from a previous call to encode_local_roots_prologue() with the same local_root array.
     // net wasm stack: [] -> []
     fn encode_local_root_read(
         &self,
         local_root: (ir::VarType, wasmgen::LocalIdx),
-        depth: u32,
+        handle: Self::RootsStackHandle,
         scratch: &mut Scratch,
         expr_builder: &mut wasmgen::ExprBuilder,
     );
@@ -120,7 +122,7 @@ pub trait HeapManager {
     fn encode_local_root_write(
         &self,
         local_root: (ir::VarType, wasmgen::LocalIdx),
-        depth: u32,
+        handle: Self::RootsStackHandle,
         scratch: &mut Scratch,
         expr_builder: &mut wasmgen::ExprBuilder,
     );

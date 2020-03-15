@@ -60,6 +60,7 @@ use wasmgen;
 mod func;
 mod gc;
 mod scratch;
+mod var_conv;
 
 use gc::leaky::Leaky;
 use gc::HeapManager;

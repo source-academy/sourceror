@@ -221,12 +221,15 @@ impl<'a, 'b, 'c> super::HeapManager for Leaky<'a, 'b, 'c> {
                 let localidx_mem_size: wasmgen::LocalIdx = scratch.push_i32();
                 // Algorithm: mem_size = ((num_bytes + 7) & (~3))   // equivalent to (4 + round_up_to_multiple_of_4(num_bytes))
                 // net wasm stack: [i32(num_bytes)] -> []
-                expr_builder.i32_const(7);
-                expr_builder.i32_add();
-                expr_builder.i32_const(-4); // equivalent to (~3) in two's complement
-                expr_builder.i32_and();
-                expr_builder.local_set(localidx_mem_size);
+                {
+                    expr_builder.i32_const(7);
+                    expr_builder.i32_add();
+                    expr_builder.i32_const(-4); // equivalent to (~3) in two's complement
+                    expr_builder.i32_and();
+                    expr_builder.local_set(localidx_mem_size);
+                }
 
+                // net wasm stack: [] -> [i32(ptr)]
                 self.encode_allocation(
                     |expr_builder| {
                         // net wasm stack: [] -> [i32(size)]
@@ -236,13 +239,24 @@ impl<'a, 'b, 'c> super::HeapManager for Leaky<'a, 'b, 'c> {
                     expr_builder,
                 );
 
-                scratch.pop_i32();
+                // write the string length
+                // net wasm stack: [i32(ptr)] -> [i32(ptr)]
+                {
+                    let localidx_ret: wasmgen::LocalIdx = scratch.push_i32();
+                    expr_builder.local_tee(localidx_ret);
+                    expr_builder.local_get(localidx_ret);
+                    expr_builder.local_get(localidx_mem_size);
+                    expr_builder.i32_store(wasmgen::MemArg::new4(0));
+                    scratch.pop_i32();
+                }
 
-                // Note: Can leave the memory undefined, since there is no garbage collection in Leaky.
+                scratch.pop_i32();
             }
             _ => panic!("incorrect VarType, expected String"),
         }
     }
+
+    type RootsStackHandle = ();
 
     // Encodes instructions to push local variables to gc_roots stack.
     // This should be called before a function which might allocate memory is called.
@@ -275,7 +289,7 @@ impl<'a, 'b, 'c> super::HeapManager for Leaky<'a, 'b, 'c> {
     fn encode_local_root_read(
         &self,
         _local_root: (ir::VarType, wasmgen::LocalIdx),
-        _depth: u32,
+        _handle: (),
         _scratch: &mut Scratch,
         _expr_builder: &mut wasmgen::ExprBuilder,
     ) {
@@ -287,7 +301,7 @@ impl<'a, 'b, 'c> super::HeapManager for Leaky<'a, 'b, 'c> {
     fn encode_local_root_write(
         &self,
         _local_root: (ir::VarType, wasmgen::LocalIdx),
-        _depth: u32,
+        _handle: (),
         _scratch: &mut Scratch,
         _expr_builder: &mut wasmgen::ExprBuilder,
     ) {
