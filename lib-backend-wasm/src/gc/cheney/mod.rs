@@ -1,6 +1,9 @@
 use super::Scratch;
 use super::WASM_PAGE_BITS;
 use super::WASM_PAGE_SIZE;
+use super::HeapManager;
+
+use crate::var_conv::*;
 
 mod copy_children_elements;
 mod copy_funcs;
@@ -271,6 +274,20 @@ impl<'a, 'b, 'c> Cheney<'a, 'b, 'c> {
         }
     }
 
+    fn filter_roots(local_roots: &[(ir::VarType, wasmgen::LocalIdx)]) -> Box<[(ir::VarType, wasmgen::LocalIdx)]> {
+        local_roots
+            .iter()
+            .cloned()
+            .filter(|(ir_vartype, wasm_localidx)| match ir_vartype {
+                ir::VarType::Unassigned
+                | ir::VarType::Undefined
+                | ir::VarType::Number
+                | ir::VarType::Boolean => false,
+                _ => true,
+            })
+            .collect()
+	}
+
     // Helper function used to encode heap allocation.
     // `f` should be a function that has net wasm stack [] -> [i32(size)]
     // net wasm stack: [] -> [i32(ptr)]
@@ -282,11 +299,80 @@ impl<'a, 'b, 'c> Cheney<'a, 'b, 'c> {
         expr_builder: &mut wasmgen::ExprBuilder,
     ) {
         // Algorithm:
-        // TODO
+        /*
+        if (end_mem_ptr - free_mem_ptr < size) {
+            for local in local_roots {
+                if(local is Any, String, Func, or StructT) {
+                    *gc_roots_stack_ptr = to_any(local);
+                    gc_roots_stack_ptr += 12;
+                }
+            }
+            // note: `do_cheney` might change all the global variables, so all cache must be reloaded after calling it.
+            if(do_cheney(size)) {
+                for local in local_roots.reversed() {
+                    if(local is Any, String, Func, or StructT) {
+                        gc_roots_stack_ptr -= 12;
+                        local = from_any(*gc_roots_stack_ptr);
+                    }
+                }
+                goto label;
+            }
+            abort();
+        }
+        label:
+        ret = free_mem_ptr; // ret is the value that is left on the stack
+        free_mem_ptr += size;
+        */
+
+        // (end_mem_ptr - free_mem_ptr < size)
+        // net wasm stack: [] -> [cond(i32)]
+        expr_builder.global_get(self.end_mem_ptr);
+        expr_builder.global_get(self.free_mem_ptr);
+        expr_builder.i32_sub();
+        encode_size(expr_builder);
+        expr_builder.i32_lt_u();
+
+        // net wasm stack: [cond(i32)] -> []
+        expr_builder.if_(&[]);
+        {
+            // save the new values of all the filtered roots on the gc_roots stack
+            // net wasm stack: [] -> []
+            self.encode_local_roots_prologue(local_roots, scratch, expr_builder);
+
+            // net wasm stack: [] -> [size(i32)]
+            encode_size(expr_builder);
+
+            // net wasm stack: [size(i32)] -> [success(i32)]
+            expr_builder.call(self.do_cheney_funcidx);
+
+            // net wasm stack: [success(i32)] -> []
+            expr_builder.if_(&[]);
+            {
+                // load back the new values of all the filtered roots
+                // net wasm stack: [] -> []
+                self.encode_local_roots_epilogue(local_roots, scratch, expr_builder);
+
+                // net wasm stack: [] -> []
+                expr_builder.br(1);
+            }
+            expr_builder.end();
+
+            // todo!(call a proper error handler with error code)
+            // net wasm stack: [] -> []
+            expr_builder.unreachable();
+        }
+        expr_builder.end();
+
+        // net wasm stack: [] -> [res(i32)]
+        expr_builder.global_get(self.free_mem_ptr);
+        expr_builder.global_get(self.free_mem_ptr);
+        encode_size(expr_builder);
+        expr_builder.i32_add();
+        expr_builder.global_set(self.free_mem_ptr);
     }
 }
 
-impl<'a, 'b, 'c> super::HeapManager for Cheney<'a, 'b, 'c> {
+impl<'a, 'b, 'c> HeapManager for Cheney<'a, 'b, 'c> {
     // Returns the initial number of pages required by this heap HeapManager.
     fn initial_heap_size() -> u32 {
         MEM_INITIAL_HEAP_SIZE
@@ -359,12 +445,51 @@ impl<'a, 'b, 'c> super::HeapManager for Cheney<'a, 'b, 'c> {
     fn encode_dynamic_allocation(
         &self,
         ir_vartype: ir::VarType,
-        _local_roots: &[(ir::VarType, wasmgen::LocalIdx)],
+        local_roots: &[(ir::VarType, wasmgen::LocalIdx)],
         scratch: &mut Scratch,
         expr_builder: &mut wasmgen::ExprBuilder,
     ) {
-        todo!();
+        match ir_vartype {
+            ir::VarType::String => {
+                let localidx_mem_size: wasmgen::LocalIdx = scratch.push_i32();
+                // Algorithm: mem_size = ((num_bytes + 7) & (~3))   // equivalent to (4 + round_up_to_multiple_of_4(num_bytes))
+                // net wasm stack: [i32(num_bytes)] -> []
+                expr_builder.i32_const(7);
+                expr_builder.i32_add();
+                expr_builder.i32_const(-4); // equivalent to (~3) in two's complement
+                expr_builder.i32_and();
+                expr_builder.local_set(localidx_mem_size);
+
+                // net wasm stack: [] -> [i32(ptr)]
+                self.encode_allocation(
+                    |expr_builder| {
+                        // net wasm stack: [] -> [i32(size)]
+                        expr_builder.local_get(localidx_mem_size);
+                    },
+                    local_roots,
+                    scratch,
+                    expr_builder,
+                );
+
+                // write the string length
+                // net wasm stack: [i32(ptr)] -> [i32(ptr)]
+                {
+                    let localidx_ret: wasmgen::LocalIdx = scratch.push_i32();
+                    expr_builder.local_tee(localidx_ret);
+                    expr_builder.local_get(localidx_ret);
+                    expr_builder.local_get(localidx_mem_size);
+                    expr_builder.i32_store(wasmgen::MemArg::new4(0));
+                    scratch.pop_i32();
+                }
+
+                scratch.pop_i32();
+            }
+            _ => panic!("incorrect VarType, expected String"),
+        }
     }
+
+    // todo!: Return the correct u32 relative offset.  This might need a function-specific wrapper on this GC class, or to pass it a local stack, or to disable filtering of locals.
+    type RootsStackHandle = (); //should be `u32` eventually;
 
     // Encodes instructions to push local variables to gc_roots stack.
     // This should be called before a function which might allocate memory is called.
@@ -372,11 +497,37 @@ impl<'a, 'b, 'c> super::HeapManager for Cheney<'a, 'b, 'c> {
     // net wasm stack: [] -> []
     fn encode_local_roots_prologue(
         &self,
-        _local_roots: &[(ir::VarType, wasmgen::LocalIdx)],
-        _scratch: &mut Scratch,
-        _expr_builder: &mut wasmgen::ExprBuilder,
-    ) {
-        todo!();
+        local_roots: &[(ir::VarType, wasmgen::LocalIdx)],
+        scratch: &mut Scratch,
+        expr_builder: &mut wasmgen::ExprBuilder,
+    ) -> Self::RootsStackHandle {
+        let filtered_roots: Box<[(ir::VarType, wasmgen::LocalIdx)]> = Self::filter_roots(local_roots);
+        
+        // if there are no roots to add, then we don't need to load the gc_roots_stack_ptr.
+        // net wasm stack: [] -> []
+        if !filtered_roots.is_empty() {
+            let localidx_gc_roots_stack_ptr = scratch.push_i32();
+
+            // net wasm stack: [] -> [gc_roots_stack_ptr(i32)]
+            expr_builder.global_get(self.gc_roots_stack_ptr);
+
+            for (ir_vartype, wasm_localidx) in filtered_roots.into_iter().cloned() {
+                // net wasm stack: [gc_roots_stack_ptr(i32)] -> []
+                expr_builder.local_tee(localidx_gc_roots_stack_ptr);
+                encode_load_local(wasm_localidx, ir_vartype, ir_vartype, expr_builder);
+                encode_store_memory(0, ir::VarType::Any, ir_vartype, scratch, expr_builder);
+
+                // net wasm stack: [] -> [gc_roots_stack_ptr(i32)]
+                expr_builder.local_get(localidx_gc_roots_stack_ptr);
+                expr_builder.i32_const(12);
+                expr_builder.i32_add();
+            }
+
+            // net wasm stack: [gc_roots_stack_ptr(i32)] -> []
+            expr_builder.global_set(self.gc_roots_stack_ptr);
+
+            scratch.pop_i32();
+        }
     }
 
     // Encodes instructions to pop local variables from gc_roots stack.
@@ -385,11 +536,37 @@ impl<'a, 'b, 'c> super::HeapManager for Cheney<'a, 'b, 'c> {
     // net wasm stack: [] -> []
     fn encode_local_roots_epilogue(
         &self,
-        _local_roots: &[(ir::VarType, wasmgen::LocalIdx)],
-        _scratch: &mut Scratch,
-        _expr_builder: &mut wasmgen::ExprBuilder,
+        local_roots: &[(ir::VarType, wasmgen::LocalIdx)],
+        scratch: &mut Scratch,
+        expr_builder: &mut wasmgen::ExprBuilder,
     ) {
-        todo!();
+        let filtered_roots: Box<[(ir::VarType, wasmgen::LocalIdx)]> = Self::filter_roots(local_roots);
+        
+        if !filtered_roots.is_empty() {
+            let localidx_gc_roots_stack_ptr = scratch.push_i32();
+
+            // net wasm stack: [] -> [gc_roots_stack_ptr(i32)]
+            expr_builder.global_get(self.gc_roots_stack_ptr);
+
+            for (ir_vartype, wasm_localidx) in filtered_roots.into_iter().cloned().rev() {
+                // net wasm stack: [gc_roots_stack_ptr(i32)] -> [gc_roots_stack_ptr(i32)]
+                expr_builder.i32_const(12);
+                expr_builder.i32_sub();
+
+                // net wasm stack: [gc_roots_stack_ptr(i32)] -> []
+                expr_builder.local_tee(localidx_gc_roots_stack_ptr);
+                encode_load_memory(0, ir::VarType::Any, ir_vartype, scratch, expr_builder);
+                encode_store_local(wasm_localidx, ir_vartype, ir_vartype, expr_builder);
+
+                // net wasm stack: [] -> [gc_roots_stack_ptr(i32)]
+                expr_builder.local_get(localidx_gc_roots_stack_ptr);
+            }
+
+            // net wasm stack: [gc_roots_stack_ptr(i32)] -> []
+            expr_builder.global_set(self.gc_roots_stack_ptr);
+
+            scratch.pop_i32();
+        }
     }
 
     // Encodes instructions to read a local variable from an arbitary position in the gc_roots stack, relative to the past-the-top position.
@@ -397,7 +574,7 @@ impl<'a, 'b, 'c> super::HeapManager for Cheney<'a, 'b, 'c> {
     fn encode_local_root_read(
         &self,
         _local_root: (ir::VarType, wasmgen::LocalIdx),
-        _depth: u32,
+        _handle: Self::RootsStackHandle,
         _scratch: &mut Scratch,
         _expr_builder: &mut wasmgen::ExprBuilder,
     ) {
@@ -409,7 +586,7 @@ impl<'a, 'b, 'c> super::HeapManager for Cheney<'a, 'b, 'c> {
     fn encode_local_root_write(
         &self,
         _local_root: (ir::VarType, wasmgen::LocalIdx),
-        _depth: u32,
+        _handle: Self::RootsStackHandle,
         _scratch: &mut Scratch,
         _expr_builder: &mut wasmgen::ExprBuilder,
     ) {
