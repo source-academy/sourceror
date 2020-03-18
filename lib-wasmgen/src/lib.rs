@@ -7,9 +7,11 @@ use std::option::Option;
 use std::vec::Vec;
 
 pub mod codewriter;
+pub mod scratch;
 pub mod serialize;
 pub mod write;
 pub use codewriter::*;
+pub use scratch::*;
 pub use serialize::*;
 pub use write::*;
 

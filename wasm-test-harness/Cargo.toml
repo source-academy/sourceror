@@ -1,8 +1,8 @@
 [package]
-name = "backend-wasm"
+name = "wasm-test-harness"
 version = "0.1.0"
 authors = ["Bernard Teo <btzy1996@hotmail.com>"]
-description = "Compiler backend that converts IR to Wasm binary"
+description = "Unit testing for backend-wasm"
 license = "MIT/Apache-2.0"
 edition = "2018"
 
@@ -12,13 +12,8 @@ edition = "2018"
 crate-type = ["lib"]
 
 [features]
-wasmtest = ["wasm-test-harness"]
+wasmtest = []
 
 [dependencies]
 wasmgen = { path = "../lib-wasmgen" }
-ir = { path = "../lib-ir" }
-projstd = { path = "../lib-projstd" }
-
-[dependencies.wasm-test-harness]
-path = "../wasm-test-harness"
-optional = true
+wasm-bindgen = "0.2"

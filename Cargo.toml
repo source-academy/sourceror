@@ -5,6 +5,12 @@ members = [
     "lib-wasmgen",
     "lib-ir",
     "lib-backend-wasm",
+    "wasm-test-harness",
+    "wasm-test-driver",
+    "wasm-test-local",
+]
+default-members = [
+    "source-compiler",
 ]
 
 [profile.release]

@@ -1,4 +1,4 @@
-use super::super::Scratch;
+use wasmgen::Scratch;
 
 use super::WASM_PAGE_BITS;
 
@@ -75,8 +75,8 @@ pub fn make_do_cheney(
                     }
                     expr_builder.call_indirect(
                         wasm_module.insert_type_into(wasmgen::FuncType::new(
-                            Box::new([wasmgen::ValType::I32]),
-                            Box::new([wasmgen::ValType::I32]),
+                            Box::new([wasmgen::ValType::I64]),
+                            Box::new([wasmgen::ValType::I64]),
                         )),
                         tableidx,
                     );

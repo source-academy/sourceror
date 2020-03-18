@@ -1,4 +1,4 @@
-use super::super::Scratch;
+use wasmgen::Scratch;
 
 // returns the base table element index from which indirect access should be calculated (i.e. the "table offset")
 // e.g. if we want to access copy_children_$i, we should call_indirect with index = (table_offset+i)
@@ -274,8 +274,10 @@ pub fn make_copy_children_elements(
         func_idx
     }
 
-    let copy_children_table_offset: u32 =
-        wasm_module.reserve_table_elements(tableidx, ir::NUM_PRIMITIVE_TAG_TYPES as u32);
+    let copy_children_table_offset: u32 = wasm_module.reserve_table_elements(
+        tableidx,
+        (ir::NUM_PRIMITIVE_TAG_TYPES + struct_types.len()) as u32,
+    );
 
     // Note: some reserved table elements are left uncommitted.  They will automatically trap if called at runtime.  (If that happens, then the compiler has a bug.)
 

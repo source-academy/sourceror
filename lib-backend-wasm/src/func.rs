@@ -2,7 +2,7 @@ use super::gc::HeapManager;
 /**
  * Contains stuff related to encoding of function bodies.
  */
-use super::scratch::Scratch;
+use wasmgen::Scratch;
 
 use super::var_conv::*;
 

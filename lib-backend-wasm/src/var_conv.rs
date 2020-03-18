@@ -1,4 +1,4 @@
-use super::scratch::Scratch;
+use wasmgen::Scratch;
 
 // stores a ir variable from the protected stack to local variable(s)
 // net wasm stack: [<ir_source_vartype>] -> []

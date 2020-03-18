@@ -1,4 +1,4 @@
-use super::super::Scratch;
+use wasmgen::Scratch;
 
 pub fn make_copy_funcs(
     wasm_module: &mut wasmgen::WasmModule,
