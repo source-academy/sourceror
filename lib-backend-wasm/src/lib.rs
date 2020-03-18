@@ -59,7 +59,6 @@ use wasmgen;
 
 mod func;
 mod gc;
-mod scratch;
 mod var_conv;
 
 use gc::leaky::Leaky;
@@ -67,6 +66,8 @@ use gc::HeapManager;
 
 use projstd::iter::*;
 use projstd::tuple::*;
+
+use wasmgen::Scratch;
 
 const IR_FUNCIDX_TABLE_OFFSET: u32 = 0; // If ir::FuncIdx == x, then wasmgen::TableIdx == IR_FUNCIDX_TABLE_OFFSET + x as u32
 
@@ -164,4 +165,9 @@ fn size_in_memory(ir_vartype: ir::VarType) -> u32 {
 fn encode_mem(globals_num_pages: u32, wasm_module: &mut wasmgen::WasmModule) -> wasmgen::MemIdx {
     wasm_module
         .add_unbounded_memory(MEM_STACK_SIZE + globals_num_pages + Leaky::initial_heap_size())
+}
+
+#[cfg(feature = "wasmtest")]
+pub fn wasmtest<C: wasm_test_harness::TestContext>(c: &mut C) {
+    gc::cheney::wasmtest::wasmtest(c);
 }

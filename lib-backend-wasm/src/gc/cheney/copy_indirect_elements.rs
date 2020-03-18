@@ -1,4 +1,4 @@
-use super::super::Scratch;
+use wasmgen::Scratch;
 
 // returns the base table element index from which indirect access should be calculated (i.e. the "table offset")
 // e.g. if we want to access copy_indirect_$i, we should call_indirect with index = (table_offset+i)
@@ -242,8 +242,8 @@ pub fn make_copy_indirect_elements(
         func_idx
     }
 
-    let copy_indirect_table_offset: u32 =
-        wasm_module.reserve_table_elements(tableidx, ir::NUM_PRIMITIVE_TAG_TYPES as u32);
+    let copy_indirect_table_offset: u32 = wasm_module
+        .reserve_table_elements(tableidx, (ir::NUM_PRIMITIVE_TAG_TYPES + num_structs) as u32);
 
     let no_op_funcidx: wasmgen::FuncIdx = make_no_op_function(wasm_module);
     let func_funcidx: wasmgen::FuncIdx =
@@ -267,7 +267,7 @@ pub fn make_copy_indirect_elements(
             )
         }))
         .collect();
-    assert!(copy_indirect_elements.len() == ir::NUM_PRIMITIVE_TAG_TYPES);
+    assert!(copy_indirect_elements.len() == ir::NUM_PRIMITIVE_TAG_TYPES + num_structs);
     wasm_module.commit_table_elements(tableidx, copy_indirect_table_offset, copy_indirect_elements);
     copy_indirect_table_offset
 }

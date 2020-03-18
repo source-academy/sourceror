@@ -40,7 +40,8 @@ impl WasmModule {
     // Commit a function that has been previously registered
     pub fn commit_func(&mut self, funcidx: FuncIdx, code_builder: CodeBuilder) {
         let (_functype, bytes) = code_builder.build();
-        self.code_section.content[funcidx.idx as usize].func = Some(bytes);
+        self.code_section.content[self.func_section.plain_index_without_offset(funcidx) as usize]
+            .func = Some(bytes);
     }
     // Export a function so that the environment (i.e. JavaScript) can call it
     pub fn export_func(&mut self, funcidx: FuncIdx, exported_name: String) {
@@ -100,6 +101,21 @@ impl WasmImportBuilderModule {
             ..Default::default()
         }
     }
+    pub fn import_func(
+        &mut self,
+        module_name: String,
+        entity_name: String,
+        functype: &FuncType,
+    ) -> FuncIdx {
+        let typeidx = self.type_section.insert_copy(functype);
+        self.import_section
+            .add_func(module_name, entity_name, typeidx);
+        let ret = FuncIdx {
+            idx: self.num_funcs,
+        };
+        self.num_funcs += 1;
+        ret
+    }
 }
 
 impl TypeSection {
@@ -112,6 +128,16 @@ impl TypeSection {
         TypeIdx {
             idx: self.content.insert_copy(functype) as u32,
         }
+    }
+}
+
+impl ImportSection {
+    fn add_func(&mut self, module_name: String, entity_name: String, typeidx: TypeIdx) {
+        self.content.push(Import {
+            module_name: module_name,
+            entity_name: entity_name,
+            desc: ImportDesc::Func(typeidx),
+        })
     }
 }
 
@@ -128,6 +154,10 @@ impl FuncSection {
             idx_offset: idx_offset,
             ..Default::default()
         }
+    }
+    fn plain_index_without_offset(&self, funcidx: FuncIdx) -> u32 {
+        assert!(funcidx.idx >= self.idx_offset);
+        funcidx.idx - self.idx_offset
     }
 }
 
@@ -157,9 +187,10 @@ impl TableSection {
             Limits::Unbounded { min: _ } => {
                 panic!("incorrect limit for table, needs to be bounded");
             }
-            Limits::Bounded { min: _, max } => {
+            Limits::Bounded { min, max } => {
                 let ret = *max;
                 *max += increment;
+                *min = *max; // in tables, min==max.
                 return ret;
             }
         }

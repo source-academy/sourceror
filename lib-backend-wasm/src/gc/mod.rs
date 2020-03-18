@@ -4,7 +4,7 @@ pub mod leaky;
 use crate::WASM_PAGE_SIZE;
 const WASM_PAGE_BITS: u32 = WASM_PAGE_SIZE.trailing_zeros();
 
-use crate::scratch::Scratch;
+use wasmgen::Scratch;
 
 /**
  * Trait that all heap managers (i.e. garbage collectors) should implement.

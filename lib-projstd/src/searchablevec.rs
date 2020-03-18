@@ -1,4 +1,5 @@
 use std::cmp::Eq;
+use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::hash::Hash;
 /**
@@ -24,20 +25,19 @@ impl<T: Eq + Hash + Clone> SearchableVec<T> {
      * Otherwise returns the index of the existing element
      */
     pub fn insert(&mut self, value: T) -> usize {
-        let curr_len = self.vec.len();
-        let new_idx = *(self.index.entry(value.clone()).or_insert(curr_len));
-        if new_idx == curr_len {
-            self.vec.push(value);
+        match self.index.entry(value) {
+            Entry::Occupied(occupied_entry) => *(occupied_entry.get()),
+            Entry::Vacant(vacant_entry) => {
+                let curr_len = self.vec.len();
+                let value_cloned = vacant_entry.key().clone();
+                vacant_entry.insert(curr_len);
+                self.vec.push(value_cloned);
+                curr_len
+            }
         }
-        return 0;
     }
     pub fn insert_copy(&mut self, value: &T) -> usize {
-        let curr_len = self.vec.len();
-        let new_idx = *(self.index.entry(value.clone()).or_insert(curr_len));
-        if new_idx == curr_len {
-            self.vec.push(value.clone());
-        }
-        return 0;
+        self.insert(value.clone())
     }
     pub fn vec(&self) -> &Vec<T> {
         &self.vec

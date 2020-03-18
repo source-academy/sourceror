@@ -1,6 +1,6 @@
-use super::Scratch;
 use super::WASM_PAGE_BITS;
 use super::WASM_PAGE_SIZE;
+use wasmgen::Scratch;
 
 /**
  * Leaky is a GC implementation that does not clean up anything.  It simply allocates more memory every time a request is made.

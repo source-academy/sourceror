@@ -1,7 +1,7 @@
-use super::Scratch;
+use super::HeapManager;
 use super::WASM_PAGE_BITS;
 use super::WASM_PAGE_SIZE;
-use super::HeapManager;
+use wasmgen::Scratch;
 
 use crate::var_conv::*;
 
@@ -9,6 +9,9 @@ mod copy_children_elements;
 mod copy_funcs;
 mod copy_indirect_elements;
 mod do_cheney;
+
+#[cfg(feature = "wasmtest")]
+pub mod wasmtest;
 
 /**
  * Cheney is a GC implementation that uses Cheney's algorithm.
@@ -130,7 +133,7 @@ impl<'a, 'b, 'c> Cheney<'a, 'b, 'c> {
             (*ptr) = I32_MIN | (new_ptr >> 1); // say that we already copied it.
             return new_ptr;
         }
-        // `bytes_required`: min number of bytes we want
+        // `bytes_required`: min number of bytes we want (including the tag!)
         // returns nonzero if successfully made enough space, otherwise zero.
         fn do_cheney(bytes_required: u32) -> i32 {
             if (end_mem_ptr != gc_roots_stack_base_ptr) {
@@ -274,7 +277,9 @@ impl<'a, 'b, 'c> Cheney<'a, 'b, 'c> {
         }
     }
 
-    fn filter_roots(local_roots: &[(ir::VarType, wasmgen::LocalIdx)]) -> Box<[(ir::VarType, wasmgen::LocalIdx)]> {
+    fn filter_roots(
+        local_roots: &[(ir::VarType, wasmgen::LocalIdx)],
+    ) -> Box<[(ir::VarType, wasmgen::LocalIdx)]> {
         local_roots
             .iter()
             .cloned()
@@ -286,10 +291,10 @@ impl<'a, 'b, 'c> Cheney<'a, 'b, 'c> {
                 _ => true,
             })
             .collect()
-	}
+    }
 
     // Helper function used to encode heap allocation.
-    // `f` should be a function that has net wasm stack [] -> [i32(size)]
+    // `f` should be a function that has net wasm stack [] -> [i32(size)], it pushes the bytes required (including tag) on the stack.
     // net wasm stack: [] -> [i32(ptr)]
     fn encode_allocation<F: Fn(&mut wasmgen::ExprBuilder) -> ()>(
         &self,
@@ -322,6 +327,7 @@ impl<'a, 'b, 'c> Cheney<'a, 'b, 'c> {
         label:
         ret = free_mem_ptr; // ret is the value that is left on the stack
         free_mem_ptr += size;
+        ret += 4;
         */
 
         // (end_mem_ptr - free_mem_ptr < size)
@@ -369,6 +375,8 @@ impl<'a, 'b, 'c> Cheney<'a, 'b, 'c> {
         encode_size(expr_builder);
         expr_builder.i32_add();
         expr_builder.global_set(self.free_mem_ptr);
+        expr_builder.i32_const(4);
+        expr_builder.i32_add();
     }
 }
 
@@ -396,7 +404,7 @@ impl<'a, 'b, 'c> HeapManager for Cheney<'a, 'b, 'c> {
                 self.encode_allocation(
                     |expr_builder| {
                         // net wasm stack: [] -> [i32(size)]
-                        expr_builder.i32_const(size as i32);
+                        expr_builder.i32_const((size + 4) as i32);
                     },
                     local_roots,
                     scratch,
@@ -452,9 +460,9 @@ impl<'a, 'b, 'c> HeapManager for Cheney<'a, 'b, 'c> {
         match ir_vartype {
             ir::VarType::String => {
                 let localidx_mem_size: wasmgen::LocalIdx = scratch.push_i32();
-                // Algorithm: mem_size = ((num_bytes + 7) & (~3))   // equivalent to (4 + round_up_to_multiple_of_4(num_bytes))
+                // Algorithm: mem_size = ((num_bytes + 11) & (~3))   // equivalent to (4 + round_up_to_multiple_of_4(num_bytes))
                 // net wasm stack: [i32(num_bytes)] -> []
-                expr_builder.i32_const(7);
+                expr_builder.i32_const(11);
                 expr_builder.i32_add();
                 expr_builder.i32_const(-4); // equivalent to (~3) in two's complement
                 expr_builder.i32_and();
@@ -501,8 +509,9 @@ impl<'a, 'b, 'c> HeapManager for Cheney<'a, 'b, 'c> {
         scratch: &mut Scratch,
         expr_builder: &mut wasmgen::ExprBuilder,
     ) -> Self::RootsStackHandle {
-        let filtered_roots: Box<[(ir::VarType, wasmgen::LocalIdx)]> = Self::filter_roots(local_roots);
-        
+        let filtered_roots: Box<[(ir::VarType, wasmgen::LocalIdx)]> =
+            Self::filter_roots(local_roots);
+
         // if there are no roots to add, then we don't need to load the gc_roots_stack_ptr.
         // net wasm stack: [] -> []
         if !filtered_roots.is_empty() {
@@ -540,8 +549,9 @@ impl<'a, 'b, 'c> HeapManager for Cheney<'a, 'b, 'c> {
         scratch: &mut Scratch,
         expr_builder: &mut wasmgen::ExprBuilder,
     ) {
-        let filtered_roots: Box<[(ir::VarType, wasmgen::LocalIdx)]> = Self::filter_roots(local_roots);
-        
+        let filtered_roots: Box<[(ir::VarType, wasmgen::LocalIdx)]> =
+            Self::filter_roots(local_roots);
+
         if !filtered_roots.is_empty() {
             let localidx_gc_roots_stack_ptr = scratch.push_i32();
 
