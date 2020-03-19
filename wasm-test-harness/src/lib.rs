@@ -33,7 +33,7 @@ pub trait Tester {
     fn i32_assert_eq(&self, scratch: &mut Scratch, expr_builder: &mut ExprBuilder);
 }
 
-pub struct NormalContext<A: Fn(Box<[u8]>) -> ()> where {
+pub struct NormalContext<A: Fn(Box<[u8]>) -> ()> {
     add_to_js: A,
 }
 
@@ -68,7 +68,7 @@ impl Tester for NormalTester {
 
 impl<A: Fn(Box<[u8]>) -> ()> NormalContext<A> {
     pub fn new(add_to_js: A) -> NormalContext<A> {
-        NormalContext{
+        NormalContext {
             add_to_js: add_to_js,
         }
     }
@@ -90,7 +90,10 @@ impl<A: Fn(Box<[u8]>) -> ()> TestContext for NormalContext<A> {
         let assert_failed_i32_func = wasm_builder.import_func(
             "platform".to_string(),
             "assert_fail".to_string(),
-            &FuncType::new(Box::new([ValType::I32, ValType::I32, ValType::I32]), Box::new([])),
+            &FuncType::new(
+                Box::new([ValType::I32, ValType::I32, ValType::I32]),
+                Box::new([]),
+            ),
         );
         // (number of previously passed test cases)
         let test_failed_func = wasm_builder.import_func(
@@ -100,12 +103,11 @@ impl<A: Fn(Box<[u8]>) -> ()> TestContext for NormalContext<A> {
         );
         let mut wasm_module = wasm_builder.build();
         let globalidx_assert_count = wasm_module.add_i32_global(Mut::Var, 0);
-        
 
         // Create a function [] -> [i32], where the returned i32 is a boolean indicating number of assertions.
         let functype = FuncType::new(Box::new([]), Box::new([ValType::I32]));
         let (_type_idx, func_idx) = wasm_module.register_func(&functype);
-        
+
         let mut code_builder = CodeBuilder::new(functype);
         let tester = NormalTester {
             assert_failed_i32_func: assert_failed_i32_func,
@@ -123,8 +125,7 @@ impl<A: Fn(Box<[u8]>) -> ()> TestContext for NormalContext<A> {
         }
 
         wasm_module.commit_func(func_idx, code_builder);
-        wasm_module
-            .export_func(func_idx, "main".to_string());
+        wasm_module.export_func(func_idx, "main".to_string());
 
         let mut receiver = std::vec::Vec::<u8>::new();
         wasm_module.wasm_serialize(&mut receiver);

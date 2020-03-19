@@ -187,7 +187,7 @@ impl<'a, 'b, 'c> Cheney<'a, 'b, 'c> {
                 if (current_amt > remaining_amt || remaining_amt < bytes_required) {
                     // get twice the existing amount of heap memory if possible (note: both are powers of two, so max() can be optimised)
                     let required_amt = max(gc_roots_stack_base_ptr - base_mem_ptr, round_up_to_power_of_2(bytes_required + current_amt));
-                    let request_delta = (required_amt << 1) - (end_mem_ptr - base_mem_ptr);
+                    let request_delta = (required_amt << 1) - (gc_roots_stack_base_ptr - base_mem_ptr);
                     if (memory_grow(request_delta >> WASM_PAGE_BITS) != -1) {
                         end_mem_ptr = base_mem_ptr + required_amt; // rmb to write back to global
                         // copy over the gc_roots stack
@@ -299,6 +299,7 @@ impl<'a, 'b, 'c> Cheney<'a, 'b, 'c> {
     fn encode_allocation<F: Fn(&mut wasmgen::ExprBuilder) -> ()>(
         &self,
         encode_size: F,
+        tag: i32,
         local_roots: &[(ir::VarType, wasmgen::LocalIdx)],
         scratch: &mut Scratch,
         expr_builder: &mut wasmgen::ExprBuilder,
@@ -326,6 +327,7 @@ impl<'a, 'b, 'c> Cheney<'a, 'b, 'c> {
         }
         label:
         ret = free_mem_ptr; // ret is the value that is left on the stack
+        *ret = tag;
         free_mem_ptr += size;
         ret += 4;
         */
@@ -372,6 +374,9 @@ impl<'a, 'b, 'c> Cheney<'a, 'b, 'c> {
         // net wasm stack: [] -> [res(i32)]
         expr_builder.global_get(self.free_mem_ptr);
         expr_builder.global_get(self.free_mem_ptr);
+        expr_builder.i32_const(tag);
+        expr_builder.i32_store(wasmgen::MemArg::new4(0));
+        expr_builder.global_get(self.free_mem_ptr);
         encode_size(expr_builder);
         expr_builder.i32_add();
         expr_builder.global_set(self.free_mem_ptr);
@@ -406,6 +411,7 @@ impl<'a, 'b, 'c> HeapManager for Cheney<'a, 'b, 'c> {
                         // net wasm stack: [] -> [i32(size)]
                         expr_builder.i32_const((size + 4) as i32);
                     },
+                    ir_vartype.tag(),
                     local_roots,
                     scratch,
                     expr_builder,
@@ -474,6 +480,7 @@ impl<'a, 'b, 'c> HeapManager for Cheney<'a, 'b, 'c> {
                         // net wasm stack: [] -> [i32(size)]
                         expr_builder.local_get(localidx_mem_size);
                     },
+                    ir_vartype.tag(),
                     local_roots,
                     scratch,
                     expr_builder,

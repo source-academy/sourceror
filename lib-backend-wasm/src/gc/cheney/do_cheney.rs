@@ -318,52 +318,54 @@ pub fn make_do_cheney(
                 {
                     let localidx_required_amt = scratch.push_i32();
                     let localidx_request_delta = scratch.push_i32();
-                    // let required_amt = max(gc_roots_stack_base_ptr - base_mem_ptr, round_up_to_power_of_2(bytes_required + current_amt));
-                    // net wasm stack: [] -> [required_amt(i32)]
+
                     {
                         let localidx_max1 = scratch.push_i32();
-                        let localidx_max2 = scratch.push_i32();
+                        // let required_amt = max(gc_roots_stack_base_ptr - base_mem_ptr, round_up_to_power_of_2(bytes_required + current_amt));
+                        // net wasm stack: [] -> [required_amt(i32)]
+                        {
+                            let localidx_max2 = scratch.push_i32();
 
-                        // net wasm stack: [] -> [max1(i32)]
-                        expr_builder.local_get(localidx_gc_roots_stack_base_ptr);
-                        expr_builder.i32_const(constant_base_mem_ptr as i32);
-                        expr_builder.i32_sub();
-                        expr_builder.local_tee(localidx_max1);
+                            // net wasm stack: [] -> [max1(i32)]
+                            expr_builder.local_get(localidx_gc_roots_stack_base_ptr);
+                            expr_builder.i32_const(constant_base_mem_ptr as i32);
+                            expr_builder.i32_sub();
+                            expr_builder.local_tee(localidx_max1);
 
-                        // we are actually doing: max2 = 1 << (32 - clz(bytes_required + current_amt - 1))
-                        // net wasm stack: [max1(i32)] -> [max1(i32), max2(i32)]
+                            // we are actually doing: max2 = 1 << (32 - clz(bytes_required + current_amt - 1))
+                            // net wasm stack: [max1(i32)] -> [max1(i32), max2(i32)]
+                            expr_builder.i32_const(1);
+                            expr_builder.i32_const(32);
+                            expr_builder.local_get(localidx_bytes_required);
+                            expr_builder.local_get(localidx_current_amt);
+                            expr_builder.i32_add();
+                            expr_builder.i32_const(1);
+                            expr_builder.i32_sub();
+                            expr_builder.i32_clz();
+                            expr_builder.i32_sub();
+                            expr_builder.i32_shl();
+                            expr_builder.local_tee(localidx_max2);
+
+                            // net wasm stack: [max1(i32), max2(i32)] -> [required_amt(i32)]
+                            expr_builder.local_get(localidx_max1);
+                            expr_builder.local_get(localidx_max2);
+                            expr_builder.i32_ge_u();
+                            expr_builder.select();
+                            expr_builder.local_tee(localidx_required_amt);
+
+                            scratch.pop_i32();
+                        }
+
+                        // let request_delta = (required_amt << 1) - (gc_roots_stack_base_ptr - base_mem_ptr);
+                        // net wasm stack: [required_amt(i32)] -> [request_delta(i32)]
                         expr_builder.i32_const(1);
-                        expr_builder.i32_const(32);
-                        expr_builder.local_get(localidx_bytes_required);
-                        expr_builder.local_get(localidx_current_amt);
-                        expr_builder.i32_add();
-                        expr_builder.i32_const(1);
-                        expr_builder.i32_sub();
-                        expr_builder.i32_clz();
-                        expr_builder.i32_sub();
                         expr_builder.i32_shl();
-                        expr_builder.local_tee(localidx_max2);
-
-                        // net wasm stack: [max1(i32), max2(i32)] -> [required_amt(i32)]
                         expr_builder.local_get(localidx_max1);
-                        expr_builder.local_get(localidx_max2);
-                        expr_builder.i32_ge_u();
-                        expr_builder.select();
-                        expr_builder.local_tee(localidx_required_amt);
+                        expr_builder.i32_sub();
+                        expr_builder.local_tee(localidx_request_delta);
 
-                        scratch.pop_i32();
                         scratch.pop_i32();
                     }
-
-                    // let request_delta = (required_amt << 1) - (end_mem_ptr - base_mem_ptr);
-                    // net wasm stack: [required_amt(i32)] -> [request_delta(i32)]
-                    expr_builder.i32_const(1);
-                    expr_builder.i32_shl();
-                    expr_builder.local_get(localidx_end_mem_ptr);
-                    expr_builder.i32_const(constant_base_mem_ptr as i32);
-                    expr_builder.i32_sub();
-                    expr_builder.i32_sub();
-                    expr_builder.local_tee(localidx_request_delta);
 
                     // prepare condition for if-stmt
                     // (memory_grow(request_delta >> WASM_PAGE_BITS) != -1)
