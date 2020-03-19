@@ -10,29 +10,34 @@ async function run() {
 run();
 */
 
+
+
+
 import * as compiler from "./wasm_test_driver.js";
 import load_binary from "./loader.js";
 
 async function run() {
     await compiler.default(); // init
-    const binary = compiler.build_tests();
-    download(binary);
-    let failed_assert = false;
-    let left,right;
-    let failed_test = false;
-    const imports = { platform: {
-        assert_fail: (l, r) => {failed_assert = true; alert("Assertion failed: " + l + "==" + r); },
-        test_fail: (n) => {failed_test = true; },
-    } };
-    const instance = await load_binary(binary, imports);
-    const result = instance.main();
-    if (failed_assert) {
-        
-    } else if (failed_test) {
-        alert("Test failed after " + result.toString() + " tests");
-    } else {
-        alert("Success: " + result.toString() + " tests passed");
+    const binaries = [];
+    window.add_test = (binary) => {
+        binaries.push(binary);
     }
+    compiler.build_tests();
+    //download(binary);
+    let test_index = 0;
+    let num_asserts = 0;
+    for (const binary of binaries) {
+        const imports = { platform: {
+            assert_fail: (l, r, n) => { alert("Assertion " + (n+1) + " failed on test " + (test_index+1) + ": " + l + "==" + r); throw ""; },
+            test_fail: () => { alert("Test failed on test " + (test_index+1) + "."); throw ""; },
+        } };
+        const instance = await load_binary(binary, imports);
+        const result = instance.main();
+        ++test_index;
+        num_asserts += result;
+    }
+    alert("Success: " + test_index + " tests, " + num_asserts + " assertions passed");
+    
 }
 
 function download(buffer) {
