@@ -22,7 +22,7 @@ fn generate_number_binary_operator_primitive(prim_inst: PrimInst) -> Func {
     // set the statements to just the PrimAppl with the given PrimInst
     // Equivalent code:
     // return local#0 + local#1;
-    func.statements.push(Statement::Return {
+    func.block.statements.push(Statement::Return {
         expr: Expr {
             vartype: VarType::Number,
             kind: ExprKind::PrimAppl {
@@ -74,7 +74,7 @@ fn generate_number_binary_operator_wrapper(prim_funcidx: FuncIdx) -> Func {
     // } else {
     //      Trap
     // }
-    func.statements.push(Statement::If {
+    func.block.statements.push(Statement::If {
         cond: Expr {
             vartype: VarType::Boolean,
             kind: ExprKind::PrimAppl {
@@ -113,7 +113,7 @@ fn generate_number_binary_operator_wrapper(prim_funcidx: FuncIdx) -> Func {
                 ]),
             },
         },
-        true_stmts: vec![Statement::Return {
+        true_block: Block::from_statements(vec![Statement::Return {
             expr: Expr {
                 vartype: VarType::Number,
                 kind: ExprKind::DirectAppl {
@@ -140,13 +140,13 @@ fn generate_number_binary_operator_wrapper(prim_funcidx: FuncIdx) -> Func {
                     ]),
                 },
             },
-        }],
-        false_stmts: vec![Statement::Void {
+        }]),
+        false_block: Block::from_statements(vec![Statement::Void {
             expr_kind: ExprKind::PrimAppl {
                 prim_inst: PrimInst::Trap,
                 args: Box::new([]),
             },
-        }],
+        }]),
     });
 
     // note: no locals

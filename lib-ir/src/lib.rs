@@ -23,16 +23,18 @@ use std::option::Option;
  * * * * E.g. if the current statement never leads to any reads (before being overwritten), then this variable doesn't contain useful information.
  * * * It should also figure out if a variable is read but never written between two function calls, then we can know if we need to pop then push it back to the gc roots, or just tee it from the gc roots into locals.
  * * todo!: Also, functions should be annotated with a flag whether they might do heap allocations.
- * * todo!: Local variables should be owned by Blocks, not Funcs.  Also each statement should store the list of variables which are first written here, and the list of variables which are last read here (this is after false dependencies are removed).
  */
 use std::vec::Vec;
 
 mod primfunc;
 
+// If it stores value `func_idx`, then it refers to imports[func_idx] if (func_idx < imports.len())
+// or funcs[func_idx - imports.len()] otherwise.
 pub type FuncIdx = usize;
 
 pub struct Program {
     pub struct_types: Vec<Box<[VarType]>>, // stores the list of fields of all structs (i.e. objects) in the program (indexed with typeidx)
+    pub imports: Vec<Import>,              // list of imported functions
     pub funcs: Vec<Func>, // list of functions (some will be pre-generated for the pre-declared operators, e.g. + - * / % === and more)
     pub globals: Vec<VarType>, // list of global variables
     pub entry_point: FuncIdx, // index of function to run when the program is started
@@ -72,13 +74,31 @@ impl VarType {
 }
 pub const NUM_PRIMITIVE_TAG_TYPES: usize = 6; // does not include Any
 
-pub type Block = Vec<Statement>;
+pub struct Import {
+    pub module_name: String,
+    pub entity_name: String,
+    pub params: Box<[ImportValType]>, // list of function parameters
+    pub result: ImportValType,        // return type
+}
+
+// Types that can be imported (subset of VarType)
+#[derive(Eq, PartialEq, Copy, Clone)]
+pub enum ImportValType {
+    Undefined, // compiles into nothing
+    Number,    // compiles into f64 parameter
+    String, // compiles into i32(ptr) parameter, the host should look into our linear memory to figure out the length and the actual string content.
+}
+
+#[derive(Default)]
+pub struct Block {
+    pub locals: Vec<VarType>, // list of local variables
+    pub statements: Vec<Statement>,
+}
 
 pub struct Func {
     pub params: Box<[VarType]>, // list of function parameters (including closure)
     pub result: Option<VarType>, // if `None`, it means that this function never returns (e.g. it guarantees to trap or infinite loop, see the generated runtime error function)
-    pub locals: Vec<VarType>,    // list of local variables
-    pub statements: Block,       // body of the function
+    pub block: Block,            // body of the function
     pub signature_filter: Vec<(Box<[VarType]>, VarType, FuncIdx)>, // list of possibly acceptable signatures (param_types, return_type, constrained_func).
                                                                    // If a signature is not in this list, then it will be guaranteed to error;
                                                                    // but converse need not be true.  All entries must be a subtype of `params`.
@@ -101,9 +121,12 @@ pub enum Statement {
     // `cond.vartype` can be either Any or Boolean.  If cond.vartype is Any, then we will emit a runtime type check.
     If {
         cond: Expr,
-        true_stmts: Block,
-        false_stmts: Block,
+        true_block: Block,
+        false_block: Block,
     }, // If statement
+    Block {
+        block: Block,
+    },
     Expr {
         expr: Expr,
     }, // Expression statement
@@ -235,6 +258,7 @@ impl Program {
         (
             Program {
                 struct_types: Default::default(),
+                imports: Default::default(),
                 funcs: funcs,
                 globals: Default::default(),
                 entry_point: Default::default(),
@@ -249,13 +273,21 @@ impl Func {
         Func {
             params: params.into(),
             result: Some(result),
-            locals: Default::default(),
-            statements: Default::default(),
+            block: Default::default(),
             signature_filter: Default::default(),
         }
     }
     pub fn signature(&self) -> (&[VarType], Option<VarType>) {
         (&self.params, self.result)
+    }
+}
+
+impl Block {
+    pub fn from_statements(statements: Vec<Statement>) -> Self {
+        Self {
+            locals: Vec::new(),
+            statements: statements,
+        }
     }
 }
 
