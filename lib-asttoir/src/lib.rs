@@ -7,7 +7,7 @@ use ir;
  * * Entry points are zero-indexed. Main function will be #0
  * * For now, we will leave everything as type Any
  * Sample function that we will be decoding
-
+ *
 * *
 * *
  */
@@ -19,12 +19,9 @@ pub fn read_from_file(filename: Option<std::string::String>) -> serde_json::Valu
     let json_contents: serde_json::Value = serde_json::from_str(&contents).unwrap();
     // TODO: [Joel] (Find Semantic meaning for these constants)
     // let program_code_excluding_imports = json_contents;
-    println!(
-        "User entered code section is {}",
-        json_contents.clone()
-    );
-    //["body"][0]["body"][2]
-    //program_code_excluding_imports["body"][0]["body"]
+    println!("User entered code section is {}", json_contents.clone());
+    // ["body"][0]["body"][2]
+    // program_code_excluding_imports["body"][0]["body"]
     // populate_func_statements(program_code_excluding_imports.clone());
 
     return json_contents;
@@ -46,10 +43,13 @@ pub fn populate_func(ast: serde_json::Value) -> ir::Func {
 }
 
 pub fn populate_func_params(ast: serde_json::Value) -> Box<[ir::VarType]> {
-    // Traverse until you get Function Declaration
-    // Look inside function declaration to get Params. Convert param to typ and then append
-    // TODO [Joel] (Complete the logic for this function)
-    return Box::new([ir::VarType::Any, ir::VarType::Any]);
+    let mut func_params = Vec::<ir::VarType>::new();
+    if ast.get("type").unwrap() == "FunctionDeclaration" {
+        for i in ast.as_array().unwrap() {
+            func_params.push(ir::VarType::Any);
+        }
+    }
+    return func_params.into_boxed_slice();
 }
 
 pub fn populate_func_result(ast: serde_json::Value) -> Option<ir::VarType> {
@@ -58,21 +58,20 @@ pub fn populate_func_result(ast: serde_json::Value) -> Option<ir::VarType> {
 }
 
 pub fn populate_func_locals(ast: serde_json::Value) -> Vec<ir::VarType> {
-    // Loop through the array, look for "arguments" field to get declarations
     // Look for variable Declarator and then Identifier field and then the name.
     // ["id"]["type"] = "Identifier" then check ["id"]["name"]
-
     let unwrapped_arr = ast.as_array().unwrap();
     let mut func_local = Vec::<ir::VarType>::new();
-    for line in unwrapped_arr {
-        if line.get("declarations") != None {
-            println!(
-                "The value is {}",
-                line.get("declarations").unwrap()[0]["id"]["name"]
-            );
-            func_local.push(ir::VarType::Any);
-        }
-    }
+
+    // for line in unwrapped_arr {
+    //     if line.get("declarations") != None {
+    //         println!(
+    //             "The value is {}",
+    //             line.get("declarations").unwrap()[0]["id"]["name"]
+    //         );
+    //         func_local.push(ir::VarType::Any);
+    //     }
+    // }
     return func_local;
 }
 
@@ -81,7 +80,7 @@ pub fn populate_func_statements(ast: serde_json::Value) -> ir::Block {
     // Statements are either Assign, Return, If, Expr, Void
     // Sequentially classify each type of expression based on the node type
     // Return, If, Expr, Void,
-    // Expressions can be any one of 
+    // Expressions can be any one of
     // type Expression = ThisExpression | Identifier | Literal |
     // ArrayExpression | ObjectExpression | FunctionExpression | ArrowFunctionExpression | ClassExpression |
     // TaggedTemplateExpression | MemberExpression | Super | MetaProperty |
@@ -92,13 +91,11 @@ pub fn populate_func_statements(ast: serde_json::Value) -> ir::Block {
     // If      -> Conditional Expression
     // Assign  -> AssignmentExpression
     // Return  -> Return Expression
-    // If it
     let unwrapped_arr = ast["body"].as_array().unwrap();
     let func_statements = Vec::<ir::Statement>::new();
 
     return func_statements;
 }
-
 
 // Test Case:
 // ```
