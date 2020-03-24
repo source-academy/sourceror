@@ -76,15 +76,21 @@ const WASM_PAGE_SIZE: u32 = 65536;
 // In units of WASM_PAGE_SIZE
 const MEM_STACK_SIZE: u32 = 1 << 4; // 1 MiB of stack space
 
+// Struct containing compilation options
+#[derive(Default, Copy, Clone)]
+pub struct Options {
+    wasm_multi_value: bool, // Where we can generate code that uses the WebAssembly multi-valued returns proposal
+}
+
 /**
  * This is the main function that invokes everything in the backend.
  * Call it, and everything will work.
  */
-pub fn run_backend(ir_program: &ir::Program) -> wasmgen::WasmModule {
-    encode_program(ir_program)
+pub fn run_backend(ir_program: &ir::Program, options: Options) -> wasmgen::WasmModule {
+    encode_program(ir_program, options)
 }
 
-fn encode_program(ir_program: &ir::Program) -> wasmgen::WasmModule {
+fn encode_program(ir_program: &ir::Program, options: Options) -> wasmgen::WasmModule {
     // todo! Emit struct_types
     // todo! Emit globals
     // todo! Emit entry point
@@ -104,7 +110,7 @@ fn encode_program(ir_program: &ir::Program) -> wasmgen::WasmModule {
             (
                 struct_type
                     .iter()
-                    .map(|vartype| size_in_memory(*vartype))
+                    .map(|vartype| var_conv::size_in_memory(*vartype))
                     .scan_ref(&mut total, |st, elem| {
                         let ret: u32 = *st;
                         *st += elem;
@@ -140,24 +146,13 @@ fn encode_program(ir_program: &ir::Program) -> wasmgen::WasmModule {
         &ir_program.struct_types,
         &struct_field_byte_offsets,
         ir_program.entry_point,
+        globalidx_stackptr,
         &heap,
+        options,
         &mut wasm_module,
     );
 
     wasm_module
-}
-
-fn size_in_memory(ir_vartype: ir::VarType) -> u32 {
-    match ir_vartype {
-        ir::VarType::Any => 4 + 8,
-        ir::VarType::Unassigned => 0,
-        ir::VarType::Undefined => 0,
-        ir::VarType::Number => 8,
-        ir::VarType::Boolean => 4,
-        ir::VarType::String => 4,
-        ir::VarType::Func => 4 + 4,
-        ir::VarType::StructT { typeidx: _ } => 4,
-    }
 }
 
 // encodes the linear memory

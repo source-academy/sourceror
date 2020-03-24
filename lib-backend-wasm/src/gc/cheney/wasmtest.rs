@@ -50,6 +50,8 @@ pub fn wasmtest<C: TestContext>(c: &mut C) {
                     cheney.encode_fixed_allocation(
                         ir::VarType::StructT { typeidx: 0 },
                         &[],
+                        &[],
+                        &[],
                         &mut scratch,
                         expr_builder,
                     );
@@ -94,6 +96,8 @@ pub fn wasmtest<C: TestContext>(c: &mut C) {
                     // ret = new struct$0();
                     cheney.encode_fixed_allocation(
                         ir::VarType::StructT { typeidx: 0 },
+                        &[],
+                        &[],
                         &[],
                         &mut scratch,
                         expr_builder,
@@ -184,7 +188,9 @@ pub fn wasmtest<C: TestContext>(c: &mut C) {
                 // ret = new struct$0();
                 cheney.encode_fixed_allocation(
                     ir::VarType::StructT { typeidx: 0 },
-                    &[(ir::VarType::Any, localidx_tag)],
+                    &[ir::VarType::Any],
+                    &[0],
+                    &[localidx_tag, localidx_data],
                     &mut scratch,
                     expr_builder,
                 );
