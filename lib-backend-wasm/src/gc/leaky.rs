@@ -166,7 +166,9 @@ impl<'a, 'b, 'c> super::HeapManager for Leaky<'a, 'b, 'c> {
     fn encode_fixed_allocation(
         &self,
         ir_vartype: ir::VarType,
-        _local_roots: &[(ir::VarType, wasmgen::LocalIdx)],
+        _local_types: &[ir::VarType],
+        _local_map: &[usize],
+        _wasm_local_map: &[wasmgen::LocalIdx],
         scratch: &mut Scratch,
         expr_builder: &mut wasmgen::ExprBuilder,
     ) {
@@ -212,7 +214,9 @@ impl<'a, 'b, 'c> super::HeapManager for Leaky<'a, 'b, 'c> {
     fn encode_dynamic_allocation(
         &self,
         ir_vartype: ir::VarType,
-        _local_roots: &[(ir::VarType, wasmgen::LocalIdx)],
+        _local_types: &[ir::VarType],
+        _local_map: &[usize],
+        _wasm_local_map: &[wasmgen::LocalIdx],
         scratch: &mut Scratch,
         expr_builder: &mut wasmgen::ExprBuilder,
     ) {
@@ -264,7 +268,9 @@ impl<'a, 'b, 'c> super::HeapManager for Leaky<'a, 'b, 'c> {
     // net wasm stack: [] -> []
     fn encode_local_roots_prologue(
         &self,
-        _local_roots: &[(ir::VarType, wasmgen::LocalIdx)],
+        _local_types: &[ir::VarType],
+        _local_map: &[usize],
+        _wasm_local_map: &[wasmgen::LocalIdx],
         _scratch: &mut Scratch,
         _expr_builder: &mut wasmgen::ExprBuilder,
     ) {
@@ -277,7 +283,9 @@ impl<'a, 'b, 'c> super::HeapManager for Leaky<'a, 'b, 'c> {
     // net wasm stack: [] -> []
     fn encode_local_roots_epilogue(
         &self,
-        _local_roots: &[(ir::VarType, wasmgen::LocalIdx)],
+        _local_types: &[ir::VarType],
+        _local_map: &[usize],
+        _wasm_local_map: &[wasmgen::LocalIdx],
         _scratch: &mut Scratch,
         _expr_builder: &mut wasmgen::ExprBuilder,
     ) {

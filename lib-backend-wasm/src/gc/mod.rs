@@ -53,7 +53,9 @@ pub trait HeapManager {
     fn encode_fixed_allocation(
         &self,
         ir_vartype: ir::VarType,
-        local_roots: &[(ir::VarType, wasmgen::LocalIdx)],
+        local_types: &[ir::VarType],
+        local_map: &[usize],
+        wasm_local_map: &[wasmgen::LocalIdx],
         scratch: &mut Scratch,
         expr_builder: &mut wasmgen::ExprBuilder,
     );
@@ -70,7 +72,9 @@ pub trait HeapManager {
     fn encode_dynamic_allocation(
         &self,
         ir_vartype: ir::VarType,
-        local_roots: &[(ir::VarType, wasmgen::LocalIdx)],
+        local_types: &[ir::VarType],
+        local_map: &[usize],
+        wasm_local_map: &[wasmgen::LocalIdx],
         scratch: &mut Scratch,
         expr_builder: &mut wasmgen::ExprBuilder,
     );
@@ -85,7 +89,9 @@ pub trait HeapManager {
     // net wasm stack: [] -> []
     fn encode_local_roots_prologue(
         &self,
-        local_roots: &[(ir::VarType, wasmgen::LocalIdx)],
+        local_types: &[ir::VarType],
+        local_map: &[usize],
+        wasm_local_map: &[wasmgen::LocalIdx],
         scratch: &mut Scratch,
         expr_builder: &mut wasmgen::ExprBuilder,
     ) -> Self::RootsStackHandle;
@@ -96,7 +102,9 @@ pub trait HeapManager {
     // net wasm stack: [] -> []
     fn encode_local_roots_epilogue(
         &self,
-        local_roots: &[(ir::VarType, wasmgen::LocalIdx)],
+        local_types: &[ir::VarType],
+        local_map: &[usize],
+        wasm_local_map: &[wasmgen::LocalIdx],
         scratch: &mut Scratch,
         expr_builder: &mut wasmgen::ExprBuilder,
     );
@@ -106,6 +114,7 @@ pub trait HeapManager {
     // This is not strictly necessary, but may help with optimisations to minimise the number of reads/writes to the stack.
     // Note: the local variable must contain the same data that was there at the previous call to encode_local_root_write or encode_local_roots_prologue, because this will not do anything if the local variable is guaranteed to have it's value unchanged (e.g. mark and sweep GC).
     // Note: `handle` is the value returned from a previous call to encode_local_roots_prologue() with the same local_root array.
+    // todo!: This is outdated, `local_root` should be updated to be more like the above functions.  This should be modified if we want to do optimisations.
     // net wasm stack: [] -> []
     fn encode_local_root_read(
         &self,
@@ -118,6 +127,7 @@ pub trait HeapManager {
     // Encodes instructions to write a local variable to an arbitary position in the gc_roots stack, relative to the past-the-top position.
     // The stack size is unchanged.
     // This is not strictly necessary, but may help with optimisations to minimise the number of reads/writes to the stack.
+    // todo!: This is outdated, `local_root` should be updated to be more like the above functions.  This should be modified if we want to do optimisations.
     // net wasm stack: [] -> []
     fn encode_local_root_write(
         &self,

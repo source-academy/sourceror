@@ -6,10 +6,8 @@ use wasmgen::Scratch;
 
 use super::var_conv::*;
 
-struct EncodeContext<'a, 'b, 'c, 'd, 'e, 'f, 'g, Heap: HeapManager> {
+struct EncodeContext<'c, 'd, 'e, 'f, 'g, Heap: HeapManager> {
     // Local to this function
-    var_map: &'a [wasmgen::LocalIdx],
-    params_locals_types: &'b [ir::VarType],
     return_type: Option<ir::VarType>,
     // Global for whole program
     struct_types: &'c [Box<[ir::VarType]>],
@@ -20,13 +18,8 @@ struct EncodeContext<'a, 'b, 'c, 'd, 'e, 'f, 'g, Heap: HeapManager> {
 }
 
 // Have to implement Copy and Clone manually, because #[derive(Copy, Clone)] doesn't work for generic types like Heap
-impl<'a, 'b, 'c, 'd, 'e, 'f, 'g, Heap: HeapManager> Copy
-    for EncodeContext<'a, 'b, 'c, 'd, 'e, 'f, 'g, Heap>
-{
-}
-impl<'a, 'b, 'c, 'd, 'e, 'f, 'g, Heap: HeapManager> Clone
-    for EncodeContext<'a, 'b, 'c, 'd, 'e, 'f, 'g, Heap>
-{
+impl<'a, 'b, 'c, 'd, 'e, Heap: HeapManager> Copy for EncodeContext<'a, 'b, 'c, 'd, 'e, Heap> {}
+impl<'a, 'b, 'c, 'd, 'e, Heap: HeapManager> Clone for EncodeContext<'a, 'b, 'c, 'd, 'e, Heap> {
     fn clone(&self) -> Self {
         *self
     }
@@ -35,9 +28,51 @@ impl<'a, 'b, 'c, 'd, 'e, 'f, 'g, Heap: HeapManager> Clone
 struct MutContext<'a, 'b> {
     // Local to this function
     scratch: Scratch<'a>,
+    wasm_local_map: Vec<wasmgen::LocalIdx>,
+    local_map: Vec<usize>, // map from ir param/local index to wasm_local_map index
+    local_types: Vec<ir::VarType>, // map from ir param/local index to ir param type
     // Global for whole program
     module_wrapper: ModuleEncodeWrapper<'b>,
     // will also include function indices
+}
+impl<'a, 'b> MutContext<'a, 'b> {
+    /**
+     * Adds a local to the context, storing it in scratch, and updating wasm_local_map, local_map, local_types appropriately.
+     */
+    fn push_local(&mut self, ir_vartype: ir::VarType) {
+        assert!(self.local_types.len() == self.local_map.len());
+        self.local_types.push(ir_vartype);
+        self.local_map.push(self.wasm_local_map.len());
+        let wasm_valtypes = encode_vartype(ir_vartype);
+        for wasm_valtype in wasm_valtypes {
+            let localidx = self.scratch.push(*wasm_valtype);
+            self.wasm_local_map.push(localidx);
+        }
+    }
+    /**
+     * Undoes the corresponding pop_local().  Locals are pushed and popped like a stack.
+     */
+    fn pop_local(&mut self, ir_vartype: ir::VarType) {
+        assert!(self.local_types.len() == self.local_map.len());
+        let wasm_valtypes = encode_vartype(ir_vartype);
+        for wasm_valtype in wasm_valtypes {
+            self.wasm_local_map.pop();
+            self.scratch.pop(*wasm_valtype);
+        }
+        assert!(self.local_map.last().cloned() == Some(self.wasm_local_map.len()));
+        self.local_map.pop();
+        assert!(self.local_types.last().cloned() == Some(ir_vartype));
+        self.local_types.pop();
+    }
+
+    fn wasm_local_slice(&self, ir_localidx: usize) -> &[wasmgen::LocalIdx] {
+        &self.wasm_local_map[self.local_map[ir_localidx]
+            ..(if ir_localidx + 1 < self.local_map.len() {
+                self.local_map[ir_localidx + 1]
+            } else {
+                self.wasm_local_map.len()
+            })]
+    }
 }
 
 /**
@@ -56,7 +91,7 @@ impl<'a> ModuleEncodeWrapper<'a> {
         ir_params: &[ir::VarType],
         ir_result: Option<ir::VarType>,
     ) -> wasmgen::TypeIdx {
-        let (wasm_params, _) = encode_param_list(ir_params);
+        let (wasm_params, _, _) = encode_param_list(ir_params);
         let wasm_functype = wasmgen::FuncType::new(wasm_params, encode_result(ir_result));
         self.add_wasm_type(wasm_functype)
     }
@@ -73,9 +108,9 @@ pub fn encode_funcs<Heap: HeapManager>(
     struct WasmRegistry {
         typeidx: wasmgen::TypeIdx,
         funcidx: wasmgen::FuncIdx,
-        var_map: Box<[wasmgen::LocalIdx]>, // varmap converts ir param/local index to wasm param/local index
-        //code_builder: wasmgen::CodeBuilder,
-        params_locals_types: Box<[ir::VarType]>,
+        wasm_param_map: Box<[wasmgen::LocalIdx]>, // map converts wasm_param_map index to actual wasm param index
+        param_map: Box<[usize]>, // map converts ir param index to wasm_param_map index
+        param_types: Box<[ir::VarType]>, // map converts ir param index to ir param type
     }
 
     // register all the funcs first, in order of ir::funcidx
@@ -84,38 +119,21 @@ pub fn encode_funcs<Heap: HeapManager>(
         ir_funcs
             .iter()
             .map(|ir_func| {
-                let (wasm_params, param_map) = encode_param_list(&ir_func.params);
-                let num_wasm_params = wasm_params.len() as u32;
+                let (wasm_param_valtypes, wasm_param_map, param_map) =
+                    encode_param_list(&ir_func.params);
                 let wasm_functype =
-                    wasmgen::FuncType::new(wasm_params, encode_result(ir_func.result));
+                    wasmgen::FuncType::new(wasm_param_valtypes, encode_result(ir_func.result));
                 let (wasm_typeidx, wasm_funcidx) = wasm_module.register_func(&wasm_functype);
-                let (wasm_locals, local_map) = encode_param_list(&ir_func.locals);
                 let mut code_builder = wasmgen::CodeBuilder::new(wasm_functype);
-                let locals_builder = code_builder.locals_builder();
-                for local in wasm_locals.into_iter() {
-                    locals_builder.add(*local);
-                }
-                let var_map = param_map
-                    .iter()
-                    .cloned()
-                    .chain(local_map.into_iter().map(|x| num_wasm_params + x))
-                    .map(|x| wasmgen::LocalIdx { idx: x })
-                    .collect();
-                let params_locals_types = ir_func
-                    .params
-                    .iter()
-                    .chain(ir_func.locals.iter())
-                    .cloned()
-                    .collect();
                 (
                     WasmRegistry {
                         typeidx: wasm_typeidx,
                         funcidx: wasm_funcidx,
-                        var_map: var_map,
-                        //code_builder: code_builder,
-                        params_locals_types: params_locals_types,
+                        wasm_param_map: wasm_param_map,
+                        param_map: param_map,
+                        param_types: ir_func.params.clone(),
                     },
-                    code_builder,
+                    (code_builder),
                 )
             })
             .unzip();
@@ -133,8 +151,6 @@ pub fn encode_funcs<Heap: HeapManager>(
                 let (locals_builder, expr_builder) = code_builder.split();
                 let scratch: Scratch = Scratch::new(locals_builder);
                 let ctx = EncodeContext {
-                    var_map: &registry.var_map,
-                    params_locals_types: &registry.params_locals_types,
                     return_type: ir_func.result,
                     struct_types: ir_struct_types,
                     struct_field_byte_offsets: ir_struct_field_byte_offsets,
@@ -144,14 +160,12 @@ pub fn encode_funcs<Heap: HeapManager>(
                 };
                 let mut mutctx = MutContext {
                     scratch: scratch,
+                    wasm_local_map: registry.wasm_param_map.to_vec(),
+                    local_map: registry.param_map.to_vec(),
+                    local_types: registry.param_types.to_vec(),
                     module_wrapper: ModuleEncodeWrapper { wasm_module },
                 };
-                encode_statements(
-                    ir_func.statements.as_slice(),
-                    ctx,
-                    &mut mutctx,
-                    expr_builder,
-                );
+                encode_block(&ir_func.block, ctx, &mut mutctx, expr_builder);
                 expr_builder.end(); // append the end instruction to end the function
             }
             // commit the function:
@@ -167,24 +181,35 @@ pub fn encode_funcs<Heap: HeapManager>(
     );
 }
 
-// returns (wasm_param_list, param_map)
-// where param_map[i] is the wasm param index of the beginning of the ith ir param
-fn encode_param_list(ir_params: &[ir::VarType]) -> (Box<[wasmgen::ValType]>, Box<[u32]>) {
-    let converted_params: Box<[&'static [wasmgen::ValType]]> = ir_params
-        .iter()
-        .map(|ir_param| encode_vartype(*ir_param))
-        .collect();
-    let param_map = converted_params
-        .iter()
-        .cloned()
-        .map(|param| param.len() as u32)
-        .collect();
-    let wasm_params = converted_params
-        .iter()
-        .flat_map(|param| param.iter())
-        .cloned()
-        .collect();
-    (wasm_params, param_map)
+// returns (wasm_param_valtypes, wasm_param_map, param_map)
+// where param_map[i] is an index into wasm_param_map; it is the wasm param index of the beginning of the ith ir param
+// e.g. if param_map[i] == 5 and this ir param actually converts to two wasm params, then the wasm params are at wasm_param_map[5] and wasm_param_map[6].
+// (they may not actually be placed contiguously in the real wasm param indices, due to the coalescing allocations provided by scratch)
+fn encode_param_list(
+    ir_params: &[ir::VarType],
+) -> (
+    Box<[wasmgen::ValType]>,
+    Box<[wasmgen::LocalIdx]>,
+    Box<[usize]>,
+) {
+    let mut wasm_param_valtypes = Vec::new();
+    let mut wasm_param_map = Vec::new();
+    let mut param_map = Vec::new();
+    for ir_param in ir_params {
+        let encoded = encode_vartype(*ir_param);
+        param_map.push(wasm_param_map.len());
+        for wasm_valtype in encoded {
+            wasm_param_map.push(wasmgen::LocalIdx {
+                idx: wasm_param_valtypes.len() as u32,
+            });
+            wasm_param_valtypes.push(*wasm_valtype);
+        }
+    }
+    (
+        wasm_param_valtypes.into_boxed_slice(),
+        wasm_param_map.into_boxed_slice(),
+        param_map.into_boxed_slice(),
+    )
 }
 
 fn encode_result(ir_results: Option<ir::VarType>) -> Box<[wasmgen::ValType]> {
@@ -205,6 +230,25 @@ fn encode_vartype(ir_vartype: ir::VarType) -> &'static [wasmgen::ValType] {
         ir::VarType::String => &[wasmgen::ValType::I32],
         ir::VarType::Func => &[wasmgen::ValType::I32, wasmgen::ValType::I32],
         ir::VarType::StructT { typeidx: _ } => &[wasmgen::ValType::I32],
+    }
+}
+
+// net wasm stack: [] -> []
+fn encode_block<H: HeapManager>(
+    block: &ir::Block,
+    ctx: EncodeContext<H>,
+    mutctx: &mut MutContext,
+    expr_builder: &mut wasmgen::ExprBuilder,
+) {
+    // push all the locals
+    for ir_vartype in &block.locals {
+        mutctx.push_local(*ir_vartype);
+    }
+    // encode the statements
+    encode_statements(&block.statements, ctx, mutctx, expr_builder);
+    // pop all the locals
+    for ir_vartype in &block.locals {
+        mutctx.pop_local(*ir_vartype);
     }
 }
 
@@ -251,8 +295,8 @@ fn encode_statement<H: HeapManager>(
         }
         ir::Statement::If {
             cond,
-            true_stmts,
-            false_stmts,
+            true_block,
+            false_block,
         } => {
             // encode the condition
             // net wasm stack: [] -> [<cond.vartype>]
@@ -267,10 +311,13 @@ fn encode_statement<H: HeapManager>(
             );
             // emit the if statement
             expr_builder.if_(&[]);
-            encode_statements(true_stmts, ctx, mutctx, expr_builder);
+            encode_block(true_block, ctx, mutctx, expr_builder);
             expr_builder.else_();
-            encode_statements(false_stmts, ctx, mutctx, expr_builder);
+            encode_block(false_block, ctx, mutctx, expr_builder);
             expr_builder.end();
+        }
+        ir::Statement::Block { block } => {
+            encode_block(block, ctx, mutctx, expr_builder);
         }
         ir::Statement::Expr { expr } => {
             // encode the expression
@@ -303,7 +350,7 @@ fn encode_target_addr_pre<H: HeapManager>(
     target: &ir::TargetExpr,
     _incoming_vartype: ir::VarType,
     ctx: EncodeContext<H>,
-    _mutctx: &mut MutContext,
+    mutctx: &mut MutContext,
     expr_builder: &mut wasmgen::ExprBuilder,
 ) {
     match target {
@@ -322,14 +369,14 @@ fn encode_target_addr_pre<H: HeapManager>(
 
                     // For Source1, structs can only arise from closures and local variables, so their types must already be known at compilation time.
                     assert!(
-                        ctx.params_locals_types[*localidx]
+                        mutctx.local_types[*localidx]
                             == ir::VarType::StructT {
                                 typeidx: struct_field.typeidx
                             },
                         "ICE: IR->Wasm: Struct type incorrect or not proved at compilation time"
                     );
                     // net wasm stack: [] -> [struct_ptr]
-                    expr_builder.local_get(ctx.var_map[*localidx]);
+                    expr_builder.local_get(mutctx.wasm_local_slice(*localidx)[0]);
 
                     fn follow_nested_struct<H: HeapManager>(
                         outer_struct_field: &ir::StructField,
@@ -370,8 +417,8 @@ fn encode_target_addr_post<H: HeapManager>(
             match next {
                 None => {
                     encode_store_local(
-                        ctx.var_map[*localidx],
-                        ctx.params_locals_types[*localidx],
+                        mutctx.wasm_local_slice(*localidx),
+                        mutctx.local_types[*localidx],
                         incoming_vartype,
                         expr_builder,
                     );
@@ -409,15 +456,15 @@ fn encode_target_addr_post<H: HeapManager>(
 }
 
 // temporary function until proper local scoping is available to the IR
-fn get_local_roots_for_allocation<H: HeapManager>(
-    ctx: EncodeContext<H>,
+/*fn get_local_roots_for_allocation<H: HeapManager>(
+    mutctx: &MutContext<H>,
 ) -> Box<[(ir::VarType, wasmgen::LocalIdx)]> {
     ctx.params_locals_types
         .iter()
         .cloned()
         .zip(ctx.var_map.iter().cloned())
         .collect()
-}
+}*/
 
 // net wasm stack: [] -> [<irvartype>] where `<irvartype>` is a valid encoding of an object with IR type expr.vartype
 fn encode_expr<H: HeapManager>(
@@ -463,7 +510,9 @@ fn encode_expr<H: HeapManager>(
             // todo!(Only store locals that are in scope at this point, instead of all of them.  This requires modifications ot the IR to get scoped locals.)
             ctx.heap.encode_fixed_allocation(
                 expr.vartype,
-                &get_local_roots_for_allocation(ctx),
+                &mutctx.local_types,
+                &mutctx.local_map,
+                &mutctx.wasm_local_map,
                 &mut mutctx.scratch,
                 expr_builder,
             );
@@ -573,8 +622,8 @@ fn encode_target_value<H: HeapManager>(
                 None => {
                     // `outgoing_vartype` is required to be equivalent or subtype of the source vartype
                     encode_load_local(
-                        ctx.var_map[*localidx],
-                        ctx.params_locals_types[*localidx],
+                        mutctx.wasm_local_slice(*localidx),
+                        mutctx.local_types[*localidx],
                         outgoing_vartype,
                         expr_builder,
                     );
@@ -582,14 +631,14 @@ fn encode_target_value<H: HeapManager>(
                 Some(struct_field) => {
                     // For Source1, structs can only arise from closures and local variables, so their types must already be known at compilation time.
                     assert!(
-                        ctx.params_locals_types[*localidx]
+                        mutctx.local_types[*localidx]
                             == ir::VarType::StructT {
                                 typeidx: struct_field.typeidx
                             },
                         "ICE: IR->Wasm: Struct type incorrect or not proved at compilation time"
                     );
                     // net wasm stack: [] -> [struct_ptr]
-                    expr_builder.local_get(ctx.var_map[*localidx]);
+                    expr_builder.local_get(mutctx.wasm_local_slice(*localidx)[0]);
 
                     // net wasm stack: [struct_ptr] -> [<outgoing_vartype>]
                     fn load_inner_local<H: HeapManager>(
@@ -795,7 +844,9 @@ fn encode_returnable_appl<H: HeapManager>(
 
         // encode local roots prologue
         ctx.heap.encode_local_roots_prologue(
-            &get_local_roots_for_allocation(ctx),
+            &mutctx.local_types,
+            &mutctx.local_map,
+            &mutctx.wasm_local_map,
             &mut mutctx.scratch,
             expr_builder,
         );
@@ -810,7 +861,9 @@ fn encode_returnable_appl<H: HeapManager>(
 
         // encode local roots prologue
         ctx.heap.encode_local_roots_epilogue(
-            &get_local_roots_for_allocation(ctx),
+            &mutctx.local_types,
+            &mutctx.local_map,
+            &mutctx.wasm_local_map,
             &mut mutctx.scratch,
             expr_builder,
         );
@@ -859,7 +912,9 @@ fn encode_returnable_direct_appl<H: HeapManager>(
 
         // encode local roots prologue
         ctx.heap.encode_local_roots_prologue(
-            &get_local_roots_for_allocation(ctx),
+            &mutctx.local_types,
+            &mutctx.local_map,
+            &mutctx.wasm_local_map,
             &mut mutctx.scratch,
             expr_builder,
         );
@@ -869,7 +924,9 @@ fn encode_returnable_direct_appl<H: HeapManager>(
 
         // encode local roots prologue
         ctx.heap.encode_local_roots_epilogue(
-            &get_local_roots_for_allocation(ctx),
+            &mutctx.local_types,
+            &mutctx.local_map,
+            &mutctx.wasm_local_map,
             &mut mutctx.scratch,
             expr_builder,
         );
@@ -910,7 +967,9 @@ fn encode_void_direct_appl<H: HeapManager>(
 
         // encode local roots prologue
         ctx.heap.encode_local_roots_prologue(
-            &get_local_roots_for_allocation(ctx),
+            &mutctx.local_types,
+            &mutctx.local_map,
+            &mutctx.wasm_local_map,
             &mut mutctx.scratch,
             expr_builder,
         );
@@ -920,7 +979,9 @@ fn encode_void_direct_appl<H: HeapManager>(
 
         // encode local roots prologue
         ctx.heap.encode_local_roots_epilogue(
-            &get_local_roots_for_allocation(ctx),
+            &mutctx.local_types,
+            &mutctx.local_map,
+            &mutctx.wasm_local_map,
             &mut mutctx.scratch,
             expr_builder,
         );

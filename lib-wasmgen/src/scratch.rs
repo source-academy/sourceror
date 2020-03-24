@@ -73,6 +73,22 @@ impl<'a> Scratch<'a> {
     pub fn pop_f64(&mut self) {
         Self::pop_impl(&mut self.f64_idx)
     }
+    pub fn push(&mut self, valtype: ValType) -> LocalIdx {
+        match valtype {
+            ValType::I32 => self.push_i32(),
+            ValType::I64 => self.push_i64(),
+            ValType::F32 => self.push_f32(),
+            ValType::F64 => self.push_f64(),
+        }
+    }
+    pub fn pop(&mut self, valtype: ValType) {
+        match valtype {
+            ValType::I32 => self.pop_i32(),
+            ValType::I64 => self.pop_i64(),
+            ValType::F32 => self.pop_f32(),
+            ValType::F64 => self.pop_f64(),
+        }
+    }
     fn push_impl(
         locals_builder: &mut LocalsManager,
         valtype: ValType,
