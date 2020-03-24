@@ -714,7 +714,7 @@ fn encode_returnable_prim_inst<H: HeapManager>(
                 ir::PrimInst::NumberMul => expr_builder.f64_mul(),
                 ir::PrimInst::NumberDiv => expr_builder.f64_div(),
                 ir::PrimInst::NumberRem => {
-                    // webassembly has not floating point remainder operation...
+                    // webassembly has no floating point remainder operation...
                     // we have to manually do it
                     // https://stackoverflow.com/questions/26342823/implementation-of-fmod-function
                     // note: not very numerically rigourous, there might be some rounding errors
@@ -745,7 +745,7 @@ fn encode_returnable_prim_inst<H: HeapManager>(
                 ir::PrimInst::BooleanAnd => expr_builder.i32_and(),
                 ir::PrimInst::BooleanOr => expr_builder.i32_or(),
                 ir::PrimInst::BooleanNot => {
-                    // webassembly has not boolean negation operation...
+                    // webassembly has no boolean negation operation...
                     // we have to manually do it
                     // not(0) -> 1
                     // not(1) -> 0
@@ -755,7 +755,13 @@ fn encode_returnable_prim_inst<H: HeapManager>(
                     expr_builder.i32_xor();
                 }
                 ir::PrimInst::NumberNegate => expr_builder.f64_neg(),
-                ir::PrimInst::StringAdd => {
+                ir::PrimInst::StringAdd
+                | ir::PrimInst::StringEq
+                | ir::PrimInst::StringNeq
+                | ir::PrimInst::StringGt
+                | ir::PrimInst::StringLt
+                | ir::PrimInst::StringGe
+                | ir::PrimInst::StringLe => {
                     // todo!(this function needs the dynamic allocation, so if it is in a separate function it will need to encode_local_roots_prologue/encode_local_roots_epilogue)
                     unimplemented!("String needs GC support, not implemented yet");
                 }
