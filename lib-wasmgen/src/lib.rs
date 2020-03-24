@@ -260,7 +260,7 @@ impl Default for TypeSection {
     }
 }
 
-impl std::ops::Add<u32> for LocalIdx {
+/*impl std::ops::Add<u32> for LocalIdx {
     type Output = Self;
     fn add(self, other: u32) -> Self {
         Self {
@@ -294,4 +294,4 @@ impl std::ops::Sub<u32> for GlobalIdx {
             idx: self.idx - other,
         }
     }
-}
+}*/

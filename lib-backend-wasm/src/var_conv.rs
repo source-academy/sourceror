@@ -3,7 +3,7 @@ use wasmgen::Scratch;
 // stores a ir variable from the protected stack to local variable(s)
 // net wasm stack: [<ir_source_vartype>] -> []
 pub fn encode_store_local(
-    wasm_localidx: wasmgen::LocalIdx,
+    wasm_localidx: &[wasmgen::LocalIdx],
     ir_dest_vartype: ir::VarType,
     ir_source_vartype: ir::VarType,
     expr_builder: &mut wasmgen::ExprBuilder,
@@ -11,63 +11,69 @@ pub fn encode_store_local(
     if ir_dest_vartype == ir_source_vartype {
         match ir_dest_vartype {
             ir::VarType::Any | ir::VarType::Func => {
-                expr_builder.local_set(wasm_localidx);
-                expr_builder.local_set(wasm_localidx + 1);
+                assert!(wasm_localidx.len() == 2);
+                expr_builder.local_set(wasm_localidx[0]);
+                expr_builder.local_set(wasm_localidx[1]);
             }
             ir::VarType::Number | ir::VarType::Boolean | ir::VarType::String => {
-                expr_builder.local_set(wasm_localidx);
+                assert!(wasm_localidx.len() == 1);
+                expr_builder.local_set(wasm_localidx[0]);
             }
             ir::VarType::StructT { typeidx: _ } => {
-                expr_builder.local_set(wasm_localidx);
+                assert!(wasm_localidx.len() == 1);
+                expr_builder.local_set(wasm_localidx[0]);
             }
-            ir::VarType::Undefined => {}
+            ir::VarType::Undefined => {
+                assert!(wasm_localidx.len() == 0);
+            }
             ir::VarType::Unassigned => {
                 panic!("ICE: IR->Wasm: Local static vartype cannot be unassigned");
             }
         }
     } else if ir_dest_vartype == ir::VarType::Any {
         // writing from a specific type to the Any type
+        assert!(wasm_localidx.len() == 2);
         match ir_source_vartype {
             ir::VarType::Any => {
                 panic!("ICE");
             }
             ir::VarType::Undefined => {
                 expr_builder.i32_const(ir_source_vartype.tag());
-                expr_builder.local_set(wasm_localidx);
+                expr_builder.local_set(wasm_localidx[0]);
             }
             ir::VarType::Unassigned => {
                 panic!("ICE: IR->Wasm: Cannot assign to local from unassigned value");
             }
             ir::VarType::Number => {
                 expr_builder.i32_const(ir_source_vartype.tag());
-                expr_builder.local_set(wasm_localidx);
+                expr_builder.local_set(wasm_localidx[0]);
                 expr_builder.i64_reinterpret_f64(); // convert f64 to i64
-                expr_builder.local_set(wasm_localidx + 1);
+                expr_builder.local_set(wasm_localidx[1]);
             }
             ir::VarType::Boolean | ir::VarType::String => {
                 expr_builder.i32_const(ir_source_vartype.tag());
-                expr_builder.local_set(wasm_localidx);
+                expr_builder.local_set(wasm_localidx[0]);
                 expr_builder.i64_extend_i32_u(); // convert i32 to i64
-                expr_builder.local_set(wasm_localidx + 1);
+                expr_builder.local_set(wasm_localidx[1]);
             }
             ir::VarType::StructT { typeidx: _ } => {
                 expr_builder.i32_const(ir_source_vartype.tag());
-                expr_builder.local_set(wasm_localidx);
+                expr_builder.local_set(wasm_localidx[0]);
                 expr_builder.i64_extend_i32_u(); // convert i32 to i64
-                expr_builder.local_set(wasm_localidx + 1);
+                expr_builder.local_set(wasm_localidx[1]);
             }
             ir::VarType::Func => {
                 expr_builder.i32_const(ir_source_vartype.tag());
-                expr_builder.local_set(wasm_localidx);
+                expr_builder.local_set(wasm_localidx[0]);
                 // the rest of the instructions concats the two i32s from the stack into the i64 local
                 expr_builder.i64_extend_i32_u(); // convert i32 to i64 (index in table)
-                expr_builder.local_set(wasm_localidx + 1);
+                expr_builder.local_set(wasm_localidx[1]);
                 expr_builder.i64_extend_i32_u(); // convert i32 to i64 (ptr to closure)
                 expr_builder.i64_const(32);
                 expr_builder.i64_shl();
-                expr_builder.local_get(wasm_localidx + 1);
+                expr_builder.local_get(wasm_localidx[1]);
                 expr_builder.i64_or();
-                expr_builder.local_set(wasm_localidx + 1);
+                expr_builder.local_set(wasm_localidx[1]);
             }
         }
     } else {
@@ -215,7 +221,7 @@ pub fn encode_store_memory(
 // loads a ir variable into the protected stack from local variable(s)
 // net wasm stack: [] -> [<outgoing_vartype>]
 pub fn encode_load_local(
-    wasm_localidx: wasmgen::LocalIdx,
+    wasm_localidx: &[wasmgen::LocalIdx],
     ir_local_vartype: ir::VarType,
     ir_outgoing_vartype: ir::VarType,
     expr_builder: &mut wasmgen::ExprBuilder,
@@ -223,22 +229,28 @@ pub fn encode_load_local(
     if ir_local_vartype == ir_outgoing_vartype {
         match ir_local_vartype {
             ir::VarType::Any | ir::VarType::Func => {
-                expr_builder.local_get(wasm_localidx + 1);
-                expr_builder.local_get(wasm_localidx);
+                assert!(wasm_localidx.len() == 2);
+                expr_builder.local_get(wasm_localidx[1]);
+                expr_builder.local_get(wasm_localidx[0]);
             }
             ir::VarType::Number | ir::VarType::Boolean | ir::VarType::String => {
-                expr_builder.local_get(wasm_localidx);
+                assert!(wasm_localidx.len() == 1);
+                expr_builder.local_get(wasm_localidx[0]);
             }
             ir::VarType::StructT { typeidx: _ } => {
-                expr_builder.local_get(wasm_localidx);
+                assert!(wasm_localidx.len() == 1);
+                expr_builder.local_get(wasm_localidx[0]);
             }
-            ir::VarType::Undefined => {}
+            ir::VarType::Undefined => {
+                assert!(wasm_localidx.len() == 0);
+            }
             ir::VarType::Unassigned => {
                 panic!("ICE: IR->Wasm: Local static vartype cannot be unassigned");
             }
         }
     } else if ir_local_vartype == ir::VarType::Any {
         // loading from Any type to a specific type
+        assert!(wasm_localidx.len() == 2);
         match ir_outgoing_vartype {
             ir::VarType::Any => {
                 panic!("ICE");
@@ -248,25 +260,25 @@ pub fn encode_load_local(
                 panic!("ICE: IR->Wasm: Cannot load from unassigned local");
             }
             ir::VarType::Number => {
-                expr_builder.local_get(wasm_localidx + 1);
+                expr_builder.local_get(wasm_localidx[1]);
                 expr_builder.f64_reinterpret_i64(); // convert i64 to f64
             }
             ir::VarType::Boolean | ir::VarType::String => {
-                expr_builder.local_get(wasm_localidx + 1);
+                expr_builder.local_get(wasm_localidx[1]);
                 expr_builder.i32_wrap_i64(); // convert i64 to i32
             }
             ir::VarType::StructT { typeidx: _ } => {
-                expr_builder.local_get(wasm_localidx + 1);
+                expr_builder.local_get(wasm_localidx[1]);
                 expr_builder.i32_wrap_i64(); // convert i64 to i32
             }
             ir::VarType::Func => {
                 // get high bits into i32
-                expr_builder.local_get(wasm_localidx + 1);
+                expr_builder.local_get(wasm_localidx[1]);
                 expr_builder.i64_const(32);
                 expr_builder.i64_shr_u();
                 expr_builder.i32_wrap_i64();
                 // get low bits into i32
-                expr_builder.local_get(wasm_localidx + 1);
+                expr_builder.local_get(wasm_localidx[1]);
                 expr_builder.i32_wrap_i64();
             }
         }
