@@ -4,6 +4,8 @@ use super::gc::HeapManager;
  */
 use wasmgen::Scratch;
 
+use crate::Options;
+
 use super::var_conv::*;
 
 struct EncodeContext<'c, 'd, 'e, 'f, 'g, Heap: HeapManager> {
@@ -14,7 +16,9 @@ struct EncodeContext<'c, 'd, 'e, 'f, 'g, Heap: HeapManager> {
     struct_field_byte_offsets: &'d [Box<[u32]>], // has same sizes as `struct_types`, but instead stores the byte offset of each field from the beginning of the struct
     funcs: &'e [ir::Func], // ir functions, so that callers can check the param type of return type
     wasm_funcidxs: &'f [wasmgen::FuncIdx], // mapping from ir::FuncIdx to wasmgen::FuncIdx (used when we need to invoke a DirectAppl)
+    stackptr: wasmgen::GlobalIdx,
     heap: &'g Heap,
+    options: Options, // Compilation options (it implements Copy)
 }
 
 // Have to implement Copy and Clone manually, because #[derive(Copy, Clone)] doesn't work for generic types like Heap
@@ -90,9 +94,13 @@ impl<'a> ModuleEncodeWrapper<'a> {
         &mut self,
         ir_params: &[ir::VarType],
         ir_result: Option<ir::VarType>,
+        use_wasm_multi_value_feature: bool,
     ) -> wasmgen::TypeIdx {
         let (wasm_params, _, _) = encode_param_list(ir_params);
-        let wasm_functype = wasmgen::FuncType::new(wasm_params, encode_result(ir_result));
+        let wasm_functype = wasmgen::FuncType::new(
+            wasm_params,
+            encode_result(ir_result, use_wasm_multi_value_feature),
+        );
         self.add_wasm_type(wasm_functype)
     }
 }
@@ -102,7 +110,9 @@ pub fn encode_funcs<Heap: HeapManager>(
     ir_struct_types: &[Box<[ir::VarType]>],
     ir_struct_field_byte_offsets: &[Box<[u32]>],
     ir_entry_point_funcidx: ir::FuncIdx,
+    globalidx_stackptr: wasmgen::GlobalIdx,
     heap: &Heap,
+    options: Options,
     wasm_module: &mut wasmgen::WasmModule,
 ) {
     struct WasmRegistry {
@@ -121,10 +131,12 @@ pub fn encode_funcs<Heap: HeapManager>(
             .map(|ir_func| {
                 let (wasm_param_valtypes, wasm_param_map, param_map) =
                     encode_param_list(&ir_func.params);
-                let wasm_functype =
-                    wasmgen::FuncType::new(wasm_param_valtypes, encode_result(ir_func.result));
+                let wasm_functype = wasmgen::FuncType::new(
+                    wasm_param_valtypes,
+                    encode_result(ir_func.result, options.wasm_multi_value),
+                );
                 let (wasm_typeidx, wasm_funcidx) = wasm_module.register_func(&wasm_functype);
-                let mut code_builder = wasmgen::CodeBuilder::new(wasm_functype);
+                let code_builder = wasmgen::CodeBuilder::new(wasm_functype);
                 (
                     WasmRegistry {
                         typeidx: wasm_typeidx,
@@ -156,7 +168,9 @@ pub fn encode_funcs<Heap: HeapManager>(
                     struct_field_byte_offsets: ir_struct_field_byte_offsets,
                     funcs: ir_funcs,
                     wasm_funcidxs: &wasm_funcidxs,
+                    stackptr: globalidx_stackptr,
                     heap: heap,
+                    options: options,
                 };
                 let mut mutctx = MutContext {
                     scratch: scratch,
@@ -212,12 +226,20 @@ fn encode_param_list(
     )
 }
 
-fn encode_result(ir_results: Option<ir::VarType>) -> Box<[wasmgen::ValType]> {
-    ir_results
+fn encode_result(
+    ir_results: Option<ir::VarType>,
+    use_wasm_multi_value_feature: bool,
+) -> Box<[wasmgen::ValType]> {
+    let ret: Box<[wasmgen::ValType]> = ir_results
         .into_iter()
         .flat_map(|ir_result| encode_vartype(ir_result).iter())
         .cloned()
-        .collect()
+        .collect();
+    if ret.len() <= 1 || use_wasm_multi_value_feature {
+        ret
+    } else {
+        Box::new([])
+    }
 }
 
 fn encode_vartype(ir_vartype: ir::VarType) -> &'static [wasmgen::ValType] {
@@ -286,9 +308,17 @@ fn encode_statement<H: HeapManager>(
                 Some(ret) => {
                     // net wasm stack: [] -> [<expr.vartype>]
                     encode_expr(expr, ctx, mutctx, expr_builder);
-                    // net wasm stack: [<expr.vartype>] -> [<ctx.return_type.unwrap()>]
-                    encode_widening_operation(ret, expr.vartype, &mut mutctx.scratch, expr_builder);
-                    // return the value on the stack (which now has the correct type)
+
+                    // net wasm stack: [<expr.vartype>] -> [<return_calling_conv(ctx.return_type.unwrap())>]
+                    encode_return_calling_conv(
+                        ret,
+                        expr.vartype,
+                        ctx.options.wasm_multi_value,
+                        ctx.stackptr,
+                        &mut mutctx.scratch,
+                        expr_builder,
+                    );
+                    // return the value on the stack (or in the unprotected stack) (which now has the correct type)
                     expr_builder.return_();
                 }
             }
@@ -853,9 +883,11 @@ fn encode_returnable_appl<H: HeapManager>(
 
         // call the function (indirectly)
         expr_builder.call_indirect(
-            mutctx
-                .module_wrapper
-                .add_ir_type(&anys, Some(ir::VarType::Any)),
+            mutctx.module_wrapper.add_ir_type(
+                &anys,
+                Some(ir::VarType::Any),
+                ctx.options.wasm_multi_value,
+            ),
             wasmgen::TableIdx { idx: 0 },
         );
 
@@ -872,12 +904,23 @@ fn encode_returnable_appl<H: HeapManager>(
 
         // call the function (indirectly)
         expr_builder.call_indirect(
-            mutctx
-                .module_wrapper
-                .add_ir_type(&anys, Some(ir::VarType::Any)),
+            mutctx.module_wrapper.add_ir_type(
+                &anys,
+                Some(ir::VarType::Any),
+                ctx.options.wasm_multi_value,
+            ),
             wasmgen::TableIdx { idx: 0 },
         );
     }
+
+    // fetch return values from the location prescribed by the calling convention back to the stack
+    encode_post_appl_calling_conv(
+        ir::VarType::Any,
+        ctx.options.wasm_multi_value,
+        ctx.stackptr,
+        &mut mutctx.scratch,
+        expr_builder,
+    );
 
     mutctx.scratch.pop_i32();
 }
@@ -936,6 +979,15 @@ fn encode_returnable_direct_appl<H: HeapManager>(
         // call the function
         expr_builder.call(ctx.wasm_funcidxs[funcidx]);
     }
+
+    // fetch return values from the location prescribed by the calling convention back to the stack
+    encode_post_appl_calling_conv(
+        return_type,
+        ctx.options.wasm_multi_value,
+        ctx.stackptr,
+        &mut mutctx.scratch,
+        expr_builder,
+    );
 }
 
 // Like `encode_returnable_direct_appl`, but the encoded function is guaranteed to never return.
@@ -1022,108 +1074,93 @@ fn encode_args_to_call_function<H: HeapManager>(
     }
 }
 
-// net wasm stack: [<source_type>] -> [<target_type>]
-fn encode_widening_operation(
+// Widens the ir value on the stack into the value for returning.
+// Then places the value for returning into the correct location as specified by the calling convention:
+// If the wasm representation of this value only uses one wasm ValType, or multi-valued returns are enabled, then leave it on the stack
+// Otherwise, write it into the unprotected stack
+// net wasm stack: [source_type] -> [return_calling_conv(target_type)]
+fn encode_return_calling_conv(
     target_type: ir::VarType,
     source_type: ir::VarType,
+    use_wasm_multi_value_feature: bool,
+    stackptr: wasmgen::GlobalIdx,
     scratch: &mut Scratch,
     expr_builder: &mut wasmgen::ExprBuilder,
 ) {
-    if target_type == source_type {
-        // The widening operation is a no-op, because the source type is the same as the target type
-    } else if target_type == ir::VarType::Any {
-        // We are widening from a specific type to Any
-        match source_type {
-            ir::VarType::Any => {
-                panic!("ICE");
-            }
-            ir::VarType::Undefined => {
-                expr_builder.i64_const(0); // unused data
-                expr_builder.i32_const(source_type.tag());
-            }
-            ir::VarType::Unassigned => {
-                panic!("ICE: IR->Wasm: Cannot push to stack from unassigned value");
-            }
-            ir::VarType::Number => {
-                expr_builder.i64_reinterpret_f64(); // convert f64 to i64
-                expr_builder.i32_const(source_type.tag());
-            }
-            ir::VarType::Boolean | ir::VarType::String => {
-                expr_builder.i64_extend_i32_u(); // convert i32 to i64
-                expr_builder.i32_const(source_type.tag());
-            }
-            ir::VarType::StructT { typeidx: _ } => {
-                expr_builder.i64_extend_i32_u(); // convert i32 to i64
-                expr_builder.i32_const(source_type.tag());
-            }
-            ir::VarType::Func => {
-                let localidx_tableidx: wasmgen::LocalIdx = scratch.push_i32();
-                expr_builder.local_set(localidx_tableidx);
-                expr_builder.i64_extend_i32_u(); // convert i32 to i64 (ptr to closure)
-                expr_builder.i64_const(32);
-                expr_builder.i64_shl();
-                expr_builder.local_get(localidx_tableidx);
-                expr_builder.i64_extend_i32_u(); // convert i32 to i64 (index in table)
-                expr_builder.i64_or();
-                expr_builder.i32_const(source_type.tag());
-                scratch.pop_i32();
-            }
-        }
+    if encode_vartype(target_type).len() <= 1 || use_wasm_multi_value_feature {
+        // Should put on stack
+
+        // net wasm stack: [source_type] -> [target_type]
+        encode_widening_operation(target_type, source_type, scratch, expr_builder);
     } else {
-        panic!("Widening operation target not a supertype of source");
+        // Should put on unprotected stack
+        // Recall that the unprotected stack grows downward
+        // The convention is to put the data at [stackptr-size, stackptr) where `size` is the size of the target type
+
+        // We need to retrieve the source value(s) into locals so that we can put the pointer under it on the stack.
+
+        // temporary storage for source value
+        let source_val: Box<[wasmgen::LocalIdx]> = encode_vartype(source_type)
+            .iter()
+            .copied()
+            .map(|valtype| scratch.push(valtype))
+            .collect();
+
+        // pop the source value from the stack
+        // net wasm stack: [source_type] -> []
+        encode_store_local(&source_val, source_type, source_type, expr_builder);
+
+        // return_ptr = stackptr - size
+        // net wasm stack: [] -> [return_ptr]
+        expr_builder.global_get(stackptr);
+        expr_builder.i32_const(size_in_memory(target_type) as i32);
+        expr_builder.i32_sub();
+
+        // push the source value back onto the stack
+        // net wasm stack: [] -> [source_type]
+        encode_load_local(&source_val, source_type, source_type, expr_builder);
+
+        // delete temporary storage for source value... (backwards because it is a stack)
+        encode_vartype(source_type)
+            .iter()
+            .copied()
+            .rev()
+            .for_each(|valtype| scratch.pop(valtype));
+
+        // write the source value to memory
+        // net wasm stack: [return_ptr, source_type] -> []
+        encode_store_memory(0, target_type, source_type, scratch, expr_builder);
     }
 }
 
-// net wasm stack: [<source_type>] -> [<target_type>]
-fn encode_narrowing_operation(
-    target_type: ir::VarType,
-    source_type: ir::VarType,
+// Loads the return value from the previously-called function onto the stack.
+// If the wasm representation of this value only uses one wasm ValType, or multi-valued returns are enabled, then this function does nothing.
+// Otherwise, this function loads the return value from the unprotected stack.
+// net wasm stack: [return_calling_conv(vartype)] -> [vartype]
+fn encode_post_appl_calling_conv(
+    vartype: ir::VarType,
+    use_wasm_multi_value_feature: bool,
+    stackptr: wasmgen::GlobalIdx,
     scratch: &mut Scratch,
     expr_builder: &mut wasmgen::ExprBuilder,
 ) {
-    if target_type == source_type {
-        // The narrowing operation is a no-op, because the source type is the same as the target type
-    } else if source_type == ir::VarType::Any {
-        // We are narrowing from Any to a specific type
-        // emit type check (trap if not correct)
+    if encode_vartype(vartype).len() <= 1 || use_wasm_multi_value_feature {
+        // Return value is on the stack already
 
-        // net wasm stack: [i64(data), i32(tag)] -> [i64(data)]
-        expr_builder.i32_const(target_type.tag());
-        expr_builder.i32_ne();
-        expr_builder.if_(&[]);
-        expr_builder.unreachable();
-        expr_builder.end();
-
-        // now the i64(data) is guaranteed to actually contain the target source_type
-        // net wasm stack: [i64(data)] -> [<target_type>]
-        match target_type {
-            ir::VarType::Any => {
-                panic!("ICE");
-            }
-            ir::VarType::Undefined => {
-                expr_builder.drop(); // i64(data) unused
-            }
-            ir::VarType::Unassigned => {
-                panic!("ICE: IR->Wasm: Cannot push unassigned value to stack");
-            }
-            ir::VarType::Number => {
-                expr_builder.f64_reinterpret_i64(); // convert i64 to f64
-            }
-            ir::VarType::Boolean | ir::VarType::String | ir::VarType::StructT { typeidx: _ } => {
-                expr_builder.i32_wrap_i64(); // convert i64 to i32
-            }
-            ir::VarType::Func => {
-                let localidx_data: wasmgen::LocalIdx = scratch.push_i64();
-                expr_builder.local_tee(localidx_data);
-                expr_builder.i64_const(32);
-                expr_builder.i64_shr_u();
-                expr_builder.i32_wrap_i64();
-                expr_builder.local_get(localidx_data);
-                expr_builder.i32_wrap_i64();
-                scratch.pop_i64();
-            }
-        }
+        // Do nothing
     } else {
-        panic!("Narrowing operation source not a supertype of target");
+        // Return value is on the unprotected stack
+        // Recall that the unprotected stack grows downward
+        // The convention is to put the data at [stackptr-size, stackptr) where `size` is the size of the target type
+
+        // return_ptr = stackptr - size
+        // net wasm stack: [] -> [return_ptr]
+        expr_builder.global_get(stackptr);
+        expr_builder.i32_const(size_in_memory(vartype) as i32);
+        expr_builder.i32_sub();
+
+        // write the source value to memory
+        // net wasm stack: [return_ptr, source_type] -> []
+        encode_store_memory(0, vartype, vartype, scratch, expr_builder);
     }
 }
