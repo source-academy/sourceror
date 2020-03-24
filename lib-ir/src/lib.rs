@@ -223,6 +223,12 @@ pub enum PrimInst {
     BooleanNot,
     NumberNegate,
     StringAdd,
+    StringEq,
+    StringNeq,
+    StringGt,
+    StringLt,
+    StringGe,
+    StringLe,
     Trap, // used for runtime errors (e.g. type errors).  args should currently be empty, but subject to change.  Return type is `undefined`.
 }
 
@@ -307,16 +313,19 @@ impl PrimInst {
             | Self::NumberLt
             | Self::NumberGe
             | Self::NumberLe => (&[VarType::Number, VarType::Number], Some(VarType::Boolean)),
-            Self::BooleanEq
-            | Self::BooleanNeq
-            | Self::BooleanAnd
-            | Self::BooleanOr
-            | Self::BooleanNot => (
+            Self::BooleanEq | Self::BooleanNeq | Self::BooleanAnd | Self::BooleanOr => (
                 &[VarType::Boolean, VarType::Boolean],
                 Some(VarType::Boolean),
             ),
+            Self::BooleanNot => (&[VarType::Boolean], Some(VarType::Boolean)),
             Self::NumberNegate => (&[VarType::Number], Some(VarType::Number)),
             Self::StringAdd => (&[VarType::String, VarType::String], Some(VarType::String)),
+            Self::StringEq
+            | Self::StringNeq
+            | Self::StringGt
+            | Self::StringLt
+            | Self::StringGe
+            | Self::StringLe => (&[VarType::String, VarType::String], Some(VarType::Boolean)),
             Self::Trap => (&[], None),
         }
     }
