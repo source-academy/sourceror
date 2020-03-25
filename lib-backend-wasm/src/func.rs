@@ -4,6 +4,7 @@ use super::gc::HeapManager;
  */
 use wasmgen::Scratch;
 
+use crate::string_prim_inst;
 use crate::Options;
 
 use super::var_conv::*;
@@ -537,7 +538,7 @@ fn encode_expr<H: HeapManager>(
                 expr.vartype == ir::VarType::StructT { typeidx: *typeidx },
                 "ICE: IR->Wasm: PrimStructT does not have correct type, or typeidx is incorrect"
             );
-            // todo!(Only store locals that are in scope at this point, instead of all of them.  This requires modifications ot the IR to get scoped locals.)
+            // todo!(Only store locals that are in scope at this point, instead of all of them.)
             ctx.heap.encode_fixed_allocation(
                 expr.vartype,
                 &mutctx.local_types,
@@ -785,15 +786,26 @@ fn encode_returnable_prim_inst<H: HeapManager>(
                     expr_builder.i32_xor();
                 }
                 ir::PrimInst::NumberNegate => expr_builder.f64_neg(),
-                ir::PrimInst::StringAdd
-                | ir::PrimInst::StringEq
-                | ir::PrimInst::StringNeq
-                | ir::PrimInst::StringGt
-                | ir::PrimInst::StringLt
-                | ir::PrimInst::StringGe
-                | ir::PrimInst::StringLe => {
-                    // todo!(this function needs the dynamic allocation, so if it is in a separate function it will need to encode_local_roots_prologue/encode_local_roots_epilogue)
+                ir::PrimInst::StringAdd => {
                     unimplemented!("String needs GC support, not implemented yet");
+                }
+                ir::PrimInst::StringEq => {
+                    string_prim_inst::encode_string_eq(&mut mutctx.scratch, expr_builder);
+                }
+                ir::PrimInst::StringNeq => {
+                    string_prim_inst::encode_string_ne(&mut mutctx.scratch, expr_builder);
+                }
+                ir::PrimInst::StringGt => {
+                    string_prim_inst::encode_string_gt(&mut mutctx.scratch, expr_builder);
+                }
+                ir::PrimInst::StringLt => {
+                    string_prim_inst::encode_string_lt(&mut mutctx.scratch, expr_builder);
+                }
+                ir::PrimInst::StringGe => {
+                    string_prim_inst::encode_string_ge(&mut mutctx.scratch, expr_builder);
+                }
+                ir::PrimInst::StringLe => {
+                    string_prim_inst::encode_string_le(&mut mutctx.scratch, expr_builder);
                 }
                 ir::PrimInst::Trap => {
                     // causes a trap (crashes the webassembly instance):
