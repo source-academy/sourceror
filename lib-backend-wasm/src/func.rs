@@ -18,6 +18,7 @@ struct EncodeContext<'c, 'd, 'e, 'f, 'g, Heap: HeapManager> {
     funcs: &'e [ir::Func], // ir functions, so that callers can check the param type of return type
     wasm_funcidxs: &'f [wasmgen::FuncIdx], // mapping from ir::FuncIdx to wasmgen::FuncIdx (used when we need to invoke a DirectAppl)
     stackptr: wasmgen::GlobalIdx,
+    memidx: wasmgen::MemIdx,
     heap: &'g Heap,
     options: Options, // Compilation options (it implements Copy)
 }
@@ -112,6 +113,7 @@ pub fn encode_funcs<Heap: HeapManager>(
     ir_struct_field_byte_offsets: &[Box<[u32]>],
     ir_entry_point_funcidx: ir::FuncIdx,
     globalidx_stackptr: wasmgen::GlobalIdx,
+    memidx: wasmgen::MemIdx,
     heap: &Heap,
     options: Options,
     wasm_module: &mut wasmgen::WasmModule,
@@ -170,6 +172,7 @@ pub fn encode_funcs<Heap: HeapManager>(
                     funcs: ir_funcs,
                     wasm_funcidxs: &wasm_funcidxs,
                     stackptr: globalidx_stackptr,
+                    memidx: memidx,
                     heap: heap,
                     options: options,
                 };
@@ -531,7 +534,7 @@ fn encode_expr<H: HeapManager>(
                 expr.vartype == ir::VarType::String,
                 "ICE: IR->Wasm: PrimString does not have type string"
             );
-            unimplemented!("PrimString needs GC support, unimplemented");
+            todo!("PrimString needs GC support, unimplemented");
         }
         ir::ExprKind::PrimStructT { typeidx } => {
             assert!(
@@ -787,7 +790,16 @@ fn encode_returnable_prim_inst<H: HeapManager>(
                 }
                 ir::PrimInst::NumberNegate => expr_builder.f64_neg(),
                 ir::PrimInst::StringAdd => {
-                    unimplemented!("String needs GC support, not implemented yet");
+                    string_prim_inst::encode_string_add(
+                        ctx.memidx,
+                        ctx.heap,
+                        ctx.options.wasm_bulk_memory,
+                        &mutctx.local_types,
+                        &mutctx.local_map,
+                        &mutctx.wasm_local_map,
+                        &mut mutctx.scratch,
+                        expr_builder,
+                    );
                 }
                 ir::PrimInst::StringEq => {
                     string_prim_inst::encode_string_eq(&mut mutctx.scratch, expr_builder);

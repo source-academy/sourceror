@@ -6,8 +6,12 @@ StringAdd will allocate new memory for the returned string.
 The six other primitive instructions do not allocate any memory.
 */
 
+use super::gc::HeapManager;
+use ir::VarType;
 use wasmgen::ExprBuilder;
+use wasmgen::LocalIdx;
 use wasmgen::MemArg;
+use wasmgen::MemIdx;
 use wasmgen::Scratch;
 use wasmgen::ValType;
 
@@ -590,4 +594,201 @@ pub fn encode_string_le(scratch: &mut Scratch, expr_builder: &mut ExprBuilder) {
         scratch,
         expr_builder,
     );
+}
+
+// Concatenates two strings into a new string.
+// The original strings are left unchanged.
+// net wasm stack [string_1(i32), string_2(i32)] -> [ret(i32)]
+pub fn encode_string_add<H: HeapManager>(
+    memidx: MemIdx,
+    heap: &H,
+    use_wasm_bulk_memory_feature: bool,
+    local_types: &[ir::VarType],
+    local_map: &[usize],
+    wasm_local_map: &[wasmgen::LocalIdx],
+    scratch: &mut Scratch,
+    expr_builder: &mut ExprBuilder,
+) {
+    // Algorithm (when we don't have bulk memory:
+    // Note that we don't actually encode 'return' instructions, because we are part of the caller function.
+    // We simply encode the `break` instruction (with the correct depth parameter) instead.
+    // Note: We move 4 bytes at a time because our memory is 4-byte aligned, so it will be faster.
+    // Code: Without bulk memory wasm feature
+    /*
+    let len_1 = *string_1;
+    let len_2 = *string_2;
+    let new_len = len_1 + len_2;
+    let string_new = new_string(new_len); // string length will already be written
+    let it = string_new + 4;
+    string_1 += 4;
+    let it_end = it + len_1;
+    while it != it_end {
+        *(i8*)it = *(i8*)string_1;
+        string_1 += 1;
+        it += 1;
+    }
+    string_2 += 4;
+    it_end = it + len_2;
+    while it != it_end {
+        *(i8*)it = *(i8*)string_2;
+        string_2 += 1;
+        it += 1;
+    }
+    return string_new;
+    */
+    // Code: With bulk memory wasm feature
+    /*
+    let len_1 = *string_1;
+    let len_2 = *string_2;
+    let new_len = len_1 + len_2;
+    let string_new = new_string(new_len); // string length will already be written
+    memcpy(string_new + 4, string_1 + 4, len_1);
+    memcpy(string_new + 4 + len_1, string_2 + 4, len_2);
+    return string_new;
+    */
+
+    let string_1 = scratch.push_i32();
+    let string_2 = scratch.push_i32();
+    let len_1 = scratch.push_i32();
+    let len_2 = scratch.push_i32();
+    let string_new = scratch.push_i32();
+
+    // let len_1 = *string_1;
+    // let len_2 = *string_2;
+    // net wasm stack: [string_1(i32), string_2(i32)] -> [len_1(i32), len_2(i32)]
+    expr_builder.local_set(string_2);
+    expr_builder.local_tee(string_1);
+    expr_builder.i32_load(MemArg::new4(0));
+    expr_builder.local_tee(len_1);
+    expr_builder.local_get(string_2);
+    expr_builder.i32_load(MemArg::new4(0));
+    expr_builder.local_tee(len_2);
+
+    // let new_len = len_1 + len_2;
+    // let string_new = new_string(new_len);
+    // net wasm stack: [len_1(i32), len_2(i32)] -> [string_new(i32)]
+    expr_builder.i32_add();
+    heap.encode_dynamic_allocation(
+        VarType::String,
+        local_types,
+        local_map,
+        wasm_local_map,
+        scratch,
+        expr_builder,
+    );
+    expr_builder.local_tee(string_new);
+
+    if use_wasm_bulk_memory_feature {
+        let string_new_plus_4 = scratch.push_i32();
+
+        // memcpy(string_new + 4, string_1 + 4, len_1);
+        // net wasm stack: [string_new(i32)] -> []
+        expr_builder.i32_const(4);
+        expr_builder.i32_add();
+        expr_builder.local_tee(string_new_plus_4);
+        expr_builder.local_get(string_1);
+        expr_builder.i32_const(4);
+        expr_builder.i32_add();
+        expr_builder.local_get(len_1);
+        expr_builder.memory_copy(memidx, memidx);
+
+        // memcpy(string_new + 4 + len_1, string_2 + 4, len_2);
+        // net wasm stack: [] -> []
+        expr_builder.local_get(string_new_plus_4);
+        expr_builder.local_get(len_1);
+        expr_builder.i32_add();
+        expr_builder.local_get(string_2);
+        expr_builder.i32_const(4);
+        expr_builder.i32_add();
+        expr_builder.local_get(len_2);
+        expr_builder.memory_copy(memidx, memidx);
+
+        scratch.pop_i32();
+    } else {
+        let it = scratch.push_i32();
+
+        // let it = string_new + 4;
+        // net wasm stack: [string_new(i32)] -> [it(i32)]
+        expr_builder.i32_const(4);
+        expr_builder.i32_add();
+        expr_builder.local_tee(it);
+
+        // net wasm stack: [it(i32)] -> []
+        fn generate_common_part(
+            it: LocalIdx,
+            len: LocalIdx,
+            string: LocalIdx,
+            scratch: &mut Scratch,
+            expr_builder: &mut ExprBuilder,
+        ) {
+            let it_end = scratch.push_i32();
+
+            // net wasm stack: [] -> []
+            expr_builder.local_get(string);
+            expr_builder.i32_const(4);
+            expr_builder.i32_add();
+            expr_builder.local_set(string);
+
+            // let it_end = it + len;
+            // net wasm stack: [it(i32)] -> [it_end(i32)]
+            expr_builder.local_get(len);
+            expr_builder.i32_add();
+            expr_builder.local_tee(it_end);
+
+            // while it != it_end {
+            //     *(i8*)it = *(i8*)string_1;
+            //     string_1 += 1;
+            //     it += 1;
+            // }
+            // net wasm stack: [it_end(i32)] -> []
+            expr_builder.local_get(it);
+            expr_builder.i32_ne();
+            expr_builder.if_(&[]);
+            {
+                expr_builder.loop_(&[]);
+                {
+                    expr_builder.local_get(it);
+                    expr_builder.local_get(string);
+                    expr_builder.i32_load8_u(MemArg::new1(0));
+                    expr_builder.i32_store8(MemArg::new1(0));
+                    expr_builder.local_get(string);
+                    expr_builder.i32_const(1);
+                    expr_builder.i32_add();
+                    expr_builder.local_set(string);
+                    expr_builder.local_get(it);
+                    expr_builder.i32_const(1);
+                    expr_builder.i32_add();
+                    expr_builder.local_tee(it);
+                    expr_builder.local_get(it_end);
+                    expr_builder.i32_ne();
+                    expr_builder.br_if(0);
+                }
+                expr_builder.end();
+            }
+            expr_builder.end();
+
+            scratch.pop_i32();
+        }
+
+        // net wasm stack: [it(i32)] -> []
+        generate_common_part(it, len_1, string_1, scratch, expr_builder);
+
+        // net wasm stack: [] -> [it(i32)]
+        expr_builder.local_get(it);
+
+        // net wasm stack: [it(i32)] -> []
+        generate_common_part(it, len_2, string_2, scratch, expr_builder);
+
+        scratch.pop_i32();
+    }
+
+    // return string_new;
+    // net wasm stack: [] -> [string_new(i32)]
+    expr_builder.local_get(string_new);
+
+    scratch.pop_i32();
+    scratch.pop_i32();
+    scratch.pop_i32();
+    scratch.pop_i32();
+    scratch.pop_i32();
 }

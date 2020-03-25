@@ -140,6 +140,10 @@ enum OpCode {
     I64Store32,
     MemorySize,
     MemoryGrow,
+    MemoryInit,
+    DataDrop,
+    MemoryCopy,
+    MemoryFill,
 
     I32Const,
     I64Const,
@@ -330,6 +334,10 @@ impl OpCode {
             OpCode::I64Store32 => &[0x3E],
             OpCode::MemorySize => &[0x3F],
             OpCode::MemoryGrow => &[0x40],
+            OpCode::MemoryInit => &[0xFC, 0x08],
+            OpCode::DataDrop => &[0xFC, 0x09],
+            OpCode::MemoryCopy => &[0xFC, 0x0A],
+            OpCode::MemoryFill => &[0xFC, 0x0B],
 
             OpCode::I32Const => &[0x41],
             OpCode::I64Const => &[0x42],
@@ -721,6 +729,24 @@ impl ExprBuilder {
     pub fn memory_grow(&mut self, memidx: MemIdx) {
         assert!(memidx.idx == 0, "Wasm 1.0 only allows one memory");
         self.append_opcode(OpCode::MemoryGrow);
+        memidx.wasm_serialize(&mut self.bytecode);
+    }
+    pub fn memory_init(&mut self, memidx: MemIdx) {
+        unimplemented!();
+    }
+    pub fn data_drop(&mut self) {
+        unimplemented!();
+    }
+    pub fn memory_copy(&mut self, dest_memidx: MemIdx, src_memidx: MemIdx) {
+        assert!(dest_memidx.idx == 0, "Wasm 1.0 only allows one memory");
+        assert!(src_memidx.idx == 0, "Wasm 1.0 only allows one memory");
+        self.append_opcode(OpCode::MemoryCopy);
+        dest_memidx.wasm_serialize(&mut self.bytecode);
+        src_memidx.wasm_serialize(&mut self.bytecode);
+    }
+    pub fn memory_fill(&mut self, memidx: MemIdx) {
+        assert!(memidx.idx == 0, "Wasm 1.0 only allows one memory");
+        self.append_opcode(OpCode::MemoryFill);
         memidx.wasm_serialize(&mut self.bytecode);
     }
     pub fn i32_const(&mut self, val: i32) {

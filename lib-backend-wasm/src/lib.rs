@@ -80,7 +80,8 @@ const MEM_STACK_SIZE: u32 = 1 << 4; // 1 MiB of stack space
 // Struct containing compilation options
 #[derive(Default, Copy, Clone)]
 pub struct Options {
-    wasm_multi_value: bool, // Where we can generate code that uses the WebAssembly multi-valued returns proposal
+    wasm_multi_value: bool, // Whether we can generate code that uses the WebAssembly multi-valued returns proposal
+    wasm_bulk_memory: bool, // Whether we can generate code that uses the WebAssembly bulk memory proposal
 }
 
 /**
@@ -148,6 +149,7 @@ fn encode_program(ir_program: &ir::Program, options: Options) -> wasmgen::WasmMo
         &struct_field_byte_offsets,
         ir_program.entry_point,
         globalidx_stackptr,
+        memidx,
         &heap,
         options,
         &mut wasm_module,
