@@ -87,6 +87,9 @@ impl WasmModule {
     ) {
         self.elem_section.add(tableidx, offset, content);
     }
+    pub fn add_data(&mut self, memidx: MemIdx, offset: u32, content: &[u8]) {
+        self.data_section.add(memidx, offset, content);
+	}
 }
 
 impl WasmImportBuilderModule {
@@ -280,6 +283,16 @@ impl ExportSection {
             entity_name: exported_name,
             desc: ExportDesc::Func(funcidx),
         });
+    }
+}
+
+impl DataSection {
+    fn add(&mut self, memidx: MemIdx, offset: u32, content: &[u8]) {
+        self.content.push(Data{
+            mem_idx: memidx,
+            offset: make_init_expr_from_i32(offset as i32),
+            content: content.into()
+		})
     }
 }
 

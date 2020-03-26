@@ -6,26 +6,28 @@ use wasmgen::Scratch;
 
 use crate::string_prim_inst;
 use crate::Options;
+use crate::pre_traverse::ShiftedStringPool;
 
 use super::var_conv::*;
 
-struct EncodeContext<'c, 'd, 'e, 'f, 'g, Heap: HeapManager> {
+struct EncodeContext<'a, 'b, 'c, 'd, 'e, 'f, Heap: HeapManager> {
     // Local to this function
     return_type: Option<ir::VarType>,
     // Global for whole program
-    struct_types: &'c [Box<[ir::VarType]>],
-    struct_field_byte_offsets: &'d [Box<[u32]>], // has same sizes as `struct_types`, but instead stores the byte offset of each field from the beginning of the struct
-    funcs: &'e [ir::Func], // ir functions, so that callers can check the param type of return type
-    wasm_funcidxs: &'f [wasmgen::FuncIdx], // mapping from ir::FuncIdx to wasmgen::FuncIdx (used when we need to invoke a DirectAppl)
+    struct_types: &'a [Box<[ir::VarType]>],
+    struct_field_byte_offsets: &'b [Box<[u32]>], // has same sizes as `struct_types`, but instead stores the byte offset of each field from the beginning of the struct
+    funcs: &'c [ir::Func], // ir functions, so that callers can check the param type of return type
+    wasm_funcidxs: &'d [wasmgen::FuncIdx], // mapping from ir::FuncIdx to wasmgen::FuncIdx (used when we need to invoke a DirectAppl)
     stackptr: wasmgen::GlobalIdx,
     memidx: wasmgen::MemIdx,
-    heap: &'g Heap,
+    heap: &'e Heap,
+    string_pool: &'f ShiftedStringPool,
     options: Options, // Compilation options (it implements Copy)
 }
 
 // Have to implement Copy and Clone manually, because #[derive(Copy, Clone)] doesn't work for generic types like Heap
-impl<'a, 'b, 'c, 'd, 'e, Heap: HeapManager> Copy for EncodeContext<'a, 'b, 'c, 'd, 'e, Heap> {}
-impl<'a, 'b, 'c, 'd, 'e, Heap: HeapManager> Clone for EncodeContext<'a, 'b, 'c, 'd, 'e, Heap> {
+impl<'a, 'b, 'c, 'd, 'e, 'f, Heap: HeapManager> Copy for EncodeContext<'a, 'b, 'c, 'd, 'e, 'f, Heap> {}
+impl<'a, 'b, 'c, 'd, 'e, 'f, Heap: HeapManager> Clone for EncodeContext<'a, 'b, 'c, 'd, 'e, 'f, Heap> {
     fn clone(&self) -> Self {
         *self
     }
@@ -115,6 +117,7 @@ pub fn encode_funcs<Heap: HeapManager>(
     globalidx_stackptr: wasmgen::GlobalIdx,
     memidx: wasmgen::MemIdx,
     heap: &Heap,
+    string_pool: &ShiftedStringPool,
     options: Options,
     wasm_module: &mut wasmgen::WasmModule,
 ) {
@@ -174,6 +177,7 @@ pub fn encode_funcs<Heap: HeapManager>(
                     stackptr: globalidx_stackptr,
                     memidx: memidx,
                     heap: heap,
+                    string_pool: string_pool,
                     options: options,
                 };
                 let mut mutctx = MutContext {
@@ -534,7 +538,7 @@ fn encode_expr<H: HeapManager>(
                 expr.vartype == ir::VarType::String,
                 "ICE: IR->Wasm: PrimString does not have type string"
             );
-            todo!("PrimString needs GC support, unimplemented");
+            expr_builder.i32_const(ctx.string_pool.lookup(val) as i32);
         }
         ir::ExprKind::PrimStructT { typeidx } => {
             assert!(

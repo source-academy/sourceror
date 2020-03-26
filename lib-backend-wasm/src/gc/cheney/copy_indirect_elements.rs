@@ -1,4 +1,5 @@
 use wasmgen::Scratch;
+use super::WASM_PAGE_BITS;
 
 // returns the base table element index from which indirect access should be calculated (i.e. the "table offset")
 // e.g. if we want to access copy_indirect_$i, we should call_indirect with index = (table_offset+i)
@@ -7,6 +8,7 @@ pub fn make_copy_indirect_elements(
     num_structs: usize,
     copy_funcs: &[Option<wasmgen::FuncIdx>],
     tableidx: wasmgen::TableIdx,
+    heap_begin: u32,
 ) -> u32 {
     /*
     // copy_indirect_$i shall exist for all types (except Any)
@@ -24,7 +26,7 @@ pub fn make_copy_indirect_elements(
         } else if constexpr $i is not a ptr (i.e. not StructT or string) {
             // NO-OP
         } else {
-            if (ptr != -1) {
+            if (ptr != -1 && (f is not String || ptr > heap_begin * WASM_PAGE_SIZE)) {
                 if (*(ptr-4)) & I32_MIN { // already copied (we multiplex the MSB of the tag field, since there shouldn't be more than 2^31 types)
                     return to_any_data((*(ptr-4)) << 1); // we store the ptr in the tag, but shifted right by one bit position (valid since ptr are all multiple of 4)
                 } else {
@@ -163,6 +165,8 @@ pub fn make_copy_indirect_elements(
     fn make_struct_function(
         wasm_module: &mut wasmgen::WasmModule,
         copy_func: wasmgen::FuncIdx,
+        heap_begin: u32,
+        is_string: bool,
     ) -> wasmgen::FuncIdx {
         let functype = wasmgen::FuncType::new(
             Box::new([wasmgen::ValType::I64]),
@@ -177,7 +181,7 @@ pub fn make_copy_indirect_elements(
 
             /*
             // Algorithm:
-            if (ptr != -1) {
+            if (ptr != -1 && (f is not String || ptr > heap_begin * WASM_PAGE_SIZE)) {
                 if (*(ptr-4)) & I32_MIN { // already copied (we multiplex the MSB of the tag field, since there shouldn't be more than 2^31 types)
                     return to_any_data((*(ptr-4)) << 1); // we store the ptr in the tag, but shifted right by one bit position (valid since ptr are all multiple of 4)
                 } else {
@@ -197,6 +201,12 @@ pub fn make_copy_indirect_elements(
             // net wasm stack: [ptr(i32)] -> [cond(i32)]
             expr_builder.i32_const(-1);
             expr_builder.i32_ne();
+            if is_string {
+                expr_builder.local_get(localidx_ptr);
+                expr_builder.i32_const((heap_begin << WASM_PAGE_BITS) as i32);
+                expr_builder.i32_gt_u();
+                expr_builder.i32_and();
+			}
 
             // net wasm stack: [cond(i32)] -> [actual_ret(i64)]
             expr_builder.if_(&[wasmgen::ValType::I64]);
@@ -251,6 +261,8 @@ pub fn make_copy_indirect_elements(
     let string_funcidx: wasmgen::FuncIdx = make_struct_function(
         wasm_module,
         copy_funcs[ir::VarType::String.tag() as usize].unwrap(),
+        heap_begin,
+        true,
     );
 
     let copy_indirect_elements: Box<[wasmgen::FuncIdx]> = std::iter::empty()
@@ -264,6 +276,8 @@ pub fn make_copy_indirect_elements(
             make_struct_function(
                 wasm_module,
                 copy_funcs[ir::NUM_PRIMITIVE_TAG_TYPES + n].unwrap(),
+                heap_begin,
+                false,
             )
         }))
         .collect();
