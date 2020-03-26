@@ -89,7 +89,7 @@ impl<'a, 'b, 'c> Cheney<'a, 'b, 'c> {
                         }
                     }
                 } else if constexpr f is a ptr type {
-                    if (ptr != -1) {
+                    if (ptr != -1 && (f is not String || ptr > heap_begin * WASM_PAGE_SIZE)) { // '-1' means not yet assigned pointer, 'ptr <= heap_begin' means it is from global data or unprotected stack (if ptr == heap_begin then it is a zero-sized type that is not GC'ed).
                         if (*(ptr-4)) & I32_MIN { // already copied (we multiplex the MSB of the tag field, since there shouldn't be more than 2^31 types)
                             f.ptr = (*(ptr-4)) << 1; // we store the ptr in the tag, but shifted right by one bit position (valid since ptr are all multiple of 4)
                         } else {
@@ -114,7 +114,7 @@ impl<'a, 'b, 'c> Cheney<'a, 'b, 'c> {
             } else if constexpr $i is not a ptr (i.e. not StructT or string) {
                 // NO-OP
             } else {
-                if (ptr != -1) {
+                if (ptr != -1 && (f is not String || ptr > heap_begin * WASM_PAGE_SIZE)) { // '-1' means not yet assigned pointer, 'ptr <= heap_begin' means it is from global data or unprotected stack (if ptr == heap_begin then it is a zero-sized type that is not GC'ed).
                     if (*(ptr-4)) & I32_MIN { // already copied (we multiplex the MSB of the tag field, since there shouldn't be more than 2^31 types)
                         return to_any_data((*(ptr-4)) << 1); // we store the ptr in the tag, but shifted right by one bit position (valid since ptr are all multiple of 4)
                     } else {
@@ -123,8 +123,9 @@ impl<'a, 'b, 'c> Cheney<'a, 'b, 'c> {
                 } else return -1;
             }
         }
-        // copy_children_$i shall only exist for pointer types (i.e. types that reside on heap), i.e. StructT or String.
+        // copy_$i shall only exist for pointer types (i.e. types that reside on heap), i.e. StructT or String.
         // returns the new location
+        // caller must guarantee that `ptr` is actually in the Gc'ed memory.
         // todo! maybe inline this function.  Copying most stuff (except strings perhaps) will be short.
         fn copy_$i(ptr: i32) -> i32 { // don't generate function for non-ptr types.
             let new_ptr = free_mem_ptr + 4; // skip the tag
@@ -238,6 +239,7 @@ impl<'a, 'b, 'c> Cheney<'a, 'b, 'c> {
             struct_sizes.len(),
             &copy_funcs,
             tableidx,
+            heap_begin,
         );
 
         let copy_children_table_offset: u32 = copy_children_elements::make_copy_children_elements(
@@ -248,6 +250,7 @@ impl<'a, 'b, 'c> Cheney<'a, 'b, 'c> {
             tableidx,
             copy_indirect_table_offset,
             &copy_funcs,
+            heap_begin,
         );
 
         let do_cheney_funcidx: wasmgen::FuncIdx = do_cheney::make_do_cheney(

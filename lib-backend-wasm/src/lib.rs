@@ -45,7 +45,7 @@
  * WebAssembly has one linear memory, growable at the right end (largest index).
  * We divide the memory as such (from 0 (left) to memory.size (right)):
  * [.....(stack).....|.....(global data).....|.....(heap).....]
- * stack: Grows leftward (toward smaller indices).  Contains stuff owned by a function, that needs to have its address taken.
+ * stack: Grows leftward (toward smaller indices), so that a stack overflow will trigger a hard error (instead of silently overwritting our global data).  Contains stuff owned by a function, that needs to have its address taken.
  * global data: Bulk data needed by the whole program.  Stores things like string constants (for pooling).  Size of this partition depends on the program being compiled.
  * heap:  Managed by the GC.  Memory can be increased on the right side with wasm memory.grow instruction.  Only the GC knows how to read the stuff inside here.
  * There is one pre-added global:
@@ -61,6 +61,7 @@ mod func;
 mod gc;
 mod string_prim_inst;
 mod var_conv;
+mod pre_traverse;
 
 use gc::leaky::Leaky;
 use gc::HeapManager;
@@ -73,6 +74,7 @@ use wasmgen::Scratch;
 const IR_FUNCIDX_TABLE_OFFSET: u32 = 0; // If ir::FuncIdx == x, then wasmgen::TableIdx == IR_FUNCIDX_TABLE_OFFSET + x as u32
 
 const WASM_PAGE_SIZE: u32 = 65536;
+const WASM_PAGE_BITS: u32 = WASM_PAGE_SIZE.trailing_zeros();
 
 // In units of WASM_PAGE_SIZE
 const MEM_STACK_SIZE: u32 = 1 << 4; // 1 MiB of stack space
@@ -125,12 +127,20 @@ fn encode_program(ir_program: &ir::Program, options: Options) -> wasmgen::WasmMo
         .unzip()
         .into_boxed_slices();
 
-    // todo!(figure out the size of the global data before processing the functions, so that the GC knows where its heap starts from)
+    // make the string pool from all string constants in the program
+    let pre_traverse::TraverseResult{string_pool} = pre_traverse::pre_traverse_funcs(&ir_program.funcs);
+    let (shifted_string_pool, mut pool_data) = string_pool.into_shifted_and_buffer(MEM_STACK_SIZE << WASM_PAGE_BITS);
+    // round up to multiple of WASM_PAGE_SIZE
+    let required_data_size = ((pool_data.len() as u32) + (WASM_PAGE_SIZE - 1)) & (!(WASM_PAGE_SIZE - 1));
+    pool_data.resize(required_data_size as usize, 0);
     // in terms of WASM_PAGE_SIZE
-    let global_data_size: u32 = 0;
+    let globals_num_pages: u32 = required_data_size >> WASM_PAGE_BITS;
 
     // add linear memory
-    let memidx: wasmgen::MemIdx = encode_mem(global_data_size, &mut wasm_module);
+    let memidx: wasmgen::MemIdx = encode_mem(MEM_STACK_SIZE + globals_num_pages + Leaky::initial_heap_size(), &mut wasm_module);
+
+    // initialize pool data
+    encode_pool_data(&pool_data, MEM_STACK_SIZE << WASM_PAGE_BITS, memidx, &mut wasm_module);
 
     // garbage collector
     let heap = Leaky::new(
@@ -138,8 +148,8 @@ fn encode_program(ir_program: &ir::Program, options: Options) -> wasmgen::WasmMo
         &struct_field_byte_offsets,
         &struct_sizes,
         memidx,
-        MEM_STACK_SIZE + global_data_size,
-        MEM_STACK_SIZE + global_data_size + Leaky::initial_heap_size(),
+        MEM_STACK_SIZE + globals_num_pages,
+        MEM_STACK_SIZE + globals_num_pages + Leaky::initial_heap_size(),
         &mut wasm_module,
     );
 
@@ -151,6 +161,7 @@ fn encode_program(ir_program: &ir::Program, options: Options) -> wasmgen::WasmMo
         globalidx_stackptr,
         memidx,
         &heap,
+        &shifted_string_pool,
         options,
         &mut wasm_module,
     );
@@ -160,9 +171,12 @@ fn encode_program(ir_program: &ir::Program, options: Options) -> wasmgen::WasmMo
 
 // encodes the linear memory
 // currently it will not reserve any space for global memory
-fn encode_mem(globals_num_pages: u32, wasm_module: &mut wasmgen::WasmModule) -> wasmgen::MemIdx {
-    wasm_module
-        .add_unbounded_memory(MEM_STACK_SIZE + globals_num_pages + Leaky::initial_heap_size())
+fn encode_mem(num_pages: u32, wasm_module: &mut wasmgen::WasmModule) -> wasmgen::MemIdx {
+    wasm_module.add_unbounded_memory(num_pages)
+}
+
+fn encode_pool_data(pool_data: &[u8], offset: u32, memidx: wasmgen::MemIdx, wasm_module: &mut wasmgen::WasmModule) {
+    wasm_module.add_data(memidx, offset, pool_data);
 }
 
 #[cfg(feature = "wasmtest")]

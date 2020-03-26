@@ -199,7 +199,7 @@ pub struct DataSection {
 pub struct Data {
     mem_idx: MemIdx,
     offset: Expr,
-    content: Vec<u8>,
+    content: Box<[u8]>,
 }
 
 #[derive(Eq, PartialEq, Copy, Clone, Hash)]

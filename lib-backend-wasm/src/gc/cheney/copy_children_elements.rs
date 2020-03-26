@@ -1,5 +1,7 @@
 use wasmgen::Scratch;
 
+use super::WASM_PAGE_BITS;
+
 // returns the base table element index from which indirect access should be calculated (i.e. the "table offset")
 // e.g. if we want to access copy_children_$i, we should call_indirect with index = (table_offset+i)
 pub fn make_copy_children_elements(
@@ -10,6 +12,7 @@ pub fn make_copy_children_elements(
     tableidx: wasmgen::TableIdx,
     copy_indirect_table_offset: u32,
     copy_funcs: &[Option<wasmgen::FuncIdx>],
+    heap_begin: u32,
 ) -> u32 {
     // make the string version of copy_children
     // it doesn't call any other function; just returns the ptr past-the-end of the string
@@ -54,6 +57,7 @@ pub fn make_copy_children_elements(
         tableidx: wasmgen::TableIdx,
         copy_indirect_table_offset: u32,
         copy_funcs: &[Option<wasmgen::FuncIdx>],
+        heap_begin: u32,
     ) -> wasmgen::FuncIdx {
         let functype = wasmgen::FuncType::new(
             Box::new([wasmgen::ValType::I32]),
@@ -107,6 +111,8 @@ pub fn make_copy_children_elements(
                                 byte_offset,
                                 tableidx,
                                 copy_funcs[ir::VarType::String.tag() as usize].unwrap(),
+                                heap_begin,
+                                true,
                             );
                         }
                         ir::VarType::Func => {
@@ -191,6 +197,8 @@ pub fn make_copy_children_elements(
                                 tableidx,
                                 copy_funcs[ir::VarType::StructT { typeidx }.tag() as usize]
                                     .unwrap(),
+                                heap_begin,
+                                false,
                             );
                         }
                     }
@@ -203,9 +211,11 @@ pub fn make_copy_children_elements(
                 byte_offset: u32,
                 tableidx: wasmgen::TableIdx,
                 copy_func: wasmgen::FuncIdx,
+                heap_begin: u32,
+                is_string: bool,
             ) {
                 /*
-                if (ptr != -1) {
+                if (ptr != -1 && (f is not String || ptr > heap_begin * WASM_PAGE_SIZE)) {
                     if (*(ptr-4)) & I32_MIN { // already copied (we multiplex the MSB of the tag field, since there shouldn't be more than 2^31 types)
                         f.ptr = (*(ptr-4)) << 1; // we store the ptr in the tag, but shifted right by one bit position (valid since ptr are all multiple of 4)
                     } else {
@@ -224,6 +234,12 @@ pub fn make_copy_children_elements(
                 // net wasm stack: [ptr(i32)] -> [cond(i32)]
                 expr_builder.i32_const(-1);
                 expr_builder.i32_ne();
+                if is_string {
+                    expr_builder.local_get(localidx_ptr);
+                    expr_builder.i32_const((heap_begin << WASM_PAGE_BITS) as i32);
+                    expr_builder.i32_gt_u();
+                    expr_builder.i32_and();
+				}
 
                 // net wasm stack: [cond(i32)] -> []
                 expr_builder.if_(&[]);
@@ -300,6 +316,7 @@ pub fn make_copy_children_elements(
                 tableidx,
                 copy_indirect_table_offset,
                 copy_funcs,
+                heap_begin,
             )
         })
         .collect();
