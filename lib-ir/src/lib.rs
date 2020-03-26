@@ -67,6 +67,7 @@ impl VarType {
 
 pub type Block = Vec<Statement>;
 
+#[derive(Debug)]
 pub struct Func {
     pub params: Box<[VarType]>, // list of function parameters (including closure)
     pub result: Option<VarType>, // if `None`, it means that this function never returns (e.g. it guarantees to trap or infinite loop, see the generated runtime error function)
@@ -81,7 +82,7 @@ pub struct Func {
                                                                    // this list should not contain the entry where all the param types and return type are identical to the current one
                                                                    // (because there is no use for a self-reference)
 }
-
+#[derive(Debug)]
 pub enum Statement {
     Assign {
         target: TargetExpr,
@@ -104,12 +105,14 @@ pub enum Statement {
     }, // Statement that never returns (e.g. a trap, or infinite loop)
 }
 
+#[derive(Debug)]
 pub struct Expr {
     pub vartype: VarType, // the type set that this Expr is guaranteed to evaluate to (if unknown, just use ValType::Any).  Users of this expression will generate code that only works on this type.  It may also affect the memory layout of the expr.
     pub kind: ExprKind,   // the variant kind of this expression
 }
 
 // Represents any lvalue (assignable value)
+#[derive(Debug)]
 pub enum TargetExpr {
     // if the field is a struct, then `next` can (but not necessarily) refer to a field inside the struct
     Global {
@@ -122,12 +125,14 @@ pub enum TargetExpr {
     }, // for targetting a local variable
 }
 
+#[derive(Debug)]
 pub struct StructField {
     pub typeidx: usize,                 // the struct type id (index into struct_types)
     pub fieldidx: usize,                // the index of the referred field in the struct
     pub next: Option<Box<StructField>>, // if the field is a struct, then this can (but not necessarily) refer to a field inside the struct
 }
 
+#[derive(Debug)]
 pub enum ExprKind {
     PrimUndefined,
     PrimNumber {
@@ -172,7 +177,7 @@ pub enum ExprKind {
 // this is subject to change
 // but the code that converts IR to Wasm needs to use this to generate the appropriate bytecode.
 
-#[derive(Eq, PartialEq, Copy, Clone)]
+#[derive(Eq, PartialEq, Copy, Clone, Debug)]
 pub enum PrimInst {
     NumberAdd,
     NumberSub,
