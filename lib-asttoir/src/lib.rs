@@ -37,7 +37,6 @@ pub fn populate_func(ast: serde_json::Value) -> ir::Func {
 }
 
 pub fn populate_func_params(ast: serde_json::Value) -> Box<[ir::VarType]> {
-    // Get ["FunctionDeclaration"]["params"]
     let mut func_params = Vec::<ir::VarType>::new();
     let prog_body = ast["body"][0].clone();
     if prog_body["type"] == "FunctionDeclaration" {
@@ -58,16 +57,13 @@ pub fn populate_func_locals(ast: serde_json::Value) -> Vec<ir::VarType> {
     let prog_body = ast["body"][0].clone();
     let prog_locals = prog_body["body"]["body"][1]["declarations"].clone();
 
-    // It's a block statement so
     // For every statement in body you see if it's a VariableDeclaration. If it is then you look through declarations to se
     //see how many declarations there are
-    println!("locals are {}", prog_locals);
 
     for j in 0..prog_body["body"]["body"].as_array().unwrap().len() {
         if prog_body["body"]["body"][j]["type"] == "VariableDeclaration" {
             func_locals.push(ir::VarType::Any);
         }
-        // println!("the body is {}", prog_body["body"]["body"][j]);
     }
 
     return func_locals;
@@ -76,35 +72,76 @@ pub fn populate_func_locals(ast: serde_json::Value) -> Vec<ir::VarType> {
 pub fn populate_func_statements(ast: serde_json::Value) -> ir::Block {
     // Doesn't support nested functions
     // Statements are either Assign, Return, If, Expr, Void
-    // Return, If, Expr, Void,
-    // Expressions can be any one of
-    // type Expression = ThisExpression | Identifier | Literal |
-    // ArrayExpression | ObjectExpression | FunctionExpression | ArrowFunctionExpression | ClassExpression |
-    // TaggedTemplateExpression | MemberExpression | Super | MetaProperty |
-    // NewExpression | CallExpression | UpdateExpression | AwaitExpression | UnaryExpression |
-    // BinaryExpression | LogicalExpression | ConditionalExpression |
-    // YieldExpression  | SequenceExpression;
+    // type Expression = "ThisExpression" || "Identifier" || "Literal" ||
+    // "ArrayExpression" || "ObjectExpression" || "FunctionExpression" || "ArrowFunctionExpression" || "ClassExpression" ||
+    // "TaggedTemplateExpression" || "MemberExpression" || "Super" || "MetaProperty" ||
+    // "NewExpression" || "CallExpression" || "UpdateExpression" || "AwaitExpression" || "UnaryExpression" ||
+    // "BinaryExpression" || "LogicalExpression" || "ConditionalExpression" ||
+    // "YieldExpression"  || "SequenceExpression";
     // If it's a function we loop through body and then classify each of the statements
     // If      -> Conditional Expression
     // Assign  -> AssignmentExpression
     // Return  -> Return Expression
     // Loop through each statment in body
-    let func_statements = Vec::<ir::Statement>::new();
+    let mut func_statements = Vec::<ir::Statement>::new();
 
     for i in 0..ast["body"].as_array().unwrap().len() {
         let statement_type = ast["body"][0]["body"]["body"][i]["type"].clone();
-        // if statement_type == "ConditionalExpression" {
-        //     // func_statements.push()
+        println!("statement type is {}", statement_type);
 
-        // } else if statement_type == "AssignmentExpression" {
+        if statement_type == "ConditionalExpression" {
+            // let conditional_expression = ir::Statement::If {
+            //     cond: Expr,
+            //     true_stmts: Block,
+            //     false_stmts: Block,
+            // }
+            // How to extract all the True Statements
+            // How to extract all the False Statements
 
-        // } else if statement_type == "ReturnExpression" {
+            // Create condtional expression
+            //     func_statements.push(conditional_expression)
+        } else if statement_type == "AssignmentExpression" {
 
-        // } else if statement_type == "Expression" {
-
-        // }
+            // let assignment_statement = ir::Statement::Assign {
+            //     target: ir::TargetExpr::Local{
+            //         localidx: 0,
+            //         // Figure out how to initialize a new struct field
+            //         // next: Option<(Box::new(::StructField{}))>,
+            //     },
+            //     expr: ir::Expr {
+            //         vartype: ir::VarType::Any,
+            //         kind: ir::ExprKind::PrimUndefined
+            //     },
+            // };
+            // Create Assignment  Statement
+            // func_statements.push(assignment_statement);
+        } else if statement_type == "ReturnExpression" {
+            let return_statement = ir::Statement::Return {
+                expr: ir::Expr {
+                    vartype: ir::VarType::Any,
+                    kind: ir::ExprKind::PrimUndefined,
+                },
+            };
+            func_statements.push(return_statement);
+        } else if statement_type == "VariableDeclaration" {
+            // [TODO] (Joel): Modify this to handle all types of expressions
+            // let expression_statement = ir::Statement::Return{
+            //     expr: ir::Expr {
+            //         vartype: ir::VarType::Any,
+            //         // Find another way to generate TargetExpr
+            //         kind: ir::ExprKind::VarName {
+            //             source: ir::TargetExpr::Local{
+            //                 localidx: 0,
+            //                 next:
+            //             },
+            //         }
+            //     },
+            // };
+            // func_statements.push(expression_statement);
+        } else {
+            println!("this is a statement: {}", statement_type);
+        }
     }
-
     return func_statements;
 }
 
