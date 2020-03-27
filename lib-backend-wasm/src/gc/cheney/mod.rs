@@ -49,6 +49,7 @@ pub struct Cheney<'a, 'b, 'c> {
     gc_roots_stack_ptr: wasmgen::GlobalIdx, // Global that stores pointer to past-the-end of gc_roots stack
     heap_begin: u32,                        // in page units
     do_cheney_funcidx: wasmgen::FuncIdx,    // funcidx of do_cheney() function
+    error_func: wasmgen::FuncIdx,           // function to call when out of memory
 }
 
 // Note: Currently  MEM_INITIAL_USABLE_SIZE * 2 should be at least as large as the gc_roots size (1 << 4).
@@ -66,6 +67,7 @@ impl<'a, 'b, 'c> Cheney<'a, 'b, 'c> {
         memidx: wasmgen::MemIdx,
         heap_begin: u32,
         heap_initial_end: u32,
+        error_func: wasmgen::FuncIdx,
         wasm_module: &mut wasmgen::WasmModule,
     ) -> Self {
         assert!(heap_begin + MEM_INITIAL_HEAP_SIZE == heap_initial_end);
@@ -277,6 +279,7 @@ impl<'a, 'b, 'c> Cheney<'a, 'b, 'c> {
             gc_roots_stack_ptr: gc_roots_stack_ptr,
             heap_begin: heap_begin,
             do_cheney_funcidx: do_cheney_funcidx,
+            error_func: error_func,
         }
     }
 
@@ -384,8 +387,14 @@ impl<'a, 'b, 'c> Cheney<'a, 'b, 'c> {
             }
             expr_builder.end();
 
-            // todo!(call a proper error handler with error code)
+            // out of memory... raise an error
             // net wasm stack: [] -> []
+            expr_builder.i32_const(ir::error::ERROR_CODE_OUT_OF_MEMORY as i32);
+            expr_builder.i32_const(0);
+            expr_builder.i32_const(0);
+            expr_builder.i32_const(0);
+            expr_builder.i32_const(0);
+            expr_builder.call(self.error_func);
             expr_builder.unreachable();
         }
         expr_builder.end();

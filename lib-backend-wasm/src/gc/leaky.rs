@@ -20,6 +20,7 @@ pub struct Leaky<'a, 'b, 'c> {
     free_mem_ptr: wasmgen::GlobalIdx, // Global that stores pointer to start of free space
     end_mem_ptr: wasmgen::GlobalIdx, // Global that stores pointer to past-the-end of heap
     heap_begin: u32,         // in page units
+    error_func: wasmgen::FuncIdx, // function to call when out of memory
 }
 
 const MEM_INITIAL_HEAP_SIZE: u32 = 1 << 4; // 1 MiB of initial heap space
@@ -33,6 +34,7 @@ impl<'a, 'b, 'c> Leaky<'a, 'b, 'c> {
         memidx: wasmgen::MemIdx,
         heap_begin: u32,
         heap_initial_end: u32,
+        error_func: wasmgen::FuncIdx,
         wasm_module: &mut wasmgen::WasmModule,
     ) -> Self {
         assert!(heap_begin + MEM_INITIAL_HEAP_SIZE == heap_initial_end);
@@ -48,6 +50,7 @@ impl<'a, 'b, 'c> Leaky<'a, 'b, 'c> {
                 (heap_initial_end * WASM_PAGE_SIZE) as i32,
             ),
             heap_begin: heap_begin,
+            error_func: error_func,
         }
     }
 
@@ -127,7 +130,16 @@ impl<'a, 'b, 'c> Leaky<'a, 'b, 'c> {
             expr_builder.i32_const(-1);
             expr_builder.i32_eq();
             expr_builder.if_(&[]);
-            expr_builder.unreachable(); // todo!("should pass an error code to the host environment")
+            {
+                // out of memory... raise an error
+                expr_builder.i32_const(ir::error::ERROR_CODE_OUT_OF_MEMORY as i32);
+                expr_builder.i32_const(0);
+                expr_builder.i32_const(0);
+                expr_builder.i32_const(0);
+                expr_builder.i32_const(0);
+                expr_builder.call(self.error_func);
+                expr_builder.unreachable();
+            }
             expr_builder.end();
             // net wasm stack (for following 6 instructions) : [] -> []
             expr_builder.local_get(localidx_end_mem_ptr);

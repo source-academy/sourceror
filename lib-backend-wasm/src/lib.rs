@@ -98,9 +98,28 @@ fn encode_program(ir_program: &ir::Program, options: Options) -> wasmgen::WasmMo
     // todo! Emit struct_types
     // todo! Emit globals
     // todo! Emit entry point
-    // (note: not the same was the wasm entry point!
+    // (note: not the same was the wasm entry point!)
     // By convention, this is a normal function exported as "main")
-    let mut wasm_module = wasmgen::WasmModule::new_builder().build();
+
+    let mut wasm_module_builder = wasmgen::WasmModule::new_builder();
+
+    // generate the error function
+    let error_func: wasmgen::FuncIdx = wasm_module_builder.import_func(
+        "core".to_string(),
+        "error".to_string(),
+        &wasmgen::FuncType::new(
+            Box::new([
+                wasmgen::ValType::I32,
+                wasmgen::ValType::I32,
+                wasmgen::ValType::I32,
+                wasmgen::ValType::I32,
+                wasmgen::ValType::I32,
+            ]),
+            Box::new([]),
+        ),
+    );
+
+    let mut wasm_module = wasm_module_builder.build();
 
     // add stack ptr
     let globalidx_stackptr =
@@ -161,6 +180,7 @@ fn encode_program(ir_program: &ir::Program, options: Options) -> wasmgen::WasmMo
         memidx,
         MEM_STACK_SIZE + globals_num_pages,
         MEM_STACK_SIZE + globals_num_pages + Leaky::initial_heap_size(),
+        error_func,
         &mut wasm_module,
     );
 
@@ -173,6 +193,7 @@ fn encode_program(ir_program: &ir::Program, options: Options) -> wasmgen::WasmMo
         memidx,
         &heap,
         &shifted_string_pool,
+        error_func,
         options,
         &mut wasm_module,
     );
