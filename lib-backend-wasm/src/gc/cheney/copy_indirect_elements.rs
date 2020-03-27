@@ -1,5 +1,5 @@
-use wasmgen::Scratch;
 use super::WASM_PAGE_BITS;
+use wasmgen::Scratch;
 
 // returns the base table element index from which indirect access should be calculated (i.e. the "table offset")
 // e.g. if we want to access copy_indirect_$i, we should call_indirect with index = (table_offset+i)
@@ -206,7 +206,7 @@ pub fn make_copy_indirect_elements(
                 expr_builder.i32_const((heap_begin << WASM_PAGE_BITS) as i32);
                 expr_builder.i32_gt_u();
                 expr_builder.i32_and();
-			}
+            }
 
             // net wasm stack: [cond(i32)] -> [actual_ret(i64)]
             expr_builder.if_(&[wasmgen::ValType::I64]);

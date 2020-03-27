@@ -4,9 +4,9 @@ use super::gc::HeapManager;
  */
 use wasmgen::Scratch;
 
+use crate::pre_traverse::ShiftedStringPool;
 use crate::string_prim_inst;
 use crate::Options;
-use crate::pre_traverse::ShiftedStringPool;
 
 use super::var_conv::*;
 
@@ -26,8 +26,13 @@ struct EncodeContext<'a, 'b, 'c, 'd, 'e, 'f, Heap: HeapManager> {
 }
 
 // Have to implement Copy and Clone manually, because #[derive(Copy, Clone)] doesn't work for generic types like Heap
-impl<'a, 'b, 'c, 'd, 'e, 'f, Heap: HeapManager> Copy for EncodeContext<'a, 'b, 'c, 'd, 'e, 'f, Heap> {}
-impl<'a, 'b, 'c, 'd, 'e, 'f, Heap: HeapManager> Clone for EncodeContext<'a, 'b, 'c, 'd, 'e, 'f, Heap> {
+impl<'a, 'b, 'c, 'd, 'e, 'f, Heap: HeapManager> Copy
+    for EncodeContext<'a, 'b, 'c, 'd, 'e, 'f, Heap>
+{
+}
+impl<'a, 'b, 'c, 'd, 'e, 'f, Heap: HeapManager> Clone
+    for EncodeContext<'a, 'b, 'c, 'd, 'e, 'f, Heap>
+{
     fn clone(&self) -> Self {
         *self
     }
