@@ -59,9 +59,9 @@ use wasmgen;
 
 mod func;
 mod gc;
+mod pre_traverse;
 mod string_prim_inst;
 mod var_conv;
-mod pre_traverse;
 
 use gc::leaky::Leaky;
 use gc::HeapManager;
@@ -128,19 +128,30 @@ fn encode_program(ir_program: &ir::Program, options: Options) -> wasmgen::WasmMo
         .into_boxed_slices();
 
     // make the string pool from all string constants in the program
-    let pre_traverse::TraverseResult{string_pool} = pre_traverse::pre_traverse_funcs(&ir_program.funcs);
-    let (shifted_string_pool, mut pool_data) = string_pool.into_shifted_and_buffer(MEM_STACK_SIZE << WASM_PAGE_BITS);
+    let pre_traverse::TraverseResult { string_pool } =
+        pre_traverse::pre_traverse_funcs(&ir_program.funcs);
+    let (shifted_string_pool, mut pool_data) =
+        string_pool.into_shifted_and_buffer(MEM_STACK_SIZE << WASM_PAGE_BITS);
     // round up to multiple of WASM_PAGE_SIZE
-    let required_data_size = ((pool_data.len() as u32) + (WASM_PAGE_SIZE - 1)) & (!(WASM_PAGE_SIZE - 1));
+    let required_data_size =
+        ((pool_data.len() as u32) + (WASM_PAGE_SIZE - 1)) & (!(WASM_PAGE_SIZE - 1));
     pool_data.resize(required_data_size as usize, 0);
     // in terms of WASM_PAGE_SIZE
     let globals_num_pages: u32 = required_data_size >> WASM_PAGE_BITS;
 
     // add linear memory
-    let memidx: wasmgen::MemIdx = encode_mem(MEM_STACK_SIZE + globals_num_pages + Leaky::initial_heap_size(), &mut wasm_module);
+    let memidx: wasmgen::MemIdx = encode_mem(
+        MEM_STACK_SIZE + globals_num_pages + Leaky::initial_heap_size(),
+        &mut wasm_module,
+    );
 
     // initialize pool data
-    encode_pool_data(&pool_data, MEM_STACK_SIZE << WASM_PAGE_BITS, memidx, &mut wasm_module);
+    encode_pool_data(
+        &pool_data,
+        MEM_STACK_SIZE << WASM_PAGE_BITS,
+        memidx,
+        &mut wasm_module,
+    );
 
     // garbage collector
     let heap = Leaky::new(
@@ -175,7 +186,12 @@ fn encode_mem(num_pages: u32, wasm_module: &mut wasmgen::WasmModule) -> wasmgen:
     wasm_module.add_unbounded_memory(num_pages)
 }
 
-fn encode_pool_data(pool_data: &[u8], offset: u32, memidx: wasmgen::MemIdx, wasm_module: &mut wasmgen::WasmModule) {
+fn encode_pool_data(
+    pool_data: &[u8],
+    offset: u32,
+    memidx: wasmgen::MemIdx,
+    wasm_module: &mut wasmgen::WasmModule,
+) {
     wasm_module.add_data(memidx, offset, pool_data);
 }
 

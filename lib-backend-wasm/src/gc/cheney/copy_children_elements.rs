@@ -239,7 +239,7 @@ pub fn make_copy_children_elements(
                     expr_builder.i32_const((heap_begin << WASM_PAGE_BITS) as i32);
                     expr_builder.i32_gt_u();
                     expr_builder.i32_and();
-				}
+                }
 
                 // net wasm stack: [cond(i32)] -> []
                 expr_builder.if_(&[]);

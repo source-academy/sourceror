@@ -1,8 +1,8 @@
 pub mod cheney;
 pub mod leaky;
 
-use crate::WASM_PAGE_SIZE;
 use crate::WASM_PAGE_BITS;
+use crate::WASM_PAGE_SIZE;
 
 use wasmgen::Scratch;
 

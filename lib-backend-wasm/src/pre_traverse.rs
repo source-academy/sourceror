@@ -1,5 +1,5 @@
-use std::collections::HashMap;
 use std::collections::hash_map::Entry;
+use std::collections::HashMap;
 use std::vec::Vec;
 
 /*
@@ -8,7 +8,7 @@ String pool for adding strings.
 #[derive(Default)]
 pub struct StringPool {
     map: HashMap<String, u32>, // map from string to index in buf (which is a pointer the start of the string (i.e. the length field))
-    buf: Vec<u8>, // buffer of static data
+    buf: Vec<u8>,              // buffer of static data
 }
 
 /*
@@ -20,7 +20,7 @@ pub struct ShiftedStringPool {
 }
 
 #[derive(Default)]
-pub struct TraverseResult{
+pub struct TraverseResult {
     pub string_pool: StringPool,
 }
 
@@ -51,16 +51,20 @@ fn pre_traverse_statements(statements: &[ir::Statement], res: &mut TraverseResul
 
 fn pre_traverse_statement(statement: &ir::Statement, res: &mut TraverseResult) {
     match statement {
-        ir::Statement::Assign{target:_, expr} => pre_traverse_expr(expr, res),
-        ir::Statement::Return{expr} => pre_traverse_expr(expr, res),
-        ir::Statement::If{cond, true_block, false_block} => {
+        ir::Statement::Assign { target: _, expr } => pre_traverse_expr(expr, res),
+        ir::Statement::Return { expr } => pre_traverse_expr(expr, res),
+        ir::Statement::If {
+            cond,
+            true_block,
+            false_block,
+        } => {
             pre_traverse_expr(cond, res);
             pre_traverse_block(true_block, res);
             pre_traverse_block(false_block, res);
         }
-        ir::Statement::Block{block} => pre_traverse_block(block, res),
-        ir::Statement::Expr{expr} => pre_traverse_expr(expr, res),
-        ir::Statement::Void{expr_kind} => pre_traverse_expr_kind(expr_kind, res),
+        ir::Statement::Block { block } => pre_traverse_block(block, res),
+        ir::Statement::Expr { expr } => pre_traverse_expr(expr, res),
+        ir::Statement::Void { expr_kind } => pre_traverse_expr_kind(expr_kind, res),
     }
 }
 
@@ -76,21 +80,25 @@ fn pre_traverse_expr(expr: &ir::Expr, res: &mut TraverseResult) {
 
 fn pre_traverse_expr_kind(expr_kind: &ir::ExprKind, res: &mut TraverseResult) {
     match expr_kind {
-        ir::ExprKind::PrimUndefined | ir::ExprKind::PrimNumber{val: _} | ir::ExprKind::PrimBoolean{val: _} | ir::ExprKind::PrimStructT{typeidx: _} => {},
-        ir::ExprKind::PrimString{val} => res.string_pool.insert(val),
-        ir::ExprKind::PrimFunc{funcidx: _, closure} => pre_traverse_expr(closure, res),
-        ir::ExprKind::TypeOf{expr, expected: _} => pre_traverse_expr(expr, res),
-        ir::ExprKind::VarName{source: _} => {},
-        ir::ExprKind::PrimAppl{prim_inst: _, args} => pre_traverse_exprs(args, res),
-        ir::ExprKind::Appl{func, args} => {
+        ir::ExprKind::PrimUndefined
+        | ir::ExprKind::PrimNumber { val: _ }
+        | ir::ExprKind::PrimBoolean { val: _ }
+        | ir::ExprKind::PrimStructT { typeidx: _ } => {}
+        ir::ExprKind::PrimString { val } => res.string_pool.insert(val),
+        ir::ExprKind::PrimFunc {
+            funcidx: _,
+            closure,
+        } => pre_traverse_expr(closure, res),
+        ir::ExprKind::TypeOf { expr, expected: _ } => pre_traverse_expr(expr, res),
+        ir::ExprKind::VarName { source: _ } => {}
+        ir::ExprKind::PrimAppl { prim_inst: _, args } => pre_traverse_exprs(args, res),
+        ir::ExprKind::Appl { func, args } => {
             pre_traverse_expr(func, res);
             pre_traverse_exprs(args, res);
         }
-        ir::ExprKind::DirectAppl{funcidx: _, args} => pre_traverse_exprs(args, res),
+        ir::ExprKind::DirectAppl { funcidx: _, args } => pre_traverse_exprs(args, res),
     }
 }
-
-
 
 impl StringPool {
     /*
@@ -105,20 +113,21 @@ impl StringPool {
             let ptr = self.buf.len() as u32;
 
             // extend the buffer
-            self.buf.extend_from_slice(&(key.len() as u32).to_le_bytes());
+            self.buf
+                .extend_from_slice(&(key.len() as u32).to_le_bytes());
             self.buf.extend_from_slice(key.as_bytes());
             // add extra padding to end at a multiple of 4 bytes
             match key.len() % 4 {
-                0 => {},
-                1 => self.buf.extend_from_slice(&[0,0,0]),
-                2 => self.buf.extend_from_slice(&[0,0]),
+                0 => {}
+                1 => self.buf.extend_from_slice(&[0, 0, 0]),
+                2 => self.buf.extend_from_slice(&[0, 0]),
                 3 => self.buf.extend_from_slice(&[0]),
                 _ => unreachable!(),
-			}
+            }
 
             // insert the entry into the hashmap
             vacant_entry.insert(ptr);
-		}
+        }
     }
 
     /*
@@ -128,9 +137,9 @@ impl StringPool {
         let mut map = self.map;
         for (_, ptr) in &mut map {
             *ptr += offset;
-		}
-        (ShiftedStringPool{map:map}, self.buf)
-	}
+        }
+        (ShiftedStringPool { map: map }, self.buf)
+    }
 }
 
 impl ShiftedStringPool {
@@ -140,5 +149,5 @@ impl ShiftedStringPool {
     */
     pub fn lookup(&self, str: &String) -> u32 {
         *self.map.get(str).unwrap()
-	}
+    }
 }
