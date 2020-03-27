@@ -22,7 +22,8 @@ struct EncodeContext<'a, 'b, 'c, 'd, 'e, 'f, Heap: HeapManager> {
     memidx: wasmgen::MemIdx,
     heap: &'e Heap,
     string_pool: &'f ShiftedStringPool,
-    options: Options, // Compilation options (it implements Copy)
+    error_func: wasmgen::FuncIdx, // imported function to call to error out (e.g. runtime type errors)
+    options: Options,             // Compilation options (it implements Copy)
 }
 
 // Have to implement Copy and Clone manually, because #[derive(Copy, Clone)] doesn't work for generic types like Heap
@@ -123,6 +124,7 @@ pub fn encode_funcs<Heap: HeapManager>(
     memidx: wasmgen::MemIdx,
     heap: &Heap,
     string_pool: &ShiftedStringPool,
+    error_func: wasmgen::FuncIdx,
     options: Options,
     wasm_module: &mut wasmgen::WasmModule,
 ) {
@@ -183,6 +185,7 @@ pub fn encode_funcs<Heap: HeapManager>(
                     memidx: memidx,
                     heap: heap,
                     string_pool: string_pool,
+                    error_func: error_func,
                     options: options,
                 };
                 let mut mutctx = MutContext {
@@ -349,6 +352,16 @@ fn encode_statement<H: HeapManager>(
             encode_narrowing_operation(
                 ir::VarType::Boolean,
                 cond.vartype,
+                |expr_builder| {
+                    expr_builder
+                        .i32_const(ir::error::ERROR_CODE_IF_STATEMENT_CONDITION_TYPE as i32);
+                    expr_builder.i32_const(0);
+                    expr_builder.i32_const(0);
+                    expr_builder.i32_const(0);
+                    expr_builder.i32_const(0);
+                    expr_builder.call(ctx.error_func);
+                    expr_builder.unreachable();
+                },
                 &mut mutctx.scratch,
                 expr_builder,
             );
@@ -612,6 +625,12 @@ fn encode_expr<H: HeapManager>(
         ir::ExprKind::DirectAppl { funcidx, args } => {
             encode_returnable_direct_appl(expr.vartype, *funcidx, args, ctx, mutctx, expr_builder);
         }
+        ir::ExprKind::Trap {
+            code: _,
+            location: _,
+        } => {
+            panic!("trap cannot be an expression");
+        }
     }
 }
 
@@ -625,18 +644,17 @@ fn encode_void_expr<H: HeapManager>(
     expr_builder: &mut wasmgen::ExprBuilder,
 ) {
     match expr_kind {
-        ir::ExprKind::PrimAppl {
-            prim_inst: ir::PrimInst::Trap,
-            args,
-        } => {
-            if !args.is_empty() {
-                panic!("Trap should currently not take any arguments");
-            } else {
-                // causes a trap (crashes the webassembly instance):
-                expr_builder.unreachable();
-                // in the future, PrimInst::Trap should take a error code parameter, and maybe source location
-                // and call a noreturn function to the embedder (JavaScript).
-            }
+        ir::ExprKind::Trap { code, location } => {
+            // Calls the predefined imported function, which must never return.
+            expr_builder.i32_const(*code as i32);
+            expr_builder.i32_const(0);
+            expr_builder.i32_const(location.file as i32);
+            expr_builder.i32_const(location.begin as i32);
+            expr_builder.i32_const(location.end as i32);
+            expr_builder.call(ctx.error_func);
+            expr_builder.unreachable();
+            // in the future, PrimInst::Trap should take a error code parameter, and maybe source location
+            // and call a noreturn function to the embedder (JavaScript).
         }
         ir::ExprKind::DirectAppl { funcidx, args } => {
             encode_void_direct_appl(*funcidx, args, ctx, mutctx, expr_builder);
@@ -831,10 +849,6 @@ fn encode_returnable_prim_inst<H: HeapManager>(
                 ir::PrimInst::StringLe => {
                     string_prim_inst::encode_string_le(&mut mutctx.scratch, expr_builder);
                 }
-                ir::PrimInst::Trap => {
-                    // Trap is not returnable
-                    panic!("Trap is not returnable");
-                }
             }
         }
         _ => {
@@ -881,7 +895,18 @@ fn encode_returnable_appl<H: HeapManager>(
                 expr_builder.i32_const(ir::VarType::Func.tag());
                 expr_builder.i32_ne();
                 expr_builder.if_(&[]);
-                expr_builder.unreachable(); // todo! change to a call to javascript to specify the kind of trap
+                {
+                    // not a function type... so we will raise a runtime error
+                    expr_builder.i32_const(
+                        ir::error::ERROR_CODE_FUNCTION_APPLICATION_NOT_CALLABLE_TYPE as i32,
+                    );
+                    expr_builder.i32_const(0);
+                    expr_builder.i32_const(0); // todo!(add actual source location)
+                    expr_builder.i32_const(0);
+                    expr_builder.i32_const(0);
+                    expr_builder.call(ctx.error_func);
+                    expr_builder.unreachable();
+                }
                 expr_builder.end();
                 // now it is a function type, we have to reinterpret the i64 as two i32s
                 {

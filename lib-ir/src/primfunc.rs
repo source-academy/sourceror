@@ -5,6 +5,9 @@ use super::*;
  */
 use std::vec::Vec;
 
+use crate::error::ERROR_CODE_BINARY_OPERATOR_PARAM_TYPE;
+use crate::error::ERROR_CODE_UNARY_OPERATOR_PARAM_TYPE;
+
 fn indexed_push<T>(v: &mut Vec<T>, value: T) -> usize {
     let ret = v.len();
     v.push(value);
@@ -184,9 +187,9 @@ fn generate_number_binary_operator_wrapper(prim_funcidx: FuncIdx) -> Func {
             },
         }]),
         false_block: Block::from_statements(vec![Statement::Void {
-            expr_kind: ExprKind::PrimAppl {
-                prim_inst: PrimInst::Trap,
-                args: Box::new([]),
+            expr_kind: ExprKind::Trap {
+                code: ERROR_CODE_BINARY_OPERATOR_PARAM_TYPE,
+                location: SourceLocation::default(),
             },
         }]),
     });
@@ -290,9 +293,9 @@ fn generate_boolean_binary_operator_wrapper(prim_funcidx: FuncIdx) -> Func {
             },
         }]),
         false_block: Block::from_statements(vec![Statement::Void {
-            expr_kind: ExprKind::PrimAppl {
-                prim_inst: PrimInst::Trap,
-                args: Box::new([]),
+            expr_kind: ExprKind::Trap {
+                code: ERROR_CODE_UNARY_OPERATOR_PARAM_TYPE,
+                location: SourceLocation::default(),
             },
         }]),
     });
@@ -403,9 +406,9 @@ fn generate_number_string_binary_operator_wrapper(
                 },
             }]),
             false_block: Block::from_statements(vec![Statement::Void {
-                expr_kind: ExprKind::PrimAppl {
-                    prim_inst: PrimInst::Trap,
-                    args: Box::new([]),
+                expr_kind: ExprKind::Trap {
+                    code: ERROR_CODE_BINARY_OPERATOR_PARAM_TYPE,
+                    location: SourceLocation::default(),
                 },
             }]),
         }]),
@@ -470,16 +473,16 @@ fn generate_number_string_binary_operator_wrapper(
                     },
                 }]),
                 false_block: Block::from_statements(vec![Statement::Void {
-                    expr_kind: ExprKind::PrimAppl {
-                        prim_inst: PrimInst::Trap,
-                        args: Box::new([]),
+                    expr_kind: ExprKind::Trap {
+                        code: ERROR_CODE_BINARY_OPERATOR_PARAM_TYPE,
+                        location: SourceLocation::default(),
                     },
                 }]),
             }]),
             false_block: Block::from_statements(vec![Statement::Void {
-                expr_kind: ExprKind::PrimAppl {
-                    prim_inst: PrimInst::Trap,
-                    args: Box::new([]),
+                expr_kind: ExprKind::Trap {
+                    code: ERROR_CODE_BINARY_OPERATOR_PARAM_TYPE,
+                    location: SourceLocation::default(),
                 },
             }]),
         }]),
@@ -604,9 +607,9 @@ fn generate_boolean_number_string_binary_operator_wrapper(
                 },
             }]),
             false_block: Block::from_statements(vec![Statement::Void {
-                expr_kind: ExprKind::PrimAppl {
-                    prim_inst: PrimInst::Trap,
-                    args: Box::new([]),
+                expr_kind: ExprKind::Trap {
+                    code: ERROR_CODE_BINARY_OPERATOR_PARAM_TYPE,
+                    location: SourceLocation::default(),
                 },
             }]),
         }]),
@@ -671,9 +674,9 @@ fn generate_boolean_number_string_binary_operator_wrapper(
                     },
                 }]),
                 false_block: Block::from_statements(vec![Statement::Void {
-                    expr_kind: ExprKind::PrimAppl {
-                        prim_inst: PrimInst::Trap,
-                        args: Box::new([]),
+                    expr_kind: ExprKind::Trap {
+                        code: ERROR_CODE_BINARY_OPERATOR_PARAM_TYPE,
+                        location: SourceLocation::default(),
                     },
                 }]),
             }]),
@@ -738,16 +741,16 @@ fn generate_boolean_number_string_binary_operator_wrapper(
                         },
                     }]),
                     false_block: Block::from_statements(vec![Statement::Void {
-                        expr_kind: ExprKind::PrimAppl {
-                            prim_inst: PrimInst::Trap,
-                            args: Box::new([]),
+                        expr_kind: ExprKind::Trap {
+                            code: ERROR_CODE_BINARY_OPERATOR_PARAM_TYPE,
+                            location: SourceLocation::default(),
                         },
                     }]),
                 }]),
                 false_block: Block::from_statements(vec![Statement::Void {
-                    expr_kind: ExprKind::PrimAppl {
-                        prim_inst: PrimInst::Trap,
-                        args: Box::new([]),
+                    expr_kind: ExprKind::Trap {
+                        code: ERROR_CODE_BINARY_OPERATOR_PARAM_TYPE,
+                        location: SourceLocation::default(),
                     },
                 }]),
             }]),
@@ -822,9 +825,9 @@ fn generate_unary_operator_wrapper(prim_funcidx: FuncIdx, vartype: VarType) -> F
             },
         }]),
         false_block: Block::from_statements(vec![Statement::Void {
-            expr_kind: ExprKind::PrimAppl {
-                prim_inst: PrimInst::Trap,
-                args: Box::new([]),
+            expr_kind: ExprKind::Trap {
+                code: ERROR_CODE_UNARY_OPERATOR_PARAM_TYPE,
+                location: SourceLocation::default(),
             },
         }]),
     });

@@ -417,9 +417,10 @@ pub fn encode_widening_operation(
 }
 
 // net wasm stack: [<source_type>] -> [<target_type>]
-pub fn encode_narrowing_operation(
+pub fn encode_narrowing_operation<F: FnOnce(&mut wasmgen::ExprBuilder)>(
     target_type: ir::VarType,
     source_type: ir::VarType,
+    failure_encoder: F,
     scratch: &mut Scratch,
     expr_builder: &mut wasmgen::ExprBuilder,
 ) {
@@ -433,7 +434,7 @@ pub fn encode_narrowing_operation(
         expr_builder.i32_const(target_type.tag());
         expr_builder.i32_ne();
         expr_builder.if_(&[]);
-        expr_builder.unreachable();
+        failure_encoder(expr_builder);
         expr_builder.end();
 
         // now the i64(data) is guaranteed to actually contain the target source_type

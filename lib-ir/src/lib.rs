@@ -26,6 +26,7 @@ use std::option::Option;
  */
 use std::vec::Vec;
 
+pub mod error;
 mod primfunc;
 
 // If it stores value `func_idx`, then it refers to imports[func_idx] if (func_idx < imports.len())
@@ -196,6 +197,10 @@ pub enum ExprKind {
         funcidx: FuncIdx,
         args: Box<[Expr]>,
     }, // direct function application (operators are functions too)
+    Trap {
+        code: u32,
+        location: SourceLocation,
+    },
 }
 
 // enum of possible primitive functions, used by pre-declared operators, or added during type-checking optimisation
@@ -229,7 +234,6 @@ pub enum PrimInst {
     StringLt,
     StringGe,
     StringLe,
-    Trap, // used for runtime errors (e.g. type errors).  args should currently be empty, but subject to change.  Return type is `undefined`.
 }
 
 // enum of pre-declared operators
@@ -253,6 +257,16 @@ pub enum Builtin {
     UnaryMinus,
 }
 pub const NUM_BUILTINS: u8 = Builtin::UnaryMinus as u8 + 1;
+
+/*
+Represents a location in a source file.
+*/
+#[derive(Default, Debug)]
+pub struct SourceLocation {
+    pub file: u32,
+    pub begin: u32,
+    pub end: u32,
+}
 
 impl Program {
     // Creates an empty Program, and an array of pre-declared operators that can be used.
@@ -326,7 +340,6 @@ impl PrimInst {
             | Self::StringLt
             | Self::StringGe
             | Self::StringLe => (&[VarType::String, VarType::String], Some(VarType::Boolean)),
-            Self::Trap => (&[], None),
         }
     }
 }
