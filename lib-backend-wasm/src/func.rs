@@ -627,7 +627,10 @@ fn encode_void_expr<H: HeapManager>(
             if !args.is_empty() {
                 panic!("Trap should currently not take any arguments");
             } else {
+                // causes a trap (crashes the webassembly instance):
                 expr_builder.unreachable();
+                // in the future, PrimInst::Trap should take a error code parameter, and maybe source location
+                // and call a noreturn function to the embedder (JavaScript).
             }
         }
         ir::ExprKind::DirectAppl { funcidx, args } => {
@@ -824,10 +827,8 @@ fn encode_returnable_prim_inst<H: HeapManager>(
                     string_prim_inst::encode_string_le(&mut mutctx.scratch, expr_builder);
                 }
                 ir::PrimInst::Trap => {
-                    // causes a trap (crashes the webassembly instance):
-                    expr_builder.unreachable();
-                    // in the future, PrimInst::Trap should take a error code parameter, and maybe source location
-                    // and call a noreturn function to the embedder (JavaScript).
+                    // Trap is not returnable
+                    panic!("Trap is not returnable");
                 }
             }
         }
