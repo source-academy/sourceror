@@ -119,6 +119,21 @@ fn encode_program(ir_program: &ir::Program, options: Options) -> wasmgen::WasmMo
         ),
     );
 
+    // import all the other functions
+    let imported_funcs: Box<[wasmgen::FuncIdx]> = ir_program
+        .imports
+        .iter()
+        .map(|ir_import| {
+            let import_param_list = encode_import_params(&ir_import.params);
+            let import_result = encode_import_param(ir_import.result);
+            wasm_module_builder.import_func(
+                ir_import.module_name.clone(),
+                ir_import.entity_name.clone(),
+                &wasmgen::FuncType::new(import_param_list, import_result.into()),
+            )
+        })
+        .collect();
+
     let mut wasm_module = wasm_module_builder.build();
 
     // add stack ptr
@@ -188,6 +203,7 @@ fn encode_program(ir_program: &ir::Program, options: Options) -> wasmgen::WasmMo
         &ir_program.funcs,
         &ir_program.struct_types,
         &struct_field_byte_offsets,
+        imported_funcs,
         ir_program.entry_point,
         globalidx_stackptr,
         memidx,
@@ -199,6 +215,22 @@ fn encode_program(ir_program: &ir::Program, options: Options) -> wasmgen::WasmMo
     );
 
     wasm_module
+}
+
+fn encode_import_params(ivts: &[ir::ImportValType]) -> Box<[wasmgen::ValType]> {
+    ivts.iter()
+        .copied()
+        .flat_map(|ivt| encode_import_param(ivt))
+        .copied()
+        .collect()
+}
+
+fn encode_import_param(ivt: ir::ImportValType) -> &'static [wasmgen::ValType] {
+    match ivt {
+        Undefined => &[],
+        Number => &[wasmgen::ValType::F64],
+        String => &[wasmgen::ValType::I32],
+    }
 }
 
 // encodes the linear memory
