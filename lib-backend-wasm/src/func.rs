@@ -73,9 +73,9 @@ impl<'a, 'b> MutContext<'a, 'b> {
             self.wasm_local_map.pop();
             self.scratch.pop(*wasm_valtype);
         }
-        assert!(self.local_map.last().cloned() == Some(self.wasm_local_map.len()));
+        assert!(self.local_map.last().copied() == Some(self.wasm_local_map.len()));
         self.local_map.pop();
-        assert!(self.local_types.last().cloned() == Some(ir_vartype));
+        assert!(self.local_types.last().copied() == Some(ir_vartype));
         self.local_types.pop();
     }
 
@@ -119,6 +119,7 @@ pub fn encode_funcs<Heap: HeapManager>(
     ir_funcs: &[ir::Func],
     ir_struct_types: &[Box<[ir::VarType]>],
     ir_struct_field_byte_offsets: &[Box<[u32]>],
+    imported_funcs: Box<[wasmgen::FuncIdx]>,
     ir_entry_point_funcidx: ir::FuncIdx,
     globalidx_stackptr: wasmgen::GlobalIdx,
     memidx: wasmgen::MemIdx,
@@ -163,7 +164,11 @@ pub fn encode_funcs<Heap: HeapManager>(
             })
             .unzip();
 
-    let wasm_funcidxs: Box<[wasmgen::FuncIdx]> = registry_list.iter().map(|x| x.funcidx).collect();
+    let wasm_funcidxs: Box<[wasmgen::FuncIdx]> = imported_funcs
+        .into_iter()
+        .copied()
+        .chain(registry_list.iter().map(|x| x.funcidx))
+        .collect();
 
     // use the wasmgen::codewriter to encode the function body
     ir_funcs
@@ -249,7 +254,7 @@ fn encode_result(
     let ret: Box<[wasmgen::ValType]> = ir_results
         .into_iter()
         .flat_map(|ir_result| encode_vartype(ir_result).iter())
-        .cloned()
+        .copied()
         .collect();
     if ret.len() <= 1 || use_wasm_multi_value_feature {
         ret
@@ -578,7 +583,7 @@ fn encode_expr<H: HeapManager>(
                 expr.vartype == ir::VarType::Func,
                 "ICE: IR->Wasm: PrimFunc does not have type func"
             );
-            assert!(ctx.funcs[*funcidx].params.first().cloned() == Some(closure.vartype)); // make sure the closure type given to us is indeed what the function will expect
+            assert!(ctx.funcs[*funcidx].params.first().copied() == Some(closure.vartype)); // make sure the closure type given to us is indeed what the function will expect
 
             // encode the closure expr (might contain sub-exprs in general)
             // net wasm stack: [] -> [<closure_irvartype>] (note: this might not be i32, if there is an empty closure)
