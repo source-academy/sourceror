@@ -12,8 +12,8 @@ class RuntimeError {
     }
 }
 
-export async function compile(code: string, options: any) -> Promise<WebAssembly.Module> {
-    return {};
+export async function compile(code: string, options: any): Promise<WebAssembly.Module> {
+    return new CompileError("err");
 }
 
 
