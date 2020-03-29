@@ -227,9 +227,9 @@ fn encode_import_params(ivts: &[ir::ImportValType]) -> Box<[wasmgen::ValType]> {
 
 fn encode_import_param(ivt: ir::ImportValType) -> &'static [wasmgen::ValType] {
     match ivt {
-        Undefined => &[],
-        Number => &[wasmgen::ValType::F64],
-        String => &[wasmgen::ValType::I32],
+        ir::ImportValType::Undefined => &[],
+        ir::ImportValType::Number => &[wasmgen::ValType::F64],
+        ir::ImportValType::String => &[wasmgen::ValType::I32],
     }
 }
 
