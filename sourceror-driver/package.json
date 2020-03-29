@@ -1,6 +1,6 @@
 {
   "name": "sourceror-driver",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Thing that invokes the Sourceror compiler and supplies the standard library files from libsourceror",
   "main": "index.ts",
   "scripts": {
