@@ -1,0 +1,19 @@
+{
+  "name": "sourceror-driver",
+  "version": "1.0.0",
+  "description": "Thing that invokes the Sourceror compiler and supplies the standard library files from libsourceror",
+  "main": "index.ts",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/btzy/sourceror-driver.git"
+  },
+  "author": "Bernard Teo",
+  "license": "Apache-2.0",
+  "bugs": {
+    "url": "https://github.com/btzy/sourceror-driver/issues"
+  },
+  "homepage": "https://github.com/btzy/sourceror-driver#readme"
+}
