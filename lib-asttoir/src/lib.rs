@@ -1,4 +1,5 @@
 use ir;
+use std::collections::HashMap;
 
 /**
  * The structs functions serve as utility functions to extract information from the AST
@@ -11,6 +12,12 @@ use ir;
 * *
 * *
  */
+
+// General TODOs:
+// 1. Make all functions recursive
+// 2. Change everything to be idiomatic
+// 3. Remvoe all hardcoded vars
+
 
 pub fn read_from_file(filename: Option<std::string::String>) -> serde_json::Value {
     let default_filename = "./ast.txt".to_string();
@@ -79,7 +86,8 @@ pub fn populate_func_statements(ast: serde_json::Value) -> ir::Block {
     // Return  -> Return Expression
     // Loop through each statment in body
     let mut func_statements = Vec::<ir::Statement>::new();
-    let mut index = 0;
+    let  mut index = 0;
+
 
     for i in 0..ast["body"][0]["body"]["body"].as_array().unwrap().len() {
         let statement_type = ast["body"][0]["body"]["body"][i]["type"].clone();
@@ -92,26 +100,44 @@ pub fn populate_func_statements(ast: serde_json::Value) -> ir::Block {
             // }
             // Create condtional expression
             //     func_statements.push(conditional_expression)
-        } else if statement_type == "AssignmentExpression" {
+        } else if statement_type == "VariableDeclaration" {
             let assignment_statement = ir::Statement::Assign {
-                target: ir::TargetExpr::Local {
+                target: ir::TargetExpr::Local{
                     localidx: 0,
-                    // Figure out how to initialize a new struct field
                     next: None,
                 },
                 expr: ir::Expr {
                     vartype: ir::VarType::Any,
-                    kind: ir::ExprKind::PrimUndefined,
+                    kind: ir::ExprKind::DirectAppl{
+                        funcidx: 1,
+                        args: Box::new([ir::Expr {
+                            vartype: ir::VarType::Any,
+                            kind: ir::ExprKind::VarName {
+                                source: ir::TargetExpr::Local{
+                                    localidx: 1,
+                                    next: None,
+                                },
+                            }
+                        }, ir::Expr {
+                                vartype: ir::VarType::Any,
+                                kind: ir::ExprKind::VarName {
+                                    source: ir::TargetExpr::Local{
+                                        localidx: 1,
+                                        next: None,
+                                    },
+                                }
+                            }
+                        ]),
+                    },
                 },
             };
-            // Create Assignment  Statement
             func_statements.push(assignment_statement);
         } else if statement_type == "ReturnStatement" {
             let return_statement = ir::Statement::Return {
                 expr: ir::Expr {
                     vartype: ir::VarType::Any,
                     kind: ir::ExprKind::VarName {
-                        source: ir::TargetExpr::Local {
+                        source: ir::TargetExpr::Local{
                             localidx: index,
                             next: None,
                         },
@@ -119,22 +145,6 @@ pub fn populate_func_statements(ast: serde_json::Value) -> ir::Block {
                 },
             };
             func_statements.push(return_statement);
-            index += 1;
-        } else if statement_type == "VariableDeclaration" {
-            // [TODO] (Joel): Modify this to handle all types of expressions
-            let expression_statement = ir::Statement::Expr {
-                expr: ir::Expr {
-                    vartype: ir::VarType::Any,
-                    // [TODO] (Joel): Create a function to generate TargetExpr
-                    kind: ir::ExprKind::VarName {
-                        source: ir::TargetExpr::Local {
-                            localidx: index,
-                            next: None,
-                        },
-                    },
-                },
-            };
-            func_statements.push(expression_statement);
             index += 1;
         } else {
         }
@@ -144,7 +154,7 @@ pub fn populate_func_statements(ast: serde_json::Value) -> ir::Block {
 
 // Test Case:
 // ```
-// function f() {
+// function f(a, b) {
 // const x = 4;
 // const y = x * x;
 // const z = y + 5;
