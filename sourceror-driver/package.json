@@ -2,11 +2,20 @@
   "name": "sourceror-driver",
   "version": "1.0.3",
   "description": "Thing that invokes the Sourceror compiler and supplies the standard library files from libsourceror",
+  "dependencies": {
+    "@types/node": "^13.9.5",
+    "node-getopt": "^0.3.2",
+    "@btzy/source-compiler": "../sourceror/pkg/",
+    "@btzy/libsourceror": "^0.0.1"
+  },
   "main": "dist/index",
   "types": "dist/index",
   "files": [
     "dist"
   ],
+  "bin": {
+    "sourceror": "dist/cli.js"
+  },
   "scripts": {
     "ci": "yarn format:ci && yarn tslint && yarn test",
     "build": "tsc",
