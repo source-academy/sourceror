@@ -5,6 +5,7 @@ members = [
     "lib-wasmgen",
     "lib-ir",
     "lib-backend-wasm",
+    "lib-frontend-estree",
     "wasm-test-harness",
     "wasm-test-driver",
     "wasm-test-local",
