@@ -97,6 +97,15 @@ fn pre_traverse_expr_kind(expr_kind: &ir::ExprKind, res: &mut TraverseResult) {
             pre_traverse_exprs(args, res);
         }
         ir::ExprKind::DirectAppl { funcidx: _, args } => pre_traverse_exprs(args, res),
+        ir::ExprKind::Conditional {
+            cond,
+            true_expr,
+            false_expr,
+        } => {
+            pre_traverse_expr(cond, res);
+            pre_traverse_expr(true_expr, res);
+            pre_traverse_expr(false_expr, res);
+        }
         ir::ExprKind::Trap {
             code: _,
             location: _,
