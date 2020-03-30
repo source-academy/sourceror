@@ -197,6 +197,11 @@ pub enum ExprKind {
         funcidx: FuncIdx,
         args: Box<[Expr]>,
     }, // direct function application (operators are functions too)
+    Conditional {
+        cond: Box<Expr>,
+        true_expr: Box<Expr>,
+        false_expr: Box<Expr>,
+    }, // a ? b : c
     Trap {
         code: u32,
         location: SourceLocation,

@@ -630,6 +630,91 @@ fn encode_expr<H: HeapManager>(
         ir::ExprKind::DirectAppl { funcidx, args } => {
             encode_returnable_direct_appl(expr.vartype, *funcidx, args, ctx, mutctx, expr_builder);
         }
+        ir::ExprKind::Conditional {
+            cond,
+            true_expr,
+            false_expr,
+        } => {
+            // encode the condition
+            // net wasm stack: [] -> [<cond.vartype>]
+            encode_expr(cond, ctx, mutctx, expr_builder);
+            // convert the condition
+            // net wasm stack: [<cond.vartype>] -> [i32 (condition)]
+            encode_narrowing_operation(
+                ir::VarType::Boolean,
+                cond.vartype,
+                |expr_builder| {
+                    expr_builder
+                        .i32_const(ir::error::ERROR_CODE_IF_STATEMENT_CONDITION_TYPE as i32);
+                    expr_builder.i32_const(0);
+                    expr_builder.i32_const(0);
+                    expr_builder.i32_const(0);
+                    expr_builder.i32_const(0);
+                    expr_builder.call(ctx.error_func);
+                    expr_builder.unreachable();
+                },
+                &mut mutctx.scratch,
+                expr_builder,
+            );
+            // emit the if statement
+            if encode_vartype(expr.vartype).len() <= 1 || ctx.options.wasm_multi_value {
+                // use normal stack
+                // net wasm stack: [i32 (condition)] -> [<expr.vartype>]
+                expr_builder.if_(encode_vartype(expr.vartype));
+                {
+                    encode_expr(true_expr, ctx, mutctx, expr_builder);
+                    encode_widening_operation(
+                        expr.vartype,
+                        true_expr.vartype,
+                        &mut mutctx.scratch,
+                        expr_builder,
+                    );
+                }
+                expr_builder.else_();
+                {
+                    encode_expr(false_expr, ctx, mutctx, expr_builder);
+                    encode_widening_operation(
+                        expr.vartype,
+                        false_expr.vartype,
+                        &mut mutctx.scratch,
+                        expr_builder,
+                    );
+                }
+                expr_builder.end();
+            } else {
+                // use additional local variables
+
+                // add the temporary locals
+                let tmp_locals: Box<[wasmgen::LocalIdx]> = encode_vartype(expr.vartype)
+                    .iter()
+                    .copied()
+                    .map(|wasm_valtype| mutctx.scratch.push(wasm_valtype))
+                    .collect();
+
+                // net wasm stack: [i32 (condition)] -> []
+                expr_builder.if_(&[]);
+                {
+                    encode_expr(true_expr, ctx, mutctx, expr_builder);
+                    encode_store_local(&tmp_locals, expr.vartype, true_expr.vartype, expr_builder);
+                }
+                expr_builder.else_();
+                {
+                    encode_expr(false_expr, ctx, mutctx, expr_builder);
+                    encode_store_local(&tmp_locals, expr.vartype, false_expr.vartype, expr_builder);
+                }
+                expr_builder.end();
+
+                // net wasm stack: [] -> [<expr.vartype>]
+                encode_load_local(&tmp_locals, expr.vartype, expr.vartype, expr_builder);
+
+                // remove the temporary locals
+                encode_vartype(expr.vartype)
+                    .iter()
+                    .rev()
+                    .copied()
+                    .for_each(|wasm_valtype| mutctx.scratch.pop(wasm_valtype));
+            }
+        }
         ir::ExprKind::Trap {
             code: _,
             location: _,
