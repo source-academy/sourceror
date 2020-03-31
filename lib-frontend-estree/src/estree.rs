@@ -42,6 +42,7 @@ pub enum NodeKind {
     VariableDeclaration(VariableDeclaration),
     VariableDeclarator(VariableDeclarator),
     FunctionExpression(FunctionExpression),
+    ArrowFunctionExpression(ArrowFunctionExpression),
     UnaryExpression(UnaryExpression),
     UpdateExpression(UpdateExpression),
     BinaryExpression(BinaryExpression),
@@ -131,7 +132,7 @@ pub struct ContinueStatement {
 pub struct IfStatement {
     pub test: Box<Node>,
     pub consequent: Box<Node>,
-    pub alternate: Box<Node>,
+    pub alternate: Option<Box<Node>>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -155,9 +156,15 @@ pub struct VariableDeclarator {
 
 #[derive(Deserialize, Debug)]
 pub struct FunctionExpression {
-    pub id: Option<Box<Node>>,
     pub params: Vec<Node>,
     pub body: Box<Node>,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct ArrowFunctionExpression {
+    pub params: Vec<Node>,
+    pub body: Box<Node>,
+    pub expression: bool,
 }
 
 #[derive(Deserialize, Debug)]
@@ -206,4 +213,26 @@ pub struct ConditionalExpression {
 pub struct CallExpression {
     pub callee: Box<Node>,
     pub arguments: Vec<Node>,
+}
+
+pub trait Function {
+    fn destructure_params_body(self) -> (Vec<Node>, Box<Node>);
+}
+
+impl Function for FunctionDeclaration {
+    fn destructure_params_body(self) -> (Vec<Node>, Box<Node>) {
+        return (self.params, self.body);
+    }
+}
+
+impl Function for FunctionExpression {
+    fn destructure_params_body(self) -> (Vec<Node>, Box<Node>) {
+        return (self.params, self.body);
+    }
+}
+
+impl Function for ArrowFunctionExpression {
+    fn destructure_params_body(self) -> (Vec<Node>, Box<Node>) {
+        return (self.params, self.body);
+    }
 }

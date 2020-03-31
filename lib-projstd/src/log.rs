@@ -2,6 +2,8 @@
 
 #[derive(PartialEq, Eq, Copy, Clone, Debug)]
 pub enum Severity {
+    Hint,
+    Note,
     Info,
     Warning,
     Error,

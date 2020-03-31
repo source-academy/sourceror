@@ -16,9 +16,11 @@ const SOURCE_CODE: &'static str = r#"
 
 fn severity_value(severity: projstd::log::Severity) -> i32 {
     match severity {
-        projstd::log::Severity::Info => 0,
-        projstd::log::Severity::Warning => 1,
-        projstd::log::Severity::Error => 2,
+        projstd::log::Severity::Hint => 0,
+        projstd::log::Severity::Note => 1,
+        projstd::log::Severity::Info => 2,
+        projstd::log::Severity::Warning => 3,
+        projstd::log::Severity::Error => 4,
     }
 }
 
