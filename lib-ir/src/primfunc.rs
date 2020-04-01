@@ -304,8 +304,8 @@ fn generate_boolean_binary_operator_wrapper(prim_funcidx: FuncIdx) -> Func {
 
     // signature_filter for the primitive version:
     func.signature_filter.push((
-        Box::new([VarType::Number, VarType::Number]),
-        VarType::Number,
+        Box::new([VarType::Boolean, VarType::Boolean]),
+        VarType::Boolean,
         prim_funcidx,
     ));
 
@@ -582,7 +582,7 @@ fn generate_boolean_number_string_binary_operator_wrapper(
                 expr: Expr {
                     vartype: return_type_boolean,
                     kind: ExprKind::DirectAppl {
-                        funcidx: prim_number_funcidx,
+                        funcidx: prim_boolean_funcidx,
                         args: Box::new([
                             Expr {
                                 vartype: VarType::Boolean,
