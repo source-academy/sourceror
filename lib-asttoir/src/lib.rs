@@ -1,5 +1,39 @@
+#[macro_use]
+extern crate lazy_static;
+
 use ir;
 use std::collections::HashMap;
+use std::sync::Mutex;
+
+lazy_static! {
+    static ref IS_EXPRESSION: HashMap<&'static str, bool> = {
+        let mut map = HashMap::new();
+        map.insert("ThisExpression", true);
+        map.insert("Identifier", true);
+        map.insert("Literal", true);
+        map.insert("ArrayExpression", true);
+        map.insert("ObjectExpression", true);
+        map.insert("FunctionExpression", true);
+        map.insert("ArrowFunctionExpression", true);
+        map.insert("TaggedTemplateExpression", true);
+        map.insert("MemberExpression", true);
+        map.insert("TaggedTemplateExpression", true);
+        map.insert("Super", true);
+        map.insert("MetaProperty", true);
+        map.insert("NewExpression", true);
+        map.insert("TaggedTemplateExpression", true);
+        map.insert("CallExpression", true);
+        map.insert("UpdateExpression", true);
+        map.insert("AwaitExpression", true);
+        map.insert("UnaryExpression", true);
+        map.insert("BinaryExpression", true);
+        map.insert("ConditionalExpression", true);
+        map.insert("YieldExpression", true);
+        map.insert("SequenceExpression", true);
+
+        map
+    };
+}
 
 /**
  * The structs functions serve as utility functions to extract information from the AST
@@ -16,8 +50,7 @@ use std::collections::HashMap;
 // General TODOs:
 // 1. Make all functions recursive
 // 2. Change everything to be idiomatic
-// 3. Remvoe all hardcoded vars
-
+// 3. Remove all hardcoded vars
 
 pub fn read_from_file(filename: Option<std::string::String>) -> serde_json::Value {
     let default_filename = "./ast.txt".to_string();
@@ -32,13 +65,15 @@ pub fn populate_funcs() {
 }
 
 pub fn populate_func(ast: serde_json::Value) -> ir::Func {
+    let mut VAR_TO_IDX: HashMap<String, usize> = HashMap::new();
     let func: ir::Func = ir::Func {
         params: populate_func_params(ast.clone()),
         result: populate_func_result(ast.clone()),
-        locals: populate_func_locals(ast.clone()),
-        statements: populate_func_statements(ast.clone()),
+        locals: populate_func_locals(ast.clone(), &mut VAR_TO_IDX),
+        statements: populate_func_statements(ast.clone(), VAR_TO_IDX),
         signature_filter: vec![],
     };
+
     return func;
 }
 
@@ -57,96 +92,97 @@ pub fn populate_func_result(ast: serde_json::Value) -> Option<ir::VarType> {
     return Some(ir::VarType::Any);
 }
 
-pub fn populate_func_locals(ast: serde_json::Value) -> Vec<ir::VarType> {
+pub fn populate_func_locals(
+    ast: serde_json::Value,
+    VAR_TO_IDX: &mut HashMap<String, usize>,
+) -> Vec<ir::VarType> {
     let mut func_locals = Vec::<ir::VarType>::new();
     let prog_body = ast["body"][0].clone();
     let prog_locals = prog_body["body"]["body"][1]["declarations"].clone();
+    let mut var_index = 0;
 
     for j in 0..prog_body["body"]["body"].as_array().unwrap().len() {
         if prog_body["body"]["body"][j]["type"] == "VariableDeclaration" {
+            let var_name = prog_body["body"]["body"][j]["declarations"][0]["id"]["name"]
+                .as_str()
+                .unwrap()
+                .to_string();
+            VAR_TO_IDX.insert(var_name, var_index);
             func_locals.push(ir::VarType::Any);
+            var_index += 1
         }
     }
-
     return func_locals;
 }
 
-pub fn populate_func_statements(ast: serde_json::Value) -> ir::Block {
+pub fn populate_func_statements(
+    ast: serde_json::Value,
+    VAR_TO_IDX: HashMap<String, usize>,
+) -> ir::Block {
     // Doesn't support nested functions
     // Statements are either Assign, Return, If, Expr, Void
-    // type Expression = "ThisExpression" || "Identifier" || "Literal" ||
-    // "ArrayExpression" || "ObjectExpression" || "FunctionExpression" || "ArrowFunctionExpression" || "ClassExpression" ||
-    // "TaggedTemplateExpression" || "MemberExpression" || "Super" || "MetaProperty" ||
-    // "NewExpression" || "CallExpression" || "UpdateExpression" || "AwaitExpression" || "UnaryExpression" ||
-    // "BinaryExpression" || "LogicalExpression" || "ConditionalExpression" ||
-    // "YieldExpression"  || "SequenceExpression";
-    // If it's a function we loop through body and then classify each of the statements
     // If      -> Conditional Expression
     // Assign  -> AssignmentExpression
     // Return  -> Return Expression
-    // Loop through each statment in body
     let mut func_statements = Vec::<ir::Statement>::new();
-    let  mut index = 0;
-
+    let mut var_index: usize = 0;
 
     for i in 0..ast["body"][0]["body"]["body"].as_array().unwrap().len() {
-        let statement_type = ast["body"][0]["body"]["body"][i]["type"].clone();
-        println!("{}", ast["body"][0]["body"]["body"][i]["type"]);
+        let statement = ast["body"][0]["body"]["body"][i].clone();
+        let statement_type = statement["type"].clone();
         if statement_type == "ConditionalExpression" {
-            // let conditional_expression = ir::Statement::If {
-            //     cond: Expr,
-            //     true_stmts: Block,
-            //     false_stmts: Block,
-            // }
-            // Create condtional expression
-            //     func_statements.push(conditional_expression)
         } else if statement_type == "VariableDeclaration" {
+            println!(
+                "the statement is {}",
+                statement["declarations"][0]["id"]["name"]
+            );
             let assignment_statement = ir::Statement::Assign {
-                target: ir::TargetExpr::Local{
+                target: ir::TargetExpr::Local {
                     localidx: 0,
                     next: None,
                 },
                 expr: ir::Expr {
                     vartype: ir::VarType::Any,
-                    kind: ir::ExprKind::DirectAppl{
+                    kind: ir::ExprKind::DirectAppl {
                         funcidx: 1,
-                        args: Box::new([ir::Expr {
-                            vartype: ir::VarType::Any,
-                            kind: ir::ExprKind::VarName {
-                                source: ir::TargetExpr::Local{
-                                    localidx: 1,
-                                    next: None,
-                                },
-                            }
-                        }, ir::Expr {
+                        args: Box::new([
+                            ir::Expr {
                                 vartype: ir::VarType::Any,
                                 kind: ir::ExprKind::VarName {
-                                    source: ir::TargetExpr::Local{
-                                        localidx: 1,
+                                    source: ir::TargetExpr::Local {
+                                        localidx: var_index,
                                         next: None,
                                     },
-                                }
-                            }
+                                },
+                            },
+                            ir::Expr {
+                                vartype: ir::VarType::Any,
+                                kind: ir::ExprKind::VarName {
+                                    source: ir::TargetExpr::Local {
+                                        localidx: var_index,
+                                        next: None,
+                                    },
+                                },
+                            },
                         ]),
                     },
                 },
             };
             func_statements.push(assignment_statement);
         } else if statement_type == "ReturnStatement" {
+            let var_name = statement["argument"]["name"].as_str().unwrap();
             let return_statement = ir::Statement::Return {
                 expr: ir::Expr {
                     vartype: ir::VarType::Any,
                     kind: ir::ExprKind::VarName {
-                        source: ir::TargetExpr::Local{
-                            localidx: index,
+                        source: ir::TargetExpr::Local {
+                            localidx: VAR_TO_IDX[var_name],
                             next: None,
                         },
                     },
                 },
             };
             func_statements.push(return_statement);
-            index += 1;
-        } else {
         }
     }
     return func_statements;
@@ -168,8 +204,9 @@ mod tests {
 
     #[test]
     fn it_can_populate_locals() {
+        let VAR_TO_IDX: HashMap<String, usize> = HashMap::new();
         let ast = read_from_file(None);
-        let actual_locals = populate_func_locals(ast);
+        let actual_locals = populate_func_locals(ast, VAR_TO_IDX);
         let expected_locals = vec![ir::VarType::Any, ir::VarType::Any, ir::VarType::Any];
         assert_eq!(expected_locals, actual_locals);
     }
