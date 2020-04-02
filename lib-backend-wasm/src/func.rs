@@ -716,6 +716,10 @@ fn encode_expr<H: HeapManager>(
             }
         }
         ir::ExprKind::Sequence{local, statements, last} => {
+            assert!(
+                expr.vartype == last.vartype,
+                "ICE: IR->Wasm: sequence expression must return the vartype of the last expression that it contains"
+            );
             mutctx.push_local(*local);
             encode_statements(&statements, ctx, mutctx, expr_builder);
             encode_expr(last, ctx, mutctx, expr_builder);
