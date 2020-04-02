@@ -202,6 +202,11 @@ pub enum ExprKind {
         true_expr: Box<Expr>,
         false_expr: Box<Expr>,
     }, // a ? b : c
+    Sequence { // this is a hack to make lambda functions work; eventually statements and expressions should be unified
+        local: VarType,
+        statements: Vec<Statement>,
+        last: Box<Expr>,
+	}, // returns the value of the last expression
     Trap {
         code: u32,
         location: SourceLocation,

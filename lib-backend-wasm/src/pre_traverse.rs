@@ -106,6 +106,10 @@ fn pre_traverse_expr_kind(expr_kind: &ir::ExprKind, res: &mut TraverseResult) {
             pre_traverse_expr(true_expr, res);
             pre_traverse_expr(false_expr, res);
         }
+        ir::ExprKind::Sequence{local: _, statements, last} => {
+            pre_traverse_statements(&statements, res);
+            pre_traverse_expr(last, res);
+		}
         ir::ExprKind::Trap {
             code: _,
             location: _,
