@@ -8,10 +8,16 @@ use std::vec::Vec;
 use crate::error::ERROR_CODE_BINARY_OPERATOR_PARAM_TYPE;
 use crate::error::ERROR_CODE_UNARY_OPERATOR_PARAM_TYPE;
 
-fn indexed_push<T>(v: &mut Vec<T>, value: T) -> usize {
-    let ret = v.len();
-    v.push(value);
-    ret
+trait IndexedPushRef<T> {
+    fn indexed_push(&mut self, value: T) -> usize;
+}
+
+impl<T> IndexedPushRef<T> for (Vec<T>, usize) {
+    fn indexed_push(&mut self, value: T) -> usize {
+        let ret = self.0.len() + self.1;
+        self.0.push(value);
+        ret
+    }
 }
 
 /**
@@ -846,51 +852,41 @@ fn generate_unary_operator_wrapper(prim_funcidx: FuncIdx, vartype: VarType) -> F
  * Generates the primitive function (e.g. `+(number, number) -> number`) and the builtin (e.g. `+(any, any) -> any`).
  */
 fn generate_number_binary_operator(
-    funcs: &mut Vec<Func>,
+    funcs: &mut (Vec<Func>, usize),
     builtin_funcidxs: &mut [FuncIdx; NUM_BUILTINS as usize],
     prim_inst: PrimInst,
     builtin: Builtin,
 ) {
-    let primitive_funcidx = indexed_push(
-        funcs,
-        generate_binary_operator_primitive(
-            prim_inst,
-            VarType::Number,
-            VarType::Number,
-            VarType::Number,
-        ),
-    );
-    let builtin_funcidx = indexed_push(
-        funcs,
-        generate_number_binary_operator_wrapper(primitive_funcidx),
-    );
+    let primitive_funcidx = funcs.indexed_push(generate_binary_operator_primitive(
+        prim_inst,
+        VarType::Number,
+        VarType::Number,
+        VarType::Number,
+    ));
+    let builtin_funcidx =
+        funcs.indexed_push(generate_number_binary_operator_wrapper(primitive_funcidx));
     builtin_funcidxs[builtin as usize] = builtin_funcidx;
 }
 
 fn generate_boolean_binary_operator(
-    funcs: &mut Vec<Func>,
+    funcs: &mut (Vec<Func>, usize),
     builtin_funcidxs: &mut [FuncIdx; NUM_BUILTINS as usize],
     prim_inst: PrimInst,
     builtin: Builtin,
 ) {
-    let primitive_funcidx = indexed_push(
-        funcs,
-        generate_binary_operator_primitive(
-            prim_inst,
-            VarType::Boolean,
-            VarType::Boolean,
-            VarType::Boolean,
-        ),
-    );
-    let builtin_funcidx = indexed_push(
-        funcs,
-        generate_boolean_binary_operator_wrapper(primitive_funcidx),
-    );
+    let primitive_funcidx = funcs.indexed_push(generate_binary_operator_primitive(
+        prim_inst,
+        VarType::Boolean,
+        VarType::Boolean,
+        VarType::Boolean,
+    ));
+    let builtin_funcidx =
+        funcs.indexed_push(generate_boolean_binary_operator_wrapper(primitive_funcidx));
     builtin_funcidxs[builtin as usize] = builtin_funcidx;
 }
 
 fn generate_number_string_binary_operator(
-    funcs: &mut Vec<Func>,
+    funcs: &mut (Vec<Func>, usize),
     builtin_funcidxs: &mut [FuncIdx; NUM_BUILTINS as usize],
     prim_inst_number: PrimInst,
     prim_inst_string: PrimInst,
@@ -899,39 +895,30 @@ fn generate_number_string_binary_operator(
     return_type_string: VarType,
     wrapper_return_type: VarType,
 ) {
-    let primitive_number_funcidx = indexed_push(
-        funcs,
-        generate_binary_operator_primitive(
-            prim_inst_number,
-            VarType::Number,
-            VarType::Number,
-            return_type_number,
-        ),
-    );
-    let primitive_string_funcidx = indexed_push(
-        funcs,
-        generate_binary_operator_primitive(
-            prim_inst_string,
-            VarType::String,
-            VarType::String,
-            return_type_string,
-        ),
-    );
-    let builtin_funcidx = indexed_push(
-        funcs,
-        generate_number_string_binary_operator_wrapper(
-            primitive_number_funcidx,
-            primitive_string_funcidx,
-            return_type_number,
-            return_type_string,
-            wrapper_return_type,
-        ),
-    );
+    let primitive_number_funcidx = funcs.indexed_push(generate_binary_operator_primitive(
+        prim_inst_number,
+        VarType::Number,
+        VarType::Number,
+        return_type_number,
+    ));
+    let primitive_string_funcidx = funcs.indexed_push(generate_binary_operator_primitive(
+        prim_inst_string,
+        VarType::String,
+        VarType::String,
+        return_type_string,
+    ));
+    let builtin_funcidx = funcs.indexed_push(generate_number_string_binary_operator_wrapper(
+        primitive_number_funcidx,
+        primitive_string_funcidx,
+        return_type_number,
+        return_type_string,
+        wrapper_return_type,
+    ));
     builtin_funcidxs[builtin as usize] = builtin_funcidx;
 }
 
 fn generate_boolean_number_string_binary_operator(
-    funcs: &mut Vec<Func>,
+    funcs: &mut (Vec<Func>, usize),
     builtin_funcidxs: &mut [FuncIdx; NUM_BUILTINS as usize],
     prim_inst_boolean: PrimInst,
     prim_inst_number: PrimInst,
@@ -942,36 +929,26 @@ fn generate_boolean_number_string_binary_operator(
     return_type_string: VarType,
     wrapper_return_type: VarType,
 ) {
-    let primitive_boolean_funcidx = indexed_push(
-        funcs,
-        generate_binary_operator_primitive(
-            prim_inst_boolean,
-            VarType::Boolean,
-            VarType::Boolean,
-            return_type_boolean,
-        ),
-    );
-    let primitive_number_funcidx = indexed_push(
-        funcs,
-        generate_binary_operator_primitive(
-            prim_inst_number,
-            VarType::Number,
-            VarType::Number,
-            return_type_number,
-        ),
-    );
-    let primitive_string_funcidx = indexed_push(
-        funcs,
-        generate_binary_operator_primitive(
-            prim_inst_string,
-            VarType::String,
-            VarType::String,
-            return_type_string,
-        ),
-    );
-    let builtin_funcidx = indexed_push(
-        funcs,
-        generate_boolean_number_string_binary_operator_wrapper(
+    let primitive_boolean_funcidx = funcs.indexed_push(generate_binary_operator_primitive(
+        prim_inst_boolean,
+        VarType::Boolean,
+        VarType::Boolean,
+        return_type_boolean,
+    ));
+    let primitive_number_funcidx = funcs.indexed_push(generate_binary_operator_primitive(
+        prim_inst_number,
+        VarType::Number,
+        VarType::Number,
+        return_type_number,
+    ));
+    let primitive_string_funcidx = funcs.indexed_push(generate_binary_operator_primitive(
+        prim_inst_string,
+        VarType::String,
+        VarType::String,
+        return_type_string,
+    ));
+    let builtin_funcidx =
+        funcs.indexed_push(generate_boolean_number_string_binary_operator_wrapper(
             primitive_boolean_funcidx,
             primitive_number_funcidx,
             primitive_string_funcidx,
@@ -979,32 +956,28 @@ fn generate_boolean_number_string_binary_operator(
             return_type_number,
             return_type_string,
             wrapper_return_type,
-        ),
-    );
+        ));
     builtin_funcidxs[builtin as usize] = builtin_funcidx;
 }
 
 fn generate_unary_operator(
-    funcs: &mut Vec<Func>,
+    funcs: &mut (Vec<Func>, usize),
     builtin_funcidxs: &mut [FuncIdx; NUM_BUILTINS as usize],
     vartype: VarType,
     prim_inst: PrimInst,
     builtin: Builtin,
 ) {
-    let primitive_funcidx = indexed_push(
-        funcs,
-        generate_unary_operator_primitive(prim_inst, vartype, vartype),
-    );
-    let builtin_funcidx = indexed_push(
-        funcs,
-        generate_unary_operator_wrapper(primitive_funcidx, vartype),
-    );
+    let primitive_funcidx = funcs.indexed_push(generate_unary_operator_primitive(
+        prim_inst, vartype, vartype,
+    ));
+    let builtin_funcidx =
+        funcs.indexed_push(generate_unary_operator_wrapper(primitive_funcidx, vartype));
     builtin_funcidxs[builtin as usize] = builtin_funcidx;
 }
 
 #[rustfmt::skip]
-pub fn make_pregenerated_funcs() -> (Vec<Func>, [FuncIdx; NUM_BUILTINS as usize]) {
-    let mut funcs = Vec::<Func>::new();
+pub fn make_pregenerated_funcs(funcidx_offset: usize) -> (Vec<Func>, [FuncIdx; NUM_BUILTINS as usize]) {
+    let mut funcs = (Vec::<Func>::new(), funcidx_offset);
     let mut builtin_funcidxs: [FuncIdx; NUM_BUILTINS as usize] = Default::default();
 
     {
@@ -1025,5 +998,5 @@ pub fn make_pregenerated_funcs() -> (Vec<Func>, [FuncIdx; NUM_BUILTINS as usize]
         generate_unary_operator(&mut funcs, &mut builtin_funcidxs, VarType::Number, PrimInst::NumberNegate, Builtin::UnaryMinus);
     }
 
-    (funcs, builtin_funcidxs)
+    (funcs.0, builtin_funcidxs)
 }

@@ -35,7 +35,7 @@ pub type FuncIdx = usize;
 
 pub struct Program {
     pub struct_types: Vec<Box<[VarType]>>, // stores the list of fields of all structs (i.e. objects) in the program (indexed with typeidx)
-    pub imports: Vec<Import>,              // list of imported functions
+    pub imports: Box<[Import]>,            // list of imported functions
     pub funcs: Vec<Func>, // list of functions (some will be pre-generated for the pre-declared operators, e.g. + - * / % === and more)
     pub globals: Vec<VarType>, // list of global variables
     pub entry_point: FuncIdx, // index of function to run when the program is started
@@ -278,12 +278,12 @@ impl Program {
     // `funcs` will have pre-declared operators, but might also have other primitive functions (e.g. typed version of pre-declared operators).
     // The caller should only use the functions that match the funcidxs specified in the returned array of pre-declared operators.
     // Other things in the `funcs` array should not be used.
-    pub fn new() -> (Program, [FuncIdx; NUM_BUILTINS as usize]) {
-        let (funcs, builtin_funcidxs) = primfunc::make_pregenerated_funcs();
+    pub fn new(imports: Box<[Import]>) -> (Program, [FuncIdx; NUM_BUILTINS as usize]) {
+        let (funcs, builtin_funcidxs) = primfunc::make_pregenerated_funcs(imports.len());
         (
             Program {
                 struct_types: Default::default(),
-                imports: Default::default(),
+                imports: imports,
                 funcs: funcs,
                 globals: Default::default(),
                 entry_point: Default::default(),
