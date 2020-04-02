@@ -64,7 +64,7 @@ impl<'a, 'b> MutContext<'a, 'b> {
         }
     }
     /**
-     * Undoes the corresponding pop_local().  Locals are pushed and popped like a stack.
+     * Undoes the corresponding push_local().  Locals are pushed and popped like a stack.
      */
     fn pop_local(&mut self, ir_vartype: ir::VarType) {
         assert!(self.local_types.len() == self.local_map.len());
@@ -714,6 +714,16 @@ fn encode_expr<H: HeapManager>(
                     .copied()
                     .for_each(|wasm_valtype| mutctx.scratch.pop(wasm_valtype));
             }
+        }
+        ir::ExprKind::Sequence {
+            local,
+            statements,
+            last,
+        } => {
+            mutctx.push_local(*local);
+            encode_statements(&statements, ctx, mutctx, expr_builder);
+            encode_expr(last, ctx, mutctx, expr_builder);
+            mutctx.pop_local(*local);
         }
         ir::ExprKind::Trap {
             code: _,
