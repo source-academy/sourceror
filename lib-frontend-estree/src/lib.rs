@@ -101,6 +101,75 @@ impl<L: Logger> Context<L> {
     }
 }
 
+struct ContextCrossborderRewindPoint {
+    names_buf_len: usize,
+    closures_len: usize,
+    closure_typeidx: Option<usize>,
+    locals_offset: usize,
+}
+
+impl<L: Logger> Context<L> {
+    /**
+     * For rewinding across function definition.
+     * It does four things:
+     * * Moves locals to closures
+     * * Set names/names_buf to retarget existing locals to closures
+     * * Reset locals_offset to zero (will be populated by parse_function)
+     * * Stores fields (including closure_typeidx) so that it can be rewound later.
+     */
+    fn enter_function(
+        &mut self,
+        new_closure_typeidx: Option<usize>,
+    ) -> ContextCrossborderRewindPoint {
+        let ret = ContextCrossborderRewindPoint {
+            names_buf_len: self.names_buf.len(),
+            closures_len: self.closures.len(),
+            closure_typeidx: self.closure_typeidx,
+            locals_offset: self.locals_offset,
+        };
+
+        // Set names/names_buf to retarget existing locals to closures
+        {
+            let closures_len = self.closures.len();
+            let (names, names_buf) = (&mut self.names, &mut self.names_buf);
+            names.iter_mut().for_each(|(key, val)| {
+                if let VariableLocation::Local(outer, inner) = *val {
+                    let old: VariableLocation = std::mem::replace(
+                        val,
+                        VariableLocation::Closure(closures_len + outer, inner),
+                    );
+                    names_buf.push((key.clone(), Some(old)));
+                }
+            });
+        }
+
+        // Moves locals to closures
+        self.closures.append(&mut self.locals); // will make `self.locals` empty
+
+        self.closure_typeidx = new_closure_typeidx;
+
+        // Reset locals_offset to zero
+        self.locals_offset = 0;
+
+        ret
+    }
+    fn leave_function(&mut self, rewind_point: ContextCrossborderRewindPoint) {
+        self.locals_offset = rewind_point.locals_offset;
+
+        self.closure_typeidx = rewind_point.closure_typeidx;
+
+        self.locals = self.closures.split_off(rewind_point.closures_len);
+
+        while self.names_buf.len() != rewind_point.names_buf_len {
+            let (name, loc) = self.names_buf.pop().unwrap();
+            match loc {
+                Some(variable_location) => self.names.insert(name, variable_location),
+                None => panic!("internal compiler error: expected ContextCrossborderRewindPoint to only have replaced names, but it has new names"),
+            };
+        }
+    }
+}
+
 trait ReturningPush<T> {
     fn returning_push(&mut self, value: T) -> usize;
 }
@@ -109,6 +178,22 @@ impl<T> ReturningPush<T> for Vec<T> {
     fn returning_push(&mut self, value: T) -> usize {
         let ret = self.len();
         self.push(value);
+        ret
+    }
+}
+
+impl<T> ReturningPush<T> for (Vec<T>, usize) {
+    fn returning_push(&mut self, value: T) -> usize {
+        let ret = self.0.len() + self.1;
+        self.0.push(value);
+        ret
+    }
+}
+
+impl<T> ReturningPush<T> for (&mut Vec<T>, usize) {
+    fn returning_push(&mut self, value: T) -> usize {
+        let ret = self.0.len() + self.1;
+        self.0.push(value);
         ret
     }
 }
@@ -159,6 +244,51 @@ fn make_owned_error_with_kind<T, L: Logger>(
     Err(())
 }
 
+impl<L: Logger> Context<L> {
+    fn get_funcidx_for_unary_operator(&self, operator_name: &str) -> Result<ir::FuncIdx, Error> {
+        match operator_name {
+            "-" => Ok(self.builtin_funcs[ir::Builtin::UnaryMinus as usize]),
+            "!" => Ok(self.builtin_funcs[ir::Builtin::Not as usize]),
+            other => make_owned_error_with_kind(
+                self,
+                LogKind::SourceRestriction,
+                format!("unary operator \"{}\" not allowed", other),
+            ),
+        }
+    }
+    fn get_funcidx_for_binary_operator(&self, operator_name: &str) -> Result<ir::FuncIdx, Error> {
+        match operator_name {
+            "===" => Ok(self.builtin_funcs[ir::Builtin::Eq as usize]),
+            "!==" => Ok(self.builtin_funcs[ir::Builtin::Neq as usize]),
+            "<" => Ok(self.builtin_funcs[ir::Builtin::Lt as usize]),
+            "<=" => Ok(self.builtin_funcs[ir::Builtin::Le as usize]),
+            ">" => Ok(self.builtin_funcs[ir::Builtin::Gt as usize]),
+            ">=" => Ok(self.builtin_funcs[ir::Builtin::Ge as usize]),
+            "+" => Ok(self.builtin_funcs[ir::Builtin::Plus as usize]),
+            "-" => Ok(self.builtin_funcs[ir::Builtin::Minus as usize]),
+            "*" => Ok(self.builtin_funcs[ir::Builtin::Times as usize]),
+            "/" => Ok(self.builtin_funcs[ir::Builtin::Divide as usize]),
+            "%" => Ok(self.builtin_funcs[ir::Builtin::Modulo as usize]),
+            other => make_owned_error_with_kind(
+                self,
+                LogKind::SourceRestriction,
+                format!("binary operator \"{}\" not allowed", other),
+            ),
+        }
+    }
+    fn get_funcidx_for_logical_operator(&self, operator_name: &str) -> Result<ir::FuncIdx, Error> {
+        match operator_name {
+            "||" => Ok(self.builtin_funcs[ir::Builtin::Or as usize]),
+            "&&" => Ok(self.builtin_funcs[ir::Builtin::And as usize]),
+            other => make_owned_error_with_kind(
+                self,
+                LogKind::ESTree,
+                format!("logical operator \"{}\" unexpected", other),
+            ),
+        }
+    }
+}
+
 trait AsIdentifierName {
     fn as_identifier_name(&self) -> Result<&str, ()>;
 }
@@ -186,7 +316,7 @@ impl IntoIdentifierName for Node {
 }
 
 pub fn run_frontend<L: Logger>(estree_str: &str, logger: L) -> FrontendResult {
-    let (ir_program, builtin_funcs) = ir::Program::new();
+    let (ir_program, builtin_funcs) = ir::Program::new(Box::new([]));
     let es_program: estree::Node = serde_json::from_str(estree_str).unwrap();
     let mut context = Context::new(ir_program, builtin_funcs, FrontendLogger::new(logger));
     context.parse_program(es_program)?;
@@ -242,17 +372,135 @@ impl<L: Logger> Context<L> {
 
     /**
      * Creates a fresh local context my moving all the Context::locals into Context::closures, updating Context::names, synthesising the closure struct.
-     * Returns an ir::Expr whose kind is ExprKind::PrimFunc.
+     * Returns an ir::Expr whose kind is ExprKind::Sequence<..., PrimFunc>.
      */
     fn prepare_context_and_parse_function<F: Function>(
         &mut self,
         es_func: F,
     ) -> Result<ir::Expr, Error> {
-        unimplemented!();
+        // add a new closure type
+        let ir_closure_types: Box<[ir::VarType]> = self
+            .closures
+            .iter()
+            .chain(self.locals.iter())
+            .map(|var_info| ir::VarType::StructT {
+                typeidx: var_info.typeidx,
+            })
+            .collect();
+        let typeidx = self
+            .ir_program
+            .struct_types
+            .returning_push(ir_closure_types.clone());
+
+        // instantiate a new closure object
+        let local_idx = self.locals_offset + self.locals.len();
+        assert!(self.closure_typeidx != None || self.closures.is_empty());
+
+        let statements: Vec<ir::Statement> = std::iter::once(ir::Statement::Assign {
+            target: ir::TargetExpr::Local {
+                localidx: local_idx,
+                next: None,
+            },
+            expr: ir::Expr {
+                vartype: ir::VarType::StructT { typeidx: typeidx },
+                kind: ir::ExprKind::PrimStructT { typeidx: typeidx },
+            },
+        })
+        .chain(
+            self.closures
+                .iter()
+                .enumerate()
+                .map(|(i, var_info)| ir::Statement::Assign {
+                    target: ir::TargetExpr::Local {
+                        localidx: local_idx,
+                        next: Some(Box::new(ir::StructField {
+                            typeidx: typeidx,
+                            fieldidx: i,
+                            next: None,
+                        })),
+                    },
+                    expr: ir::Expr {
+                        vartype: ir::VarType::StructT {
+                            typeidx: var_info.typeidx,
+                        },
+                        kind: ir::ExprKind::VarName {
+                            source: ir::TargetExpr::Local {
+                                localidx: 0,
+                                next: Some(Box::new(ir::StructField {
+                                    typeidx: self.closure_typeidx.unwrap(),
+                                    fieldidx: i,
+                                    next: None,
+                                })),
+                            },
+                        },
+                    },
+                }),
+        )
+        .chain(
+            self.locals
+                .iter()
+                .enumerate()
+                .map(|(i, var_info)| ir::Statement::Assign {
+                    target: ir::TargetExpr::Local {
+                        localidx: local_idx,
+                        next: Some(Box::new(ir::StructField {
+                            typeidx: typeidx,
+                            fieldidx: self.closures.len() + i,
+                            next: None,
+                        })),
+                    },
+                    expr: ir::Expr {
+                        vartype: ir::VarType::StructT {
+                            typeidx: var_info.typeidx,
+                        },
+                        kind: ir::ExprKind::VarName {
+                            source: ir::TargetExpr::Local {
+                                localidx: self.locals_offset + i,
+                                next: None,
+                            },
+                        },
+                    },
+                }),
+        )
+        .collect();
+
+        // set up the rewind context
+        let crossborder_rewind_context = self.enter_function(Some(typeidx));
+
+        let funcidx = self.parse_function_impl(es_func)?;
+
+        // rewind the context
+        self.leave_function(crossborder_rewind_context);
+
+        let function_expr = ir::Expr {
+            vartype: ir::VarType::Func,
+            kind: ir::ExprKind::PrimFunc {
+                funcidx: funcidx,
+                closure: Box::new(ir::Expr {
+                    vartype: ir::VarType::StructT { typeidx: typeidx },
+                    kind: ir::ExprKind::VarName {
+                        source: ir::TargetExpr::Local {
+                            localidx: local_idx,
+                            next: None,
+                        },
+                    },
+                }),
+            },
+        };
+
+        Ok(ir::Expr {
+            vartype: ir::VarType::Func,
+            kind: ir::ExprKind::Sequence {
+                local: ir::VarType::StructT { typeidx: typeidx },
+                statements: statements,
+                last: Box::new(function_expr),
+            },
+        })
     }
 
     /**
      * Adds ir::Function to the context.  The caller should have synthesised the closure struct for this Function, and set up all fields of the context to prepare for this function.
+     * Returns the index of this Function.
      */
     fn parse_function_impl<F: Function>(&mut self, es_func: F) -> Result<usize, Error> {
         let (es_params, es_body): (Vec<Node>, Box<Node>) = es_func.destructure_params_body();
@@ -350,7 +598,7 @@ impl<L: Logger> Context<L> {
 
         self.rewind(rewind_point);
 
-        Ok(self.ir_program.funcs.returning_push(ir_function))
+        Ok((&mut self.ir_program.funcs, self.ir_program.imports.len()).returning_push(ir_function))
     }
 
     /**
@@ -504,10 +752,17 @@ impl<L: Logger> Context<L> {
                                 write_error(self, "Expected ESTree Identifier here");
                                 e
                             })?;
-                            let ir_expr = init.map_or(
-                                make_error(self, "variable initializer must be present for Source"),
-                                |expr_node| self.parse_expression_node(*expr_node),
-                            )?;
+                            let ir_expr = init
+                                .map_or_else(
+                                    || {
+                                        make_error(
+                                            self,
+                                            "variable initializer must be present for Source",
+                                        )
+                                    },
+                                    |expr_node| Ok(expr_node),
+                                )
+                                .and_then(|expr_node| self.parse_expression_node(*expr_node))?;
                             self.make_assignment_statement(&name, ir_expr)
                         }
                         _ => make_error(
@@ -632,7 +887,124 @@ impl<L: Logger> Context<L> {
      * This function parses a node that contains what is logically an ir::Expr (i.e. no assignment statements).
      */
     fn parse_expression_node(&mut self, es_node: estree::Node) -> Result<ir::Expr, Error> {
-        unimplemented!();
+        match es_node.kind {
+            NodeKind::Identifier(identifier) => Ok(ir::Expr {
+                vartype: ir::VarType::Any,
+                kind: ir::ExprKind::VarName {
+                    source: self.make_target_expr(&identifier.name)?,
+                },
+            }),
+            NodeKind::Literal(literal) => match literal.value {
+                LiteralValue::String(string_val) => Ok(ir::Expr {
+                    vartype: ir::VarType::String,
+                    kind: ir::ExprKind::PrimString { val: string_val },
+                }),
+                LiteralValue::Boolean(bool_val) => Ok(ir::Expr {
+                    vartype: ir::VarType::Boolean,
+                    kind: ir::ExprKind::PrimBoolean { val: bool_val },
+                }),
+                LiteralValue::Number(number_val) => Ok(ir::Expr {
+                    vartype: ir::VarType::Number,
+                    kind: ir::ExprKind::PrimNumber { val: number_val },
+                }),
+                LiteralValue::Null => make_error_with_kind(
+                    self,
+                    LogKind::SourceRestriction,
+                    "null literal not allowed",
+                ),
+                LiteralValue::RegExp => make_error_with_kind(
+                    self,
+                    LogKind::SourceRestriction,
+                    "regular expression not allowed",
+                ),
+            },
+            NodeKind::FunctionExpression(_) => make_error_with_kind(
+                self,
+                LogKind::SourceRestriction,
+                "FunctionExpression not allowed",
+            ),
+            NodeKind::ArrowFunctionExpression(function) => {
+                self.prepare_context_and_parse_function(function)
+            }
+            NodeKind::UnaryExpression(unary_expr) => {
+                let funcidx = self.get_funcidx_for_unary_operator(&unary_expr.operator)?;
+                Ok(ir::Expr {
+                    vartype: self.ir_program.funcs[funcidx - self.ir_program.imports.len()]
+                        .result
+                        .unwrap(),
+                    kind: ir::ExprKind::DirectAppl {
+                        funcidx: funcidx,
+                        args: Box::new([self.parse_expression_node(*unary_expr.argument)?]),
+                    },
+                })
+            }
+            NodeKind::UpdateExpression(_) => make_error_with_kind(
+                self,
+                LogKind::SourceRestriction,
+                "UpdateExpression not allowed",
+            ),
+            NodeKind::BinaryExpression(binary_expr) => {
+                let funcidx = self.get_funcidx_for_binary_operator(&binary_expr.operator)?;
+                Ok(ir::Expr {
+                    vartype: self.ir_program.funcs[funcidx - self.ir_program.imports.len()]
+                        .result
+                        .unwrap(),
+                    kind: ir::ExprKind::DirectAppl {
+                        funcidx: funcidx,
+                        args: Box::new([
+                            self.parse_expression_node(*binary_expr.left)?,
+                            self.parse_expression_node(*binary_expr.right)?,
+                        ]),
+                    },
+                })
+            }
+            NodeKind::AssignmentExpression(_) => make_error_with_kind(
+                self,
+                LogKind::SourceRestriction,
+                "AssignmentExpression must not be a subexpression",
+            ),
+            NodeKind::LogicalExpression(logical_expr) => {
+                let funcidx = self.get_funcidx_for_logical_operator(&logical_expr.operator)?;
+                Ok(ir::Expr {
+                    vartype: self.ir_program.funcs[funcidx - self.ir_program.imports.len()]
+                        .result
+                        .unwrap(),
+                    kind: ir::ExprKind::DirectAppl {
+                        funcidx: funcidx,
+                        args: Box::new([
+                            self.parse_expression_node(*logical_expr.left)?,
+                            self.parse_expression_node(*logical_expr.right)?,
+                        ]),
+                    },
+                })
+            }
+            NodeKind::ConditionalExpression(cond_expr) => Ok(ir::Expr {
+                vartype: ir::VarType::Any,
+                kind: ir::ExprKind::Conditional {
+                    cond: Box::new(self.parse_expression_node(*cond_expr.test)?),
+                    true_expr: Box::new(self.parse_expression_node(*cond_expr.consequent)?),
+                    false_expr: Box::new(self.parse_expression_node(*cond_expr.alternate)?),
+                },
+            }),
+            NodeKind::CallExpression(call_expr) => {
+                unimplemented!();
+            }
+            _ => make_error(self, "Expression node expected in ESTree"),
+        }
+    }
+
+    fn make_target_expr(&self, name: &str) -> Result<ir::TargetExpr, Error> {
+        let var_loc: VariableLocation = self.names.get(name).map_or_else(
+            || {
+                make_owned_error_with_kind(
+                    self,
+                    LogKind::UndeclaredVariable,
+                    format!("Name \"{}\" is undeclared", name),
+                )
+            },
+            |var_loc| Ok(*var_loc),
+        )?;
+        Ok(self.make_targetexpr_from_variable_location(var_loc))
     }
 
     fn make_assignment_statement(
@@ -640,15 +1012,7 @@ impl<L: Logger> Context<L> {
         name: &str,
         expr: ir::Expr,
     ) -> Result<ir::Statement, Error> {
-        let var_loc: VariableLocation = self.names.get(name).map_or(
-            make_owned_error_with_kind(
-                self,
-                LogKind::UndeclaredVariable,
-                format!("Name \"{}\" is undeclared", name),
-            ),
-            |var_loc| Ok(*var_loc),
-        )?;
-        let ir_targetexpr: ir::TargetExpr = self.make_targetexpr_from_variable_location(var_loc);
+        let ir_targetexpr: ir::TargetExpr = self.make_target_expr(name)?;
         Ok(ir::Statement::Assign {
             target: ir_targetexpr,
             expr: expr,
