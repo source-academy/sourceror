@@ -3,10 +3,10 @@
   "version": "1.0.3",
   "description": "Thing that invokes the Sourceror compiler and supplies the standard library files from libsourceror",
   "dependencies": {
-    "@types/node": "^13.9.5",
-    "node-getopt": "^0.3.2",
+    "@btzy/libsourceror": "^0.0.1",
     "@btzy/source-compiler": "../sourceror/pkg/",
-    "@btzy/libsourceror": "^0.0.1"
+    "@types/node": "^13.11.0",
+    "node-getopt": "^0.3.2"
   },
   "main": "dist/index",
   "types": "dist/index",

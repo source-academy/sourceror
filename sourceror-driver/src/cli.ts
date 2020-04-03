@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { compile, run } from './index'
+import * as fs from 'fs';
 
 function compileAndRun(
     chapter = 1,
@@ -18,7 +19,8 @@ function main() {
     .parseSystem()
 
   const chapter = parseInt(opt.options.chapter, 10)
-    const code = opt.argv[0]
+    const filename = opt.argv[0]
+    const code = fs.readFileSync(filename, 'utf8')
   compileAndRun(chapter, code)
 }
 
