@@ -6,13 +6,13 @@ import {compile as wasm_compile} from '@btzy/source-compiler/source_compiler'
     }
 }*/
 
-class RuntimeError extends Error {
+export class RuntimeError extends Error {
     constructor(message: string) {
         super(message)
     }
 }
 
-class Result {
+export class Result {
     status: string;
     value: any;
     constructor(status: string, value: any) {
@@ -29,15 +29,40 @@ export async function compile(code: string, options: any): Promise<WebAssembly.M
 }
 
 
+function read_js_result(linear_memory: WebAssembly.Memory): any {
+    const mem = new DataView(linear_memory.buffer);
+    const tag = mem.getUint32((1 << 20) - 12, true);
+    const data_offset = ((1 << 20) - 8);
+    switch (tag) {
+        case 0:
+            return "(unassigned variable was returned)";
+        case 1:
+            return undefined;
+        case 2:
+            return mem.getFloat64(data_offset, true);
+        case 3:
+            return mem.getUint32(data_offset, true) !== 0;
+        case 4:
+            return "(string was returned)";
+        case 5:
+            return "(function was returned)";
+        case 6:
+            return "(struct was returned)";
+        default:
+            return "(invalid type was returned)";
+    }
+}
+
+
 export async function run(wasm_module: WebAssembly.Module): Promise<Result> {
     let err: any = undefined;
     return WebAssembly.instantiate(wasm_module, { core: { error: (x: number) => { err = x } } })
         .then(instance => {
-            const return_val = (instance.exports.main as Function)();
+            (instance.exports.main as Function)();
             if (err) {
                 return Promise.reject(new RuntimeError(err.toString()));
             } else {
-                return new Result("finished", return_val)
+                return new Result("finished", read_js_result(instance.exports.linear_memory as WebAssembly.Memory))
             }
         });
 
