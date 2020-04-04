@@ -200,8 +200,20 @@ pub fn encode_funcs<Heap: HeapManager>(
                     local_types: registry.param_types.to_vec(),
                     module_wrapper: ModuleEncodeWrapper { wasm_module },
                 };
-                encode_block(&ir_func.block, ctx, &mut mutctx, expr_builder);
-                expr_builder.end(); // append the end instruction to end the function
+                let is_stack_polymorphic =
+                    encode_block(&ir_func.block, ctx, &mut mutctx, expr_builder);
+
+                if !is_stack_polymorphic {
+                    // encode a dummy return value since we fall off the end of the function
+                    // this dummy will never be used if we are returning something not null/undefined, but we have to encode the instruction in order to pass validation
+                    encode_load_dummies(
+                        &encode_result(ir_func.result, options.wasm_multi_value),
+                        expr_builder,
+                    );
+                }
+
+                // append the end instruction to end the function
+                expr_builder.end();
             }
             // commit the function:
             wasm_module.commit_func(registry.funcidx, code_builder);
@@ -233,11 +245,14 @@ fn encode_param_list(
     for ir_param in ir_params {
         let encoded = encode_vartype(*ir_param);
         param_map.push(wasm_param_map.len());
-        for wasm_valtype in encoded {
-            wasm_param_map.push(wasmgen::LocalIdx {
-                idx: wasm_param_valtypes.len() as u32,
-            });
+        for wasm_valtype in encoded.iter().rev() {
             wasm_param_valtypes.push(*wasm_valtype);
+        }
+        let len = wasm_param_valtypes.len();
+        for (i, _) in encoded.iter().enumerate() {
+            wasm_param_map.push(wasmgen::LocalIdx {
+                idx: (len - 1 - i) as u32,
+            });
         }
     }
     (
@@ -276,23 +291,39 @@ fn encode_vartype(ir_vartype: ir::VarType) -> &'static [wasmgen::ValType] {
     }
 }
 
+fn encode_load_dummies(
+    wasm_valtypes: &[wasmgen::ValType],
+    expr_builder: &mut wasmgen::ExprBuilder,
+) {
+    for wasm_valtype in wasm_valtypes {
+        match *wasm_valtype {
+            wasmgen::ValType::I32 => expr_builder.i32_const(0),
+            wasmgen::ValType::I64 => expr_builder.i64_const(0),
+            wasmgen::ValType::F32 => expr_builder.f32_const(0.0),
+            wasmgen::ValType::F64 => expr_builder.f64_const(0.0),
+        };
+    }
+}
+
 // net wasm stack: [] -> []
 fn encode_block<H: HeapManager>(
     block: &ir::Block,
     ctx: EncodeContext<H>,
     mutctx: &mut MutContext,
     expr_builder: &mut wasmgen::ExprBuilder,
-) {
+) -> bool {
     // push all the locals
     for ir_vartype in &block.locals {
         mutctx.push_local(*ir_vartype);
     }
     // encode the statements
-    encode_statements(&block.statements, ctx, mutctx, expr_builder);
+    let is_stack_polymorphic = encode_statements(&block.statements, ctx, mutctx, expr_builder);
     // pop all the locals
     for ir_vartype in &block.locals {
         mutctx.pop_local(*ir_vartype);
     }
+
+    is_stack_polymorphic
 }
 
 // net wasm stack: [] -> []
@@ -301,10 +332,14 @@ fn encode_statements<H: HeapManager>(
     ctx: EncodeContext<H>,
     mutctx: &mut MutContext,
     expr_builder: &mut wasmgen::ExprBuilder,
-) {
+) -> bool {
+    let mut is_stack_polymorphic = false;
     for statement in statements {
-        encode_statement(statement, ctx, mutctx, expr_builder);
+        if encode_statement(statement, ctx, mutctx, expr_builder) {
+            is_stack_polymorphic = true;
+        }
     }
+    is_stack_polymorphic
 }
 
 // net wasm stack: [] -> []
@@ -313,7 +348,7 @@ fn encode_statement<H: HeapManager>(
     ctx: EncodeContext<H>,
     mutctx: &mut MutContext,
     expr_builder: &mut wasmgen::ExprBuilder,
-) {
+) -> bool {
     match statement {
         ir::Statement::Assign { target, expr } => {
             // encode stuff needed before expr (e.g. compute addresses):
@@ -322,6 +357,7 @@ fn encode_statement<H: HeapManager>(
             encode_expr(expr, ctx, mutctx, expr_builder);
             // write the value from the stack to the target
             encode_target_addr_post(target, expr.vartype, ctx, mutctx, expr_builder);
+            false
         }
         ir::Statement::Return { expr } => {
             match ctx.return_type {
@@ -342,7 +378,8 @@ fn encode_statement<H: HeapManager>(
                     // return the value on the stack (or in the unprotected stack) (which now has the correct type)
                     expr_builder.return_();
                 }
-            }
+            };
+            true
         }
         ir::Statement::If {
             cond,
@@ -376,18 +413,22 @@ fn encode_statement<H: HeapManager>(
             expr_builder.else_();
             encode_block(false_block, ctx, mutctx, expr_builder);
             expr_builder.end();
+            false
         }
         ir::Statement::Block { block } => {
             encode_block(block, ctx, mutctx, expr_builder);
+            false
         }
         ir::Statement::Expr { expr } => {
             // encode the expression
             encode_expr(expr, ctx, mutctx, expr_builder);
             // remove the value from the stack
             encode_drop_value(expr.vartype, expr_builder);
+            false
         }
         ir::Statement::Void { expr_kind } => {
             encode_void_expr(expr_kind, ctx, mutctx, expr_builder);
+            true
         }
     }
 }
@@ -593,15 +634,22 @@ fn encode_expr<H: HeapManager>(
             // net wasm stack: [] -> [funcidx]
             expr_builder.i32_const((super::IR_FUNCIDX_TABLE_OFFSET + *funcidx as u32) as i32);
         }
-        ir::ExprKind::TypeOf { expr, expected } => {
+        ir::ExprKind::TypeOf {
+            expr: arg,
+            expected,
+        } => {
             assert!(
-                expr.vartype == ir::VarType::Any,
+                expr.vartype == ir::VarType::Boolean,
+                "ICE: IR->Wasm: Return value of TypeOf builtin should have static type Boolean"
+            );
+            assert!(
+                arg.vartype == ir::VarType::Any,
                 "ICE: IR->Wasm: LHS of TypeOf builtin should have static type Any"
             );
 
             // encode the inner expr
             // net wasm stack: [] -> [i64 data, i32 tag]
-            encode_expr(&expr, ctx, mutctx, expr_builder);
+            encode_expr(&arg, ctx, mutctx, expr_builder);
 
             // push `true` if the tag of the Any is equal to `expected`, `false` otherwise
             // net wasm stack: [] -> [i32 constant]
@@ -1328,8 +1376,8 @@ fn encode_post_appl_calling_conv(
         expr_builder.i32_const(size_in_memory(vartype) as i32);
         expr_builder.i32_sub();
 
-        // write the source value to memory
-        // net wasm stack: [return_ptr, source_type] -> []
-        encode_store_memory(0, vartype, vartype, scratch, expr_builder);
+        // load the source value from memory
+        // net wasm stack: [return_ptr] -> [source_type]
+        encode_load_memory(0, vartype, vartype, scratch, expr_builder);
     }
 }
