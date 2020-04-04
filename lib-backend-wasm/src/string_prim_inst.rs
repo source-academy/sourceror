@@ -454,34 +454,35 @@ fn encode_string_compare<F: Fn(&mut ExprBuilder)>(
     let len_2 = scratch.push_i32();
     let len_min = scratch.push_i32();
 
+    // let len_1 = *string_1;
+    // let len_2 = *string_2;
+    // net wasm stack: [string_1(i32), string_2(i32)] -> []
+    expr_builder.local_tee(string_2);
+    expr_builder.i32_load(MemArg::new4(0));
+    expr_builder.local_set(len_2);
+    expr_builder.local_tee(string_1);
+    expr_builder.i32_load(MemArg::new4(0));
+    expr_builder.local_set(len_1);
+
+    // string_1 += 4;
+    // string_2 += 4;
+    // net wasm stack: [] -> []
+    expr_builder.local_get(string_1);
+    expr_builder.i32_const(4);
+    expr_builder.i32_add();
+    expr_builder.local_set(string_1);
+    expr_builder.local_get(string_2);
+    expr_builder.i32_const(4);
+    expr_builder.i32_add();
+    expr_builder.local_set(string_2);
+
     // add block... so we can 'return' later using the branch instruction
     expr_builder.block(&[ValType::I32]);
     {
-        // let len_1 = *string_1;
-        // let len_2 = *string_2;
-        // net wasm stack: [string_1(i32), string_2(i32)] -> [len_1(i32), len_2(i32)]
-        expr_builder.local_set(string_2);
-        expr_builder.local_tee(string_1);
-        expr_builder.i32_load(MemArg::new4(0));
-        expr_builder.local_tee(len_1);
-        expr_builder.local_get(string_2);
-        expr_builder.i32_load(MemArg::new4(0));
-        expr_builder.local_tee(len_2);
-
-        // string_1 += 4;
-        // string_2 += 4;
-        // net wasm stack: [] -> []
-        expr_builder.local_get(string_1);
-        expr_builder.i32_const(4);
-        expr_builder.i32_add();
-        expr_builder.local_set(string_1);
-        expr_builder.local_get(string_2);
-        expr_builder.i32_const(4);
-        expr_builder.i32_add();
-        expr_builder.local_set(string_2);
-
         // let len_min = min(len_1, len_2);
-        // net wasm stack: [len_1(i32), len_2(i32)] -> [len_min(i32)]
+        // net wasm stack: [] -> [len_min(i32)]
+        expr_builder.local_get(len_1);
+        expr_builder.local_get(len_2);
         expr_builder.local_get(len_1);
         expr_builder.local_get(len_2);
         expr_builder.i32_lt_u();
