@@ -97,7 +97,6 @@ pub fn run_backend(ir_program: &ir::Program, options: Options) -> wasmgen::WasmM
 fn encode_program(ir_program: &ir::Program, options: Options) -> wasmgen::WasmModule {
     // todo! Emit struct_types
     // todo! Emit globals
-    // todo! Emit entry point
     // (note: not the same was the wasm entry point!)
     // By convention, this is a normal function exported as "main")
 
@@ -178,6 +177,9 @@ fn encode_program(ir_program: &ir::Program, options: Options) -> wasmgen::WasmMo
         MEM_STACK_SIZE + globals_num_pages + Leaky::initial_heap_size(),
         &mut wasm_module,
     );
+
+    // export the memory (so that the host can read the return value)
+    wasm_module.export_mem(memidx, "linear_memory".to_string());
 
     // initialize pool data
     encode_pool_data(
