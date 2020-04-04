@@ -47,6 +47,10 @@ impl WasmModule {
     pub fn export_func(&mut self, funcidx: FuncIdx, exported_name: String) {
         self.export_section.push_func(exported_name, funcidx);
     }
+    // Export a memory so that the environment (i.e. JavaScript) can read it
+    pub fn export_mem(&mut self, memidx: MemIdx, exported_name: String) {
+        self.export_section.push_mem(exported_name, memidx);
+    }
     pub fn add_bounded_memory(&mut self, initial_num_pages: u32, max_num_pages: u32) -> MemIdx {
         self.mem_section
             .add_bounded(initial_num_pages, max_num_pages)
@@ -282,6 +286,12 @@ impl ExportSection {
         self.content.push(Export {
             entity_name: exported_name,
             desc: ExportDesc::Func(funcidx),
+        });
+    }
+    fn push_mem(&mut self, exported_name: String, memidx: MemIdx) {
+        self.content.push(Export {
+            entity_name: exported_name,
+            desc: ExportDesc::Mem(memidx),
         });
     }
 }
