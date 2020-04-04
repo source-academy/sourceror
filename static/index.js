@@ -18,9 +18,14 @@ const source_code = `{"type":"Program","start":0,"end":72,"body":[{"type":"Funct
 async function run() {
     await compiler.default(); // init
     const binary = compiler.compile(source_code);
-    const imports = { /* platform support libraries go here */ };
+    const imports = { /* platform support libraries go here */ 
+        core: {
+            error: (error_code, additional_location, file, line, column) => alert("Runtime error: code " + error_code)
+        }
+    };
     const instance = await load_binary(binary, imports);
-    const result = instance.main();
+    const result = instance.__read_js_result(instance.main());
+    
     alert(result);
 }
 
