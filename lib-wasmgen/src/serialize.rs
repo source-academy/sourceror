@@ -485,6 +485,7 @@ impl WasmSerialize for Data {
     {
         self.mem_idx.wasm_serialize(receiver);
         self.offset.wasm_serialize(receiver);
+        (self.content.len() as u32).leb_serialize(receiver);
         receiver.extend(self.content.as_ref() as &[u8]); // note: we actually want type ascription instead of `as`, but type ascription is still experimental.
     }
 }
