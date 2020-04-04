@@ -350,13 +350,22 @@ impl<L: Logger> Context<L> {
     }
 
     fn parse_program(&mut self, es_node: estree::Node) -> ContextResult {
-        /*
-        Toplevel func should return the result normally.  The backend should generate the proper convention so that the host can read the return value.
-        */
+        /**
+         * Toplevel func should be a function that takes in zero parameters, and returns the result normally.
+         * The backend should generate the proper convention so that the host can read the return value.
+         */
         match es_node.kind {
             estree::NodeKind::Program(es_program) => {
-                let es_funcexpr = transform_toplevel(es_program);
-                self.parse_function_impl(es_funcexpr)?;
+                let es_funcexpr = transform_toplevel(es_program).map_err(|x| {
+                    self.logger.log(
+                        LogKind::ESTree,
+                        Severity::Error,
+                        "error in toplevel transformation",
+                    );
+                    x
+                })?;
+                let funcidx = self.parse_function_impl(es_funcexpr)?;
+                self.ir_program.entry_point = funcidx;
                 return Result::Ok(());
             }
             _ => {
@@ -917,6 +926,10 @@ impl<L: Logger> Context<L> {
                     LogKind::SourceRestriction,
                     "regular expression not allowed",
                 ),
+                LiteralValue::Undefined => Ok(ir::Expr {
+                    vartype: ir::VarType::Undefined,
+                    kind: ir::ExprKind::PrimUndefined,
+                }),
             },
             NodeKind::FunctionExpression(_) => make_error_with_kind(
                 self,
@@ -1048,15 +1061,96 @@ impl<L: Logger> Context<L> {
     }
 }
 
-fn transform_toplevel(es_program: estree::Program) -> ArrowFunctionExpression {
-    return ArrowFunctionExpression {
+/**
+ * Will add `return` to the last statement of the toplevel (or if it is an `if` or `block` statement, add returns inside).
+ * It will also check that there are no` return` statements in the toplevel
+ */
+fn transform_toplevel(es_program: estree::Program) -> Result<ArrowFunctionExpression, Error> {
+    ensure_no_return_statements(&es_program.body)?;
+    Ok(ArrowFunctionExpression {
         params: Vec::new(),
         body: Box::new(Node {
             location: None,
             kind: NodeKind::BlockStatement(BlockStatement {
-                body: es_program.body,
+                body: transform_last_statement(es_program.body)?,
             }),
         }),
         expression: false,
+    })
+}
+
+fn transform_last_statement(mut statements: Vec<Node>) -> Result<Vec<Node>, Error> {
+    let last_node = statements.pop();
+    let new_last_nodes: Box<[Node]> = match last_node {
+        None => Box::new([]),
+        Some(node) => match node {
+            node
+            @
+            Node {
+                location: _,
+                kind: NodeKind::ExpressionStatement(_),
+            } => Box::new([Node {
+                location: None,
+                kind: NodeKind::ReturnStatement(ReturnStatement {
+                    argument: Some(Box::new(node)),
+                }),
+            }]),
+            node
+            @
+            Node {
+                location: _,
+                kind: NodeKind::BlockStatement(_),
+            } => Box::new([transform_last_block_statement(node)?]),
+            Node {
+                location: loc,
+                kind: NodeKind::IfStatement(if_stmt),
+            } => Box::new([Node {
+                location: loc,
+                kind: NodeKind::IfStatement(IfStatement {
+                    test: if_stmt.test,
+                    consequent: Box::new(transform_last_block_statement(*if_stmt.consequent)?),
+                    alternate: match if_stmt.alternate {
+                        Some(node) => Some(Box::new(transform_last_block_statement(*node)?)),
+                        None => None,
+                    },
+                }),
+            }]),
+            node => Box::new([
+                node,
+                Node {
+                    location: None,
+                    kind: NodeKind::ReturnStatement(ReturnStatement {
+                        argument: Some(Box::new(Node {
+                            location: None,
+                            kind: NodeKind::Literal(Literal {
+                                value: LiteralValue::Undefined,
+                            }),
+                        })),
+                    }),
+                },
+            ]),
+        },
     };
+    statements.append(&mut new_last_nodes.into_vec());
+    Ok(statements)
+}
+
+fn transform_last_block_statement(node: Node) -> Result<Node, Error> {
+    match node {
+        Node {
+            location: loc,
+            kind: NodeKind::BlockStatement(block),
+        } => Ok(Node {
+            location: loc,
+            kind: NodeKind::BlockStatement(BlockStatement {
+                body: transform_last_statement(block.body)?,
+            }),
+        }),
+        _ => Err(()),
+    }
+}
+
+fn ensure_no_return_statements(es_program: &[Node]) -> Result<(), Error> {
+    // todo!(actually check for no return statements)
+    Ok(())
 }

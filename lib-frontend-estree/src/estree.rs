@@ -70,6 +70,8 @@ pub enum LiteralValue {
     Null,
     Number(f64),
     RegExp,
+    #[serde(skip)]
+    Undefined,
 }
 
 #[derive(Deserialize, Debug)]
