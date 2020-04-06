@@ -4,7 +4,7 @@
   "description": "Thing that invokes the Sourceror compiler and supplies the standard library files from libsourceror",
   "dependencies": {
     "@btzy/libsourceror": "^0.0.1",
-    "@btzy/source-compiler": "../sourceror/pkg/",
+    "@btzy/source-compiler": "../rust-webpack/dist/",
     "@types/node": "^13.11.0",
     "node-getopt": "^0.3.2"
   },

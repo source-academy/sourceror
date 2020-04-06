@@ -1,4 +1,4 @@
-import {compile as wasm_compile} from '@btzy/source-compiler/source_compiler'
+import {compile as wasm_compile} from '@btzy/source-compiler'
 
 /*class CompileError extends Error {
     constructor(message: string) {
@@ -22,7 +22,8 @@ export class Result {
 }
 
 export async function compile(code: string, options: any): Promise<WebAssembly.Module> {
-    return WebAssembly.compile(wasm_compile(code));
+    let p = wasm_compile(code);
+    return p.then((wasm_binary: Uint8Array) => WebAssembly.compile(wasm_binary))
     //const compiler = require('@btzy/source-compiler/source_compiler');
     //compiler();
     //console.log(compiler.__exports.compile.constructor.name);
