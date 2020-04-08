@@ -1,10 +1,14 @@
-import {compile as wasm_compile} from '@btzy/source-compiler'
+import { compile as wasm_compile } from '@btzy/source-compiler'
+import { Context } from 'js-slang'
+import { ErrorType, ErrorSeverity } from 'js-slang/dist/types'
+import { parse as slang_parse } from 'js-slang/dist/parser/parser'
+import * as es from 'estree'
 
-/*class CompileError extends Error {
+class CompileError extends Error {
     constructor(message: string) {
         super(message)
     }
-}*/
+}
 
 export class RuntimeError extends Error {
     constructor(message: string) {
@@ -12,21 +16,31 @@ export class RuntimeError extends Error {
     }
 }
 
-export class Result {
-    status: string;
-    value: any;
-    constructor(status: string, value: any) {
-        this.status = status;
-        this.value = value;
+export async function compile(code: string, context: Context): Promise<WebAssembly.Module> {
+    let estree: es.Program | undefined = slang_parse(code, context);
+    if (!estree) {
+        return Promise.reject(new CompileError("js-slang cannot parse the program"));
     }
-}
-
-export async function compile(code: string, options: any): Promise<WebAssembly.Module> {
-    let p = wasm_compile(code);
-    return p.then((wasm_binary: Uint8Array) => WebAssembly.compile(wasm_binary))
-    //const compiler = require('@btzy/source-compiler/source_compiler');
-    //compiler();
-    //console.log(compiler.__exports.compile.constructor.name);
+    let es_str: string = JSON.stringify(estree);
+    let compile_promise = wasm_compile(es_str);
+    return compile_promise.then((wasm_binary: Uint8Array) => {
+        return WebAssembly.compile(wasm_binary);
+    }).catch((err: string) => {
+        context.errors.push({
+            type: ErrorType.SYNTAX,
+            severity: ErrorSeverity.ERROR,
+            location: {
+                source: null, start: {
+                    line: 0, column: 0
+                }, end: {
+                    line: 0, column: 0
+                }
+            },
+            explain: (): string => err,
+            elaborate: (): string => err,
+        });
+        return Promise.reject(new CompileError("sourceror cannot compile the program"));
+    });
 }
 
 
@@ -55,16 +69,33 @@ function read_js_result(linear_memory: WebAssembly.Memory): any {
 }
 
 
-export async function run(wasm_module: WebAssembly.Module): Promise<Result> {
-    let err: any = undefined;
-    return WebAssembly.instantiate(wasm_module, { core: { error: (x: number) => { err = x } } })
-        .then(instance => {
-            (instance.exports.main as Function)();
-            if (err) {
-                return Promise.reject(new RuntimeError(err.toString()));
-            } else {
-                return new Result("finished", read_js_result(instance.exports.linear_memory as WebAssembly.Memory))
+export async function run(wasm_module: WebAssembly.Module, context: Context): Promise<any> {
+    return WebAssembly.instantiate(wasm_module, {
+        core: {
+            error: (code: number, detail: number, file: number, line: number, column: number) => {
+                context.errors.push({
+                    type: ErrorType.RUNTIME,
+                    severity: ErrorSeverity.ERROR,
+                    location: {
+                        source: null, start: {
+                            line, column
+                        }, end: {
+                            line, column: column + 1
+                        }
+                    },
+                    explain: (): string => code.toString(),
+                    elaborate: (): string => code.toString(),
+                });
+                throw ""; // to stop the webassembly binary immediately
             }
-        });
-
+        }
+    })
+    .then(instance => {
+        try {
+            (instance.exports.main as Function)();
+            return read_js_result(instance.exports.linear_memory as WebAssembly.Memory);
+        } catch (_) {
+            return Promise.reject(new RuntimeError("runtime error"));
+        }
+    });
 }

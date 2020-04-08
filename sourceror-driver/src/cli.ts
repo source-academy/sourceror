@@ -1,12 +1,14 @@
 #!/usr/bin/env node
 import { compile, run } from './index'
+import { createContext } from 'js-slang'
 import * as fs from 'fs';
 
 function compileAndRun(
     chapter = 1,
     code: string
 ) {
-    compile(code, { chapter: chapter }).then(wasm_module => run(wasm_module)).then(result => console.log(result)).catch(err => console.error(err));
+    let context = createContext(chapter);
+    compile(code, context).then(wasm_module => run(wasm_module, context)).then(result => console.log(result)).catch(err => console.error(err));
 }
 
 function main() {
