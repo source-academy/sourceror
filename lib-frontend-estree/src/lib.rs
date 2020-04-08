@@ -1084,15 +1084,13 @@ fn transform_last_statement(mut statements: Vec<Node>) -> Result<Vec<Node>, Erro
     let new_last_nodes: Box<[Node]> = match last_node {
         None => Box::new([]),
         Some(node) => match node {
-            node
-            @
             Node {
                 location: _,
-                kind: NodeKind::ExpressionStatement(_),
+                kind: NodeKind::ExpressionStatement(ExpressionStatement{expression: box_expr}),
             } => Box::new([Node {
                 location: None,
                 kind: NodeKind::ReturnStatement(ReturnStatement {
-                    argument: Some(Box::new(node)),
+                    argument: Some(box_expr),
                 }),
             }]),
             node
