@@ -3,3 +3,5 @@
 Cargo.lock
 /stage
 /stage-wasmtest
+/node_modules
+/dist

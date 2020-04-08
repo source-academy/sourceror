@@ -18,28 +18,24 @@ use projstd;
 
 #[wasm_bindgen]
 extern "C" {
-    pub fn log(severity: i32, s: &str);
-}
-
-fn severity_value(severity: projstd::log::Severity) -> i32 {
-    match severity {
-        projstd::log::Severity::Hint => 0,
-        projstd::log::Severity::Note => 1,
-        projstd::log::Severity::Info => 2,
-        projstd::log::Severity::Warning => 3,
-        projstd::log::Severity::Error => 4,
-    }
+    #[wasm_bindgen(js_namespace = console)]
+    pub fn log(s: &str);
 }
 
 pub struct MainLogger {}
 impl projstd::log::Logger for MainLogger {
     fn log(&self, severity: projstd::log::Severity, message: String) {
-        crate::log(severity_value(severity), &message);
+        let string = format!("{}: {}", severity, message);
+        crate::log(&string);
     }
 }
 
 #[wasm_bindgen]
 pub fn compile(source_code: &str) -> Box<[u8]> {
+    // nice console errors in debug mode
+    #[cfg(all(debug_assertions, target_arch = "wasm32"))]
+    console_error_panic_hook::set_once();
+
     use wasmgen::WasmSerialize;
     match frontend_estree::run_frontend(source_code, MainLogger {}) {
         Ok(ir_program) => {
