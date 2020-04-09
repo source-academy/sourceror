@@ -200,11 +200,11 @@ pub enum ExprKind {
     Appl {
         func: Box<Expr>,
         args: Box<[Expr]>,
-    }, // function application (operators are functions too)
+    }, // function application (operators are functions too).  Closure parameter is implicitly prepended to the argument list.
     DirectAppl {
         funcidx: FuncIdx,
         args: Box<[Expr]>,
-    }, // direct function application (operators are functions too)
+    }, // direct function application (operators are functions too).  No closure will be prepended.
     Conditional {
         cond: Box<Expr>,
         true_expr: Box<Expr>,

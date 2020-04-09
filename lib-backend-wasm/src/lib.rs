@@ -161,8 +161,12 @@ fn encode_program(ir_program: &ir::Program, options: Options) -> wasmgen::WasmMo
         .into_boxed_slices();
 
     // make the string pool from all string constants in the program
-    let pre_traverse::TraverseResult { string_pool } =
-        pre_traverse::pre_traverse_funcs(&ir_program.funcs);
+    // and the list of addressable funcs and their funcidxs
+    let pre_traverse::TraverseResult {
+        string_pool,
+        addressed_funcs,
+    } = pre_traverse::pre_traverse_funcs(&ir_program.funcs);
+
     let (shifted_string_pool, mut pool_data) =
         string_pool.into_shifted_and_buffer(MEM_STACK_SIZE << WASM_PAGE_BITS);
     // round up to multiple of WASM_PAGE_SIZE
@@ -209,6 +213,7 @@ fn encode_program(ir_program: &ir::Program, options: Options) -> wasmgen::WasmMo
         ir_program.entry_point,
         globalidx_stackptr,
         memidx,
+        addressed_funcs,
         &heap,
         &shifted_string_pool,
         error_func,

@@ -42,4 +42,7 @@ impl<T: Eq + Hash + Clone> SearchableVec<T> {
     pub fn vec(&self) -> &Vec<T> {
         &self.vec
     }
+    pub fn into_parts(self) -> (Vec<T>, HashMap<T, usize>) {
+        (self.vec, self.index)
+    }
 }

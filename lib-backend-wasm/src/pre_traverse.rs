@@ -1,3 +1,4 @@
+use projstd::searchablevec::SearchableVec;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::vec::Vec;
@@ -22,6 +23,7 @@ pub struct ShiftedStringPool {
 #[derive(Default)]
 pub struct TraverseResult {
     pub string_pool: StringPool,
+    pub addressed_funcs: SearchableVec<ir::FuncIdx>, // list of functions called by PrimFunc
 }
 
 /*
@@ -85,10 +87,10 @@ fn pre_traverse_expr_kind(expr_kind: &ir::ExprKind, res: &mut TraverseResult) {
         | ir::ExprKind::PrimBoolean { val: _ }
         | ir::ExprKind::PrimStructT { typeidx: _ } => {}
         ir::ExprKind::PrimString { val } => res.string_pool.insert(val),
-        ir::ExprKind::PrimFunc {
-            funcidx: _,
-            closure,
-        } => pre_traverse_expr(closure, res),
+        ir::ExprKind::PrimFunc { funcidx, closure } => {
+            res.addressed_funcs.insert_copy(funcidx);
+            pre_traverse_expr(closure, res);
+        }
         ir::ExprKind::TypeOf { expr, expected: _ } => pre_traverse_expr(expr, res),
         ir::ExprKind::VarName { source: _ } => {}
         ir::ExprKind::PrimAppl { prim_inst: _, args } => pre_traverse_exprs(args, res),
@@ -118,7 +120,7 @@ fn pre_traverse_expr_kind(expr_kind: &ir::ExprKind, res: &mut TraverseResult) {
             code: _,
             location: _,
         } => {}
-    }
+    };
 }
 
 impl StringPool {
