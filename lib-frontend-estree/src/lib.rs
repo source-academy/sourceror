@@ -701,14 +701,28 @@ impl<L: Logger> Context<L> {
             );
         }
 
+        let local_struct_statement: ir::Statement = ir::Statement::Assign {
+            target: ir::TargetExpr::Local {
+                localidx: self.locals_offset + local_index,
+                next: None,
+            },
+            expr: ir::Expr {
+                vartype: ir::VarType::StructT { typeidx: typeidx },
+                kind: ir::ExprKind::PrimStructT { typeidx: typeidx },
+            },
+        };
+
         // encode the body of the block
-        let ir_statements: Vec<ir::Statement> = es_block_statement
-            .body
-            .into_iter()
-            .map(|node| self.parse_statement_node(node))
-            .collect::<Result<Vec<Box<[ir::Statement]>>, _>>()?
-            .into_iter()
-            .flat_map(|b| b.into_vec())
+        let ir_statements: Vec<ir::Statement> = std::iter::once(local_struct_statement)
+            .chain(
+                es_block_statement
+                    .body
+                    .into_iter()
+                    .map(|node| self.parse_statement_node(node))
+                    .collect::<Result<Vec<Box<[ir::Statement]>>, _>>()?
+                    .into_iter()
+                    .flat_map(|b| b.into_vec()),
+            )
             .collect();
 
         self.rewind(rewind_point);
@@ -999,9 +1013,17 @@ impl<L: Logger> Context<L> {
                     false_expr: Box::new(self.parse_expression_node(*cond_expr.alternate)?),
                 },
             }),
-            NodeKind::CallExpression(call_expr) => {
-                unimplemented!();
-            }
+            NodeKind::CallExpression(call_expr) => Ok(ir::Expr {
+                vartype: ir::VarType::Any,
+                kind: ir::ExprKind::Appl {
+                    func: Box::new(self.parse_expression_node(*call_expr.callee)?),
+                    args: call_expr
+                        .arguments
+                        .into_iter()
+                        .map(|arg| self.parse_expression_node(arg))
+                        .collect::<Result<Box<[ir::Expr]>, Error>>()?,
+                },
+            }),
             _ => make_error(self, "Expression node expected in ESTree"),
         }
     }
@@ -1086,7 +1108,10 @@ fn transform_last_statement(mut statements: Vec<Node>) -> Result<Vec<Node>, Erro
         Some(node) => match node {
             Node {
                 location: _,
-                kind: NodeKind::ExpressionStatement(ExpressionStatement{expression: box_expr}),
+                kind:
+                    NodeKind::ExpressionStatement(ExpressionStatement {
+                        expression: box_expr,
+                    }),
             } => Box::new([Node {
                 location: None,
                 kind: NodeKind::ReturnStatement(ReturnStatement {
