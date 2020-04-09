@@ -10,7 +10,9 @@ use crate::Options;
 
 use super::var_conv::*;
 
-struct EncodeContext<'a, 'b, 'c, 'd, 'e, 'f, Heap: HeapManager> {
+use projstd::searchablevec::SearchableVec;
+
+struct EncodeContext<'a, 'b, 'c, 'd, 'e, 'f, 'g, Heap: HeapManager> {
     // Local to this function
     return_type: Option<ir::VarType>,
     // Global for whole program
@@ -20,19 +22,20 @@ struct EncodeContext<'a, 'b, 'c, 'd, 'e, 'f, Heap: HeapManager> {
     wasm_funcidxs: &'d [wasmgen::FuncIdx], // mapping from ir::FuncIdx to wasmgen::FuncIdx (used when we need to invoke a DirectAppl)
     stackptr: wasmgen::GlobalIdx,
     memidx: wasmgen::MemIdx,
-    heap: &'e Heap,
-    string_pool: &'f ShiftedStringPool,
+    wasm_elemidxs: &'e [Option<u32>],
+    heap: &'f Heap,
+    string_pool: &'g ShiftedStringPool,
     error_func: wasmgen::FuncIdx, // imported function to call to error out (e.g. runtime type errors)
     options: Options,             // Compilation options (it implements Copy)
 }
 
 // Have to implement Copy and Clone manually, because #[derive(Copy, Clone)] doesn't work for generic types like Heap
-impl<'a, 'b, 'c, 'd, 'e, 'f, Heap: HeapManager> Copy
-    for EncodeContext<'a, 'b, 'c, 'd, 'e, 'f, Heap>
+impl<'a, 'b, 'c, 'd, 'e, 'f, 'g, Heap: HeapManager> Copy
+    for EncodeContext<'a, 'b, 'c, 'd, 'e, 'f, 'g, Heap>
 {
 }
-impl<'a, 'b, 'c, 'd, 'e, 'f, Heap: HeapManager> Clone
-    for EncodeContext<'a, 'b, 'c, 'd, 'e, 'f, Heap>
+impl<'a, 'b, 'c, 'd, 'e, 'f, 'g, Heap: HeapManager> Clone
+    for EncodeContext<'a, 'b, 'c, 'd, 'e, 'f, 'g, Heap>
 {
     fn clone(&self) -> Self {
         *self
@@ -100,15 +103,18 @@ impl<'a> ModuleEncodeWrapper<'a> {
     fn add_wasm_type(&mut self, wasm_functype: wasmgen::FuncType) -> wasmgen::TypeIdx {
         self.wasm_module.insert_type_into(wasm_functype)
     }
-    fn add_ir_type(
+    fn add_ir_type_with_closure(
         &mut self,
         ir_params: &[ir::VarType],
         ir_result: Option<ir::VarType>,
         use_wasm_multi_value_feature: bool,
     ) -> wasmgen::TypeIdx {
         let (wasm_params, _, _) = encode_param_list(ir_params);
+        let params_with_closure: Box<[wasmgen::ValType]> = std::iter::once(wasmgen::ValType::I32)
+            .chain(wasm_params.into_iter().copied())
+            .collect();
         let wasm_functype = wasmgen::FuncType::new(
-            wasm_params,
+            params_with_closure,
             encode_result(ir_result, use_wasm_multi_value_feature),
         );
         self.add_wasm_type(wasm_functype)
@@ -123,6 +129,7 @@ pub fn encode_funcs<Heap: HeapManager>(
     ir_entry_point_funcidx: ir::FuncIdx,
     globalidx_stackptr: wasmgen::GlobalIdx,
     memidx: wasmgen::MemIdx,
+    addressed_funcs: SearchableVec<ir::FuncIdx>,
     heap: &Heap,
     string_pool: &ShiftedStringPool,
     error_func: wasmgen::FuncIdx,
@@ -136,6 +143,13 @@ pub fn encode_funcs<Heap: HeapManager>(
         param_map: Box<[usize]>, // map converts ir param index to wasm_param_map index
         param_types: Box<[ir::VarType]>, // map converts ir param index to ir param type
     }
+
+    let (indirect_function_list, indirect_functions_map) = addressed_funcs.into_parts();
+
+    // reserve space for the indirect function table
+    let tableidx = wasm_module.get_or_add_table();
+    let indirect_call_table_offset =
+        wasm_module.reserve_table_elements(tableidx, indirect_function_list.len() as u32);
 
     // register all the funcs first, in order of ir::funcidx
     // also encode the params and the locals and the return type
@@ -170,6 +184,24 @@ pub fn encode_funcs<Heap: HeapManager>(
         .chain(registry_list.iter().map(|x| x.funcidx))
         .collect();
 
+    wasm_module.commit_table_elements(
+        tableidx,
+        indirect_call_table_offset,
+        indirect_function_list
+            .iter()
+            .map(|ir_funcidx| wasm_funcidxs[*ir_funcidx])
+            .collect(),
+    );
+
+    // map from ir::FuncIdx to wasm table idx
+    let wasm_elemidxs: Box<[Option<u32>]> = (0..wasm_funcidxs.len())
+        .map(|i| {
+            indirect_functions_map
+                .get(&i)
+                .map(|x| indirect_call_table_offset + ((*x) as u32))
+        })
+        .collect();
+
     // use the wasmgen::codewriter to encode the function body
     ir_funcs
         .iter()
@@ -188,6 +220,7 @@ pub fn encode_funcs<Heap: HeapManager>(
                     wasm_funcidxs: &wasm_funcidxs,
                     stackptr: globalidx_stackptr,
                     memidx: memidx,
+                    wasm_elemidxs: &wasm_elemidxs,
                     heap: heap,
                     string_pool: string_pool,
                     error_func: error_func,
@@ -632,7 +665,10 @@ fn encode_expr<H: HeapManager>(
 
             // encode the funcidx
             // net wasm stack: [] -> [funcidx]
-            expr_builder.i32_const((super::IR_FUNCIDX_TABLE_OFFSET + *funcidx as u32) as i32);
+            match ctx.wasm_elemidxs[*funcidx] {
+                Some(elemidx) => expr_builder.i32_const(elemidx as i32),
+                None => panic!("addressed function is not in the indirect function call table"),
+            };
         }
         ir::ExprKind::TypeOf {
             expr: arg,
@@ -1069,21 +1105,23 @@ fn encode_returnable_appl<H: HeapManager>(
                     expr_builder.i32_wrap_i64();
                     expr_builder.local_set(localidx_tableidx);
                     expr_builder.i64_const(32);
-                    expr_builder.i32_shr_u();
+                    expr_builder.i64_shr_u();
                     expr_builder.i32_wrap_i64();
                 }
             }
             _ => {
                 panic!("Cannot call function with static VarType that is not Func or Any");
             }
-        }
+        };
     }
 
     // Encode all the arguments
+    // net wasm stack: [] -> [args...]
     let anys: Box<[ir::VarType]> = args.iter().map(|_| ir::VarType::Any).collect();
     encode_args_to_call_function(&anys, args, ctx, mutctx, expr_builder);
 
     // push the tableidx onto the stack
+    // net wasm stack: [] -> [tableidx]
     expr_builder.local_get(localidx_tableidx);
 
     if true {
@@ -1100,7 +1138,7 @@ fn encode_returnable_appl<H: HeapManager>(
 
         // call the function (indirectly)
         expr_builder.call_indirect(
-            mutctx.module_wrapper.add_ir_type(
+            mutctx.module_wrapper.add_ir_type_with_closure(
                 &anys,
                 Some(ir::VarType::Any),
                 ctx.options.wasm_multi_value,
@@ -1121,7 +1159,7 @@ fn encode_returnable_appl<H: HeapManager>(
 
         // call the function (indirectly)
         expr_builder.call_indirect(
-            mutctx.module_wrapper.add_ir_type(
+            mutctx.module_wrapper.add_ir_type_with_closure(
                 &anys,
                 Some(ir::VarType::Any),
                 ctx.options.wasm_multi_value,
