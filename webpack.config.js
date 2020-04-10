@@ -12,6 +12,9 @@ module.exports = {
   output: {
     path: dist,
     filename: "[name].js",
+    publicPath: 'externalLibs/',
+    chunkFilename: 'sourceror/[hash].bundle.js',
+    webassemblyModuleFilename: 'sourceror/[hash].module.wasm',
     library: 'sourceror',
     libraryTarget: 'umd',
     /*library: 'sourceror',
