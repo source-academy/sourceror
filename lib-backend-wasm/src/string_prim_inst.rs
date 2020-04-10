@@ -443,6 +443,8 @@ fn encode_string_compare<F: Fn(&mut ExprBuilder)>(
         if tmp_1 != tmp_2 {
             return compare(tmp_1, tmp_2);
         }
+        string_1 += 1;
+        string_2 += 1;
         len_min -= 1;
     }
     return compare(len_1, len_2);
@@ -527,7 +529,18 @@ fn encode_string_compare<F: Fn(&mut ExprBuilder)>(
                 scratch.pop_i32();
                 scratch.pop_i32();
 
+                // string_1 += 1;
+                // string_2 += 1;
+                // len_min -= 1;
                 // net wasm stack: [] -> []
+                expr_builder.local_get(string_1);
+                expr_builder.i32_const(1);
+                expr_builder.i32_add();
+                expr_builder.local_set(string_1);
+                expr_builder.local_get(string_2);
+                expr_builder.i32_const(1);
+                expr_builder.i32_add();
+                expr_builder.local_set(string_2);
                 expr_builder.local_get(len_min);
                 expr_builder.i32_const(1);
                 expr_builder.i32_sub();
