@@ -58,7 +58,13 @@ function read_js_result(linear_memory: WebAssembly.Memory): any {
         case 3:
             return mem.getUint32(data_offset, true) !== 0;
         case 4:
-            return "(string was returned)";
+            {
+                const ptr = mem.getUint32(data_offset, true);
+                const len = mem.getUint32(ptr, true);
+                const decoder = new TextDecoder();
+                const res = decoder.decode(new Uint8Array(linear_memory.buffer, ptr + 4, len));
+                return res;
+            }
         case 5:
             return "(function was returned)";
         case 6:
