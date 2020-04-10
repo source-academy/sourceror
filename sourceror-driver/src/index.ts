@@ -4,7 +4,7 @@ import { ErrorType, ErrorSeverity } from 'js-slang/dist/types'
 import { parse as slang_parse } from 'js-slang/dist/parser/parser'
 import * as es from 'estree'
 
-class CompileError extends Error {
+export class CompileError extends Error {
     constructor(message: string) {
         super(message)
     }
@@ -75,6 +75,10 @@ function read_js_result(linear_memory: WebAssembly.Memory): any {
 }
 
 
+// Just a unique identifier used for throwing exceptions while running the webassembly code
+const propagationToken = {};
+
+
 export async function run(wasm_module: WebAssembly.Module, context: Context): Promise<any> {
     return WebAssembly.instantiate(wasm_module, {
         core: {
@@ -92,7 +96,7 @@ export async function run(wasm_module: WebAssembly.Module, context: Context): Pr
                     explain: (): string => code.toString(),
                     elaborate: (): string => code.toString(),
                 });
-                throw ""; // to stop the webassembly binary immediately
+                throw propagationToken; // to stop the webassembly binary immediately
             }
         }
     })
@@ -100,8 +104,25 @@ export async function run(wasm_module: WebAssembly.Module, context: Context): Pr
         try {
             (instance.exports.main as Function)();
             return read_js_result(instance.exports.linear_memory as WebAssembly.Memory);
-        } catch (_) {
-            return Promise.reject(new RuntimeError("runtime error"));
+        } catch (e) {
+            if (e === propagationToken) {
+                return Promise.reject(new RuntimeError("runtime error"));
+            } else {
+                context.errors.push({
+                    type: ErrorType.RUNTIME,
+                    severity: ErrorSeverity.ERROR,
+                    location: {
+                        source: null, start: {
+                            line: 0, column: 0,
+                        }, end: {
+                            line: 0, column: 0,
+                        }
+                    },
+                    explain: (): string => e.toString(),
+                    elaborate: (): string => e.toString(),
+                });
+                return Promise.reject(e);
+            }
         }
     });
 }
