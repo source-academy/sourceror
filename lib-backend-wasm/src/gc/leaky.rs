@@ -234,7 +234,13 @@ impl<'a, 'b, 'c> super::HeapManager for Leaky<'a, 'b, 'c> {
     ) {
         match ir_vartype {
             ir::VarType::String => {
+                let localidx_str_len: wasmgen::LocalIdx = scratch.push_i32();
                 let localidx_mem_size: wasmgen::LocalIdx = scratch.push_i32();
+
+                {
+                    expr_builder.local_tee(localidx_str_len);
+                }
+
                 // Algorithm: mem_size = ((num_bytes + 7) & (~3))   // equivalent to (4 + round_up_to_multiple_of_4(num_bytes))
                 // net wasm stack: [i32(num_bytes)] -> []
                 {
@@ -261,11 +267,12 @@ impl<'a, 'b, 'c> super::HeapManager for Leaky<'a, 'b, 'c> {
                     let localidx_ret: wasmgen::LocalIdx = scratch.push_i32();
                     expr_builder.local_tee(localidx_ret);
                     expr_builder.local_get(localidx_ret);
-                    expr_builder.local_get(localidx_mem_size);
+                    expr_builder.local_get(localidx_str_len);
                     expr_builder.i32_store(wasmgen::MemArg::new4(0));
                     scratch.pop_i32();
                 }
 
+                scratch.pop_i32();
                 scratch.pop_i32();
             }
             _ => panic!("incorrect VarType, expected String"),
