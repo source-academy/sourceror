@@ -21,7 +21,7 @@ extern "C" {
 }
 
 pub trait TestContext {
-    fn add_test<F: FnOnce(&mut CodeBuilder, &mut WasmModule, &NormalTester)>(
+    fn add_test<F: FnOnce(&mut CodeBuilder, &mut WasmModule, wasmgen::FuncIdx, &NormalTester)>(
         &mut self,
         name_: &str,
         f: F,
@@ -80,7 +80,7 @@ impl<A: Fn(Box<[u8]>) -> ()> TestContext for NormalContext<A> {
     `f` should emit code that has net wasm stack [] -> [], even though the CodeBuilder might have a different signature.  This is because the test harness might return different bookkeeping information.
     It should not emit the end() instruction to end the function.
     */
-    fn add_test<F: FnOnce(&mut CodeBuilder, &mut WasmModule, &NormalTester)>(
+    fn add_test<F: FnOnce(&mut CodeBuilder, &mut WasmModule, wasmgen::FuncIdx, &NormalTester)>(
         &mut self,
         name_: &str,
         f: F,
@@ -101,6 +101,21 @@ impl<A: Fn(Box<[u8]>) -> ()> TestContext for NormalContext<A> {
             "test_fail".to_string(),
             &FuncType::new(Box::new([]), Box::new([])),
         );
+        // generate the error function
+        let error_func: wasmgen::FuncIdx = wasm_builder.import_func(
+            "core".to_string(),
+            "error".to_string(),
+            &wasmgen::FuncType::new(
+                Box::new([
+                    wasmgen::ValType::I32,
+                    wasmgen::ValType::I32,
+                    wasmgen::ValType::I32,
+                    wasmgen::ValType::I32,
+                    wasmgen::ValType::I32,
+                ]),
+                Box::new([]),
+            ),
+        );
         let mut wasm_module = wasm_builder.build();
         let globalidx_assert_count = wasm_module.add_i32_global(Mut::Var, 0);
 
@@ -115,7 +130,7 @@ impl<A: Fn(Box<[u8]>) -> ()> TestContext for NormalContext<A> {
         };
 
         // net wasm stack: [] -> []
-        f(&mut code_builder, &mut wasm_module, &tester);
+        f(&mut code_builder, &mut wasm_module, error_func, &tester);
 
         // net wasm stack: [] -> [ret(i32)]
         {

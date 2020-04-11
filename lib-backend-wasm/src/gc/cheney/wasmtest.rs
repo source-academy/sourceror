@@ -2,7 +2,7 @@ use super::*;
 use wasm_test_harness::*;
 
 pub fn wasmtest<C: TestContext>(c: &mut C) {
-    c.add_test("no roots", |code_builder, wasm_module, t| {
+    c.add_test("no roots", |code_builder, wasm_module, error_func, t| {
         /*
         In this test we will create a Cheney with the initial size (1MiB usuable size),
         and add 32768 copies of 28-byte structs (which will exactly hit the maximum size (including 4-byte tag)).
@@ -27,6 +27,7 @@ pub fn wasmtest<C: TestContext>(c: &mut C) {
             mem,
             0,
             MEM_INITIAL_HEAP_SIZE,
+            error_func,
             wasm_module,
         );
 
@@ -135,7 +136,7 @@ pub fn wasmtest<C: TestContext>(c: &mut C) {
         t.i32_assert_eq(&mut scratch, expr_builder);
     });
 
-    c.add_test("all roots", |code_builder, wasm_module, t| {
+    c.add_test("all roots", |code_builder, wasm_module, error_func, t| {
         /*
         In this test we will create a Cheney with the initial size (1MiB usuable size),
         and add 32768 copies of 28-byte structs (which will exactly hit the maximum size (including 4-byte tag)).
@@ -160,6 +161,7 @@ pub fn wasmtest<C: TestContext>(c: &mut C) {
             mem,
             0,
             MEM_INITIAL_HEAP_SIZE,
+            error_func,
             wasm_module,
         );
 
