@@ -334,4 +334,15 @@ impl<'a, 'b, 'c> super::HeapManager for Leaky<'a, 'b, 'c> {
     ) {
         // Do nothing - because our memory manager will never collect garbage.  The garbage will leak.
     }
+
+    fn encode_local_roots_init(
+        &self,
+        _local_types: &[ir::VarType],
+        _local_map: &[usize],
+        _wasm_local_map: &[wasmgen::LocalIdx],
+        _scratch: &mut Scratch,
+        _expr_builder: &mut wasmgen::ExprBuilder,
+    ) {
+        // Do nothing - because our memory manager will never collect garbage.  The garbage will leak.
+    }
 }

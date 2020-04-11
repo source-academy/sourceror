@@ -1,5 +1,18 @@
 use wasmgen::Scratch;
 
+pub fn encode_vartype(ir_vartype: ir::VarType) -> &'static [wasmgen::ValType] {
+    match ir_vartype {
+        ir::VarType::Any => &[wasmgen::ValType::I32, wasmgen::ValType::I64],
+        ir::VarType::Unassigned => panic!("ICE: IR->Wasm: Unassigned type may not be encoded"),
+        ir::VarType::Undefined => &[],
+        ir::VarType::Number => &[wasmgen::ValType::F64],
+        ir::VarType::Boolean => &[wasmgen::ValType::I32],
+        ir::VarType::String => &[wasmgen::ValType::I32],
+        ir::VarType::Func => &[wasmgen::ValType::I32, wasmgen::ValType::I32],
+        ir::VarType::StructT { typeidx: _ } => &[wasmgen::ValType::I32],
+    }
+}
+
 // stores a ir variable from the protected stack to local variable(s)
 // net wasm stack: [<ir_source_vartype>] -> []
 pub fn encode_store_local(
