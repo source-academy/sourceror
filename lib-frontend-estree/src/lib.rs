@@ -589,19 +589,29 @@ impl<L: Logger> Context<L> {
         }
 
         // encode the body of the function
-        match es_body.kind {
-            NodeKind::BlockStatement(block_statement) => {
+        match *es_body {
+            Node{ location: _, kind: NodeKind::BlockStatement(block_statement)} => {
                 ir_function.block.statements.push(ir::Statement::Block {
                     block: self.parse_block_statement(block_statement)?,
                 });
             }
-            _ => {
-                self.logger.log(
-                    LogKind::ESTree,
-                    Severity::Error,
-                    "body of ESTree function must be BlockStatement",
-                );
-                return Result::Err(());
+            other => {
+                match self.parse_expression_node(other) {
+                    Ok(ir_expr) => {
+                        ir_function
+                            .block
+                            .statements
+                            .push(ir::Statement::Return { expr: ir_expr });
+                    }
+                    Err(err) => {
+                        self.logger.log(
+                            LogKind::ESTree,
+                            Severity::Note,
+                            "body of ESTree function must be BlockStatement or Expression",
+                        );
+                        return Err(err);
+                    }
+                };
             }
         };
 
