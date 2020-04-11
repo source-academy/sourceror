@@ -289,8 +289,8 @@ impl<'a, 'b, 'c> Cheney<'a, 'b, 'c> {
     ) -> Box<[(ir::VarType, usize)]> {
         local_types
             .iter()
-            .cloned()
-            .zip(local_map.iter().cloned())
+            .copied()
+            .zip(local_map.iter().copied())
             .filter(|(ir_vartype, _)| match ir_vartype {
                 ir::VarType::Unassigned
                 | ir::VarType::Undefined
@@ -414,15 +414,11 @@ impl<'a, 'b, 'c> Cheney<'a, 'b, 'c> {
 }
 
 fn wasm_local_slice<'a>(
-    local_map: &[usize],
+    ir_vartype: ir::VarType,
+    wasm_local_map_idx: usize,
     wasm_local_map: &'a [wasmgen::LocalIdx],
-    ir_localidx: usize,
 ) -> &'a [wasmgen::LocalIdx] {
-    &wasm_local_map[local_map[ir_localidx]..(if ir_localidx + 1 < local_map.len() {
-        local_map[ir_localidx + 1]
-    } else {
-        wasm_local_map.len()
-    })]
+    &wasm_local_map[wasm_local_map_idx..(wasm_local_map_idx + encode_vartype(ir_vartype).len())]
 }
 
 impl<'a, 'b, 'c> HeapManager for Cheney<'a, 'b, 'c> {
@@ -584,11 +580,11 @@ impl<'a, 'b, 'c> HeapManager for Cheney<'a, 'b, 'c> {
             // net wasm stack: [] -> [gc_roots_stack_ptr(i32)]
             expr_builder.global_get(self.gc_roots_stack_ptr);
 
-            for (ir_vartype, index) in filtered_roots.into_iter().cloned() {
+            for (ir_vartype, index) in filtered_roots.into_iter().copied() {
                 // net wasm stack: [gc_roots_stack_ptr(i32)] -> []
                 expr_builder.local_tee(localidx_gc_roots_stack_ptr);
                 encode_load_local(
-                    wasm_local_slice(local_map, wasm_local_map, index),
+                    wasm_local_slice(ir_vartype, index, wasm_local_map),
                     ir_vartype,
                     ir_vartype,
                     expr_builder,
@@ -638,7 +634,7 @@ impl<'a, 'b, 'c> HeapManager for Cheney<'a, 'b, 'c> {
                 expr_builder.local_tee(localidx_gc_roots_stack_ptr);
                 encode_load_memory(0, ir::VarType::Any, ir_vartype, scratch, expr_builder);
                 encode_store_local(
-                    wasm_local_slice(local_map, wasm_local_map, index),
+                    wasm_local_slice(ir_vartype, index, wasm_local_map),
                     ir_vartype,
                     ir_vartype,
                     expr_builder,
@@ -677,5 +673,34 @@ impl<'a, 'b, 'c> HeapManager for Cheney<'a, 'b, 'c> {
         _expr_builder: &mut wasmgen::ExprBuilder,
     ) {
         todo!();
+    }
+
+    // Encodes instructions to initialize locals that could potentially go onto the gc_roots stack.
+    // `local_types` and `local_map` should have equal length, containing just those locals that should be initialized.
+    // `wasm_local_map` should not be sliced by the caller, because we need to preserve the indexing so that `local_map` will refer to the correct indices in `wasm_local_map`.
+    fn encode_local_roots_init(
+        &self,
+        local_types: &[ir::VarType],
+        local_map: &[usize],
+        wasm_local_map: &[wasmgen::LocalIdx],
+        _scratch: &mut Scratch,
+        expr_builder: &mut wasmgen::ExprBuilder,
+    ) {
+        for (ir_vartype, wasm_local_map_index) in
+            local_types.iter().copied().zip(local_map.iter().copied())
+        {
+            match ir_vartype {
+                ir::VarType::String | ir::VarType::StructT { typeidx: _ } => {
+                    expr_builder.i32_const(-1);
+                    expr_builder.local_set(wasm_local_map[wasm_local_map_index]);
+                }
+                ir::VarType::Func => {
+                    expr_builder.i32_const(-1);
+                    expr_builder.local_set(wasm_local_map[wasm_local_map_index + 1]);
+                    // Note: "+1" above to access the closure
+                }
+                _ => {}
+            }
+        }
     }
 }

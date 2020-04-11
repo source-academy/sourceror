@@ -179,7 +179,7 @@ fn encode_program(ir_program: &ir::Program, options: Options) -> wasmgen::WasmMo
 
     // add linear memory
     let memidx: wasmgen::MemIdx = encode_mem(
-        MEM_STACK_SIZE + globals_num_pages + Leaky::initial_heap_size(),
+        MEM_STACK_SIZE + globals_num_pages + Cheney::initial_heap_size(),
         &mut wasm_module,
     );
     /*let memidx: wasmgen::MemIdx = encode_mem(
@@ -199,13 +199,13 @@ fn encode_program(ir_program: &ir::Program, options: Options) -> wasmgen::WasmMo
     );
 
     // garbage collector
-    let heap = Leaky::new(
+    let heap = Cheney::new(
         &ir_program.struct_types,
         &struct_field_byte_offsets,
         &struct_sizes,
         memidx,
         MEM_STACK_SIZE + globals_num_pages,
-        MEM_STACK_SIZE + globals_num_pages + Leaky::initial_heap_size(),
+        MEM_STACK_SIZE + globals_num_pages + Cheney::initial_heap_size(),
         error_func,
         &mut wasm_module,
     );

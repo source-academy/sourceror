@@ -311,19 +311,6 @@ fn encode_result(
     }
 }
 
-fn encode_vartype(ir_vartype: ir::VarType) -> &'static [wasmgen::ValType] {
-    match ir_vartype {
-        ir::VarType::Any => &[wasmgen::ValType::I32, wasmgen::ValType::I64],
-        ir::VarType::Unassigned => panic!("ICE: IR->Wasm: Unassigned type may not be encoded"),
-        ir::VarType::Undefined => &[],
-        ir::VarType::Number => &[wasmgen::ValType::F64],
-        ir::VarType::Boolean => &[wasmgen::ValType::I32],
-        ir::VarType::String => &[wasmgen::ValType::I32],
-        ir::VarType::Func => &[wasmgen::ValType::I32, wasmgen::ValType::I32],
-        ir::VarType::StructT { typeidx: _ } => &[wasmgen::ValType::I32],
-    }
-}
-
 fn encode_load_dummies(
     wasm_valtypes: &[wasmgen::ValType],
     expr_builder: &mut wasmgen::ExprBuilder,
@@ -345,10 +332,19 @@ fn encode_block<H: HeapManager>(
     mutctx: &mut MutContext,
     expr_builder: &mut wasmgen::ExprBuilder,
 ) -> bool {
+    let curr_num_locals = mutctx.local_types.len();
     // push all the locals
     for ir_vartype in &block.locals {
         mutctx.push_local(*ir_vartype);
     }
+    // initialize the locals
+    ctx.heap.encode_local_roots_init(
+        &mutctx.local_types[curr_num_locals..],
+        &mutctx.local_map[curr_num_locals..],
+        &mutctx.wasm_local_map,
+        &mut mutctx.scratch,
+        expr_builder,
+    );
     // encode the statements
     let is_stack_polymorphic = encode_statements(&block.statements, ctx, mutctx, expr_builder);
     // pop all the locals

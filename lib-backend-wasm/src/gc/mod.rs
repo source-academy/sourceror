@@ -136,4 +136,18 @@ pub trait HeapManager {
         scratch: &mut Scratch,
         expr_builder: &mut wasmgen::ExprBuilder,
     );
+
+    // Encodes instructions to initialize locals that could potentially go onto the gc_roots stack.
+    // For Cheney, this would set all pointers to -1.  Anys are automatically set to unassigned because wasm zero-initializes things.
+    // This is necessary because the first memory allocation might happen before these locals are initialized.
+    // Eventually, this function should not be used once there is support for proper local lifetimes - then we should only need to have uninitialized locals for recursion.
+    // net wasm stack: [] -> []
+    fn encode_local_roots_init(
+        &self,
+        local_types: &[ir::VarType],
+        local_map: &[usize],
+        wasm_local_map: &[wasmgen::LocalIdx],
+        scratch: &mut Scratch,
+        expr_builder: &mut wasmgen::ExprBuilder,
+    );
 }
