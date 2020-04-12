@@ -74,6 +74,27 @@ function read_js_result(linear_memory: WebAssembly.Memory): any {
     }
 }
 
+function stringifySourcerorRuntimeErrorCode(code: number): [string, string] {
+    switch (code) {
+        case 0x0:
+            return ["General runtime error", ""];
+        case 0x1:
+            return ["Out of memory", "Strings and objects are allocated on the heap.  You have exhausted the available heap space.  Try recompiling your program with increased heap space."];
+        case 0x10:
+            return ["General runtime type error", ""];
+        case 0x12:
+            return ["Unary operator called with incorrect parameter type", ""];
+        case 0x13:
+            return ["Binary operator called with incorrect parameter type", ""];
+        case 0x16:
+            return ["Function call operator applied on a non-function", ""];
+        case 0x17:
+            return ["If statement has a non-boolean condition", ""];
+        default:
+            return ["Unknown runtime error", "This is probably a bug in Sourceror; please report it."];
+    }
+}
+
 
 // Just a unique identifier used for throwing exceptions while running the webassembly code
 const propagationToken = {};
@@ -83,6 +104,7 @@ export async function run(wasm_module: WebAssembly.Module, context: Context): Pr
     return WebAssembly.instantiate(wasm_module, {
         core: {
             error: (code: number, detail: number, file: number, line: number, column: number) => {
+                const [explain, elaborate] = stringifySourcerorRuntimeErrorCode(code);
                 context.errors.push({
                     type: ErrorType.RUNTIME,
                     severity: ErrorSeverity.ERROR,
@@ -93,8 +115,8 @@ export async function run(wasm_module: WebAssembly.Module, context: Context): Pr
                             line, column: column + 1
                         }
                     },
-                    explain: (): string => code.toString(),
-                    elaborate: (): string => code.toString(),
+                    explain: (): string => explain,
+                    elaborate: (): string => elaborate,
                 });
                 throw propagationToken; // to stop the webassembly binary immediately
             }
