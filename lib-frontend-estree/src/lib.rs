@@ -33,11 +33,57 @@ impl<L: Logger> FrontendLogger<L> {
     fn new(logger: L) -> Self {
         Self { logger: logger }
     }
-    fn log<'a>(&self, kind: LogKind, severity: Severity, message: &'a str) {
-        self.logger.log(severity, format!("{}: {}", kind, message));
+    fn log<'a>(
+        &self,
+        kind: LogKind,
+        severity: Severity,
+        message: &'a str,
+        loc: projstd::log::SourceLocation,
+    ) {
+        self.logger
+            .log(severity, format!("{}: {}", kind, message), loc);
     }
-    fn log_string(&self, kind: LogKind, severity: Severity, message: String) {
-        self.logger.log(severity, format!("{}: {}", kind, message));
+    fn log_string(
+        &self,
+        kind: LogKind,
+        severity: Severity,
+        message: String,
+        loc: projstd::log::SourceLocation,
+    ) {
+        self.logger
+            .log(severity, format!("{}: {}", kind, message), loc);
+    }
+}
+
+trait IntoLoggableSourcerLocation {
+    fn into_loggable(self) -> projstd::log::SourceLocation;
+}
+
+impl IntoLoggableSourcerLocation for Option<estree::SourceLocation> {
+    fn into_loggable(self) -> projstd::log::SourceLocation {
+        match self {
+            Some(error) => projstd::log::SourceLocation {
+                line: error.start.line as i32,
+                column: error.start.column as i32,
+            },
+            None => projstd::log::SourceLocation::default(),
+        }
+    }
+}
+
+trait LoggableSourcerLocation {
+    fn loggable(&self) -> projstd::log::SourceLocation;
+}
+
+impl LoggableSourcerLocation for Option<estree::SourceLocation> {
+    fn loggable(&self) -> projstd::log::SourceLocation {
+        match self {
+            Some(error) => projstd::log::SourceLocation {
+                line: error.start.line as i32,
+                column: error.start.column as i32,
+            },
+            None => projstd::log::SourceLocation::default(),
+        }
     }
 }
 
@@ -202,50 +248,80 @@ type Error = ();
 type ContextResult = Result<(), Error>;
 pub type FrontendResult = Result<ir::Program, Error>;
 
-fn write_error<L: Logger>(context: &Context<L>, message: &str) {
+fn write_error<L: Logger>(context: &Context<L>, message: &str, loc: projstd::log::SourceLocation) {
     context
         .logger
-        .log(LogKind::ESTree, Severity::Error, message);
+        .log(LogKind::ESTree, Severity::Error, message, loc);
 }
-fn write_error_with_kind<L: Logger>(context: &Context<L>, kind: LogKind, message: &str) {
-    context.logger.log(kind, Severity::Error, message);
+fn write_error_with_kind<L: Logger>(
+    context: &Context<L>,
+    kind: LogKind,
+    message: &str,
+    loc: projstd::log::SourceLocation,
+) {
+    context.logger.log(kind, Severity::Error, message, loc);
 }
-fn write_owned_error<L: Logger>(context: &Context<L>, message: String) {
+fn write_owned_error<L: Logger>(
+    context: &Context<L>,
+    message: String,
+    loc: projstd::log::SourceLocation,
+) {
     context
         .logger
-        .log_string(LogKind::ESTree, Severity::Error, message);
+        .log_string(LogKind::ESTree, Severity::Error, message, loc);
 }
-fn write_owned_error_with_kind<L: Logger>(context: &Context<L>, kind: LogKind, message: String) {
-    context.logger.log_string(kind, Severity::Error, message);
+fn write_owned_error_with_kind<L: Logger>(
+    context: &Context<L>,
+    kind: LogKind,
+    message: String,
+    loc: projstd::log::SourceLocation,
+) {
+    context
+        .logger
+        .log_string(kind, Severity::Error, message, loc);
 }
 
-fn make_error<T, L: Logger>(context: &Context<L>, message: &str) -> Result<T, ()> {
-    write_error(context, message);
+fn make_error<T, L: Logger>(
+    context: &Context<L>,
+    message: &str,
+    loc: projstd::log::SourceLocation,
+) -> Result<T, ()> {
+    write_error(context, message, loc);
     Err(())
 }
 fn make_error_with_kind<T, L: Logger>(
     context: &Context<L>,
     kind: LogKind,
     message: &str,
+    loc: projstd::log::SourceLocation,
 ) -> Result<T, ()> {
-    write_error_with_kind(context, kind, message);
+    write_error_with_kind(context, kind, message, loc);
     Err(())
 }
-fn make_owned_error<T, L: Logger>(context: &Context<L>, message: String) -> Result<T, ()> {
-    write_owned_error(context, message);
+fn make_owned_error<T, L: Logger>(
+    context: &Context<L>,
+    message: String,
+    loc: projstd::log::SourceLocation,
+) -> Result<T, ()> {
+    write_owned_error(context, message, loc);
     Err(())
 }
 fn make_owned_error_with_kind<T, L: Logger>(
     context: &Context<L>,
     kind: LogKind,
     message: String,
+    loc: projstd::log::SourceLocation,
 ) -> Result<T, ()> {
-    write_owned_error_with_kind(context, kind, message);
+    write_owned_error_with_kind(context, kind, message, loc);
     Err(())
 }
 
 impl<L: Logger> Context<L> {
-    fn get_funcidx_for_unary_operator(&self, operator_name: &str) -> Result<ir::FuncIdx, Error> {
+    fn get_funcidx_for_unary_operator(
+        &self,
+        operator_name: &str,
+        loc: Option<estree::SourceLocation>,
+    ) -> Result<ir::FuncIdx, Error> {
         match operator_name {
             "-" => Ok(self.builtin_funcs[ir::Builtin::UnaryMinus as usize]),
             "!" => Ok(self.builtin_funcs[ir::Builtin::Not as usize]),
@@ -253,10 +329,15 @@ impl<L: Logger> Context<L> {
                 self,
                 LogKind::SourceRestriction,
                 format!("unary operator \"{}\" not allowed", other),
+                loc.into_loggable(),
             ),
         }
     }
-    fn get_funcidx_for_binary_operator(&self, operator_name: &str) -> Result<ir::FuncIdx, Error> {
+    fn get_funcidx_for_binary_operator(
+        &self,
+        operator_name: &str,
+        loc: Option<estree::SourceLocation>,
+    ) -> Result<ir::FuncIdx, Error> {
         match operator_name {
             "===" => Ok(self.builtin_funcs[ir::Builtin::Eq as usize]),
             "!==" => Ok(self.builtin_funcs[ir::Builtin::Neq as usize]),
@@ -273,10 +354,15 @@ impl<L: Logger> Context<L> {
                 self,
                 LogKind::SourceRestriction,
                 format!("binary operator \"{}\" not allowed", other),
+                loc.into_loggable(),
             ),
         }
     }
-    fn get_funcidx_for_logical_operator(&self, operator_name: &str) -> Result<ir::FuncIdx, Error> {
+    fn get_funcidx_for_logical_operator(
+        &self,
+        operator_name: &str,
+        loc: Option<SourceLocation>,
+    ) -> Result<ir::FuncIdx, Error> {
         match operator_name {
             "||" => Ok(self.builtin_funcs[ir::Builtin::Or as usize]),
             "&&" => Ok(self.builtin_funcs[ir::Builtin::And as usize]),
@@ -284,33 +370,34 @@ impl<L: Logger> Context<L> {
                 self,
                 LogKind::ESTree,
                 format!("logical operator \"{}\" unexpected", other),
+                loc.into_loggable(),
             ),
         }
     }
 }
 
 trait AsIdentifierName {
-    fn as_identifier_name(&self) -> Result<&str, ()>;
+    fn as_identifier_name(&self) -> Result<&str, &Option<estree::SourceLocation>>;
 }
 
 impl AsIdentifierName for Node {
-    fn as_identifier_name(&self) -> Result<&str, ()> {
+    fn as_identifier_name(&self) -> Result<&str, &Option<estree::SourceLocation>> {
         match &self.kind {
             NodeKind::Identifier(ir_identifier) => Ok(ir_identifier.name.as_str()),
-            _ => Err(()),
+            _ => Err(&self.loc),
         }
     }
 }
 
 trait IntoIdentifierName {
-    fn into_identifier_name(self) -> Result<String, ()>;
+    fn into_identifier_name(self) -> Result<String, Option<estree::SourceLocation>>;
 }
 
 impl IntoIdentifierName for Node {
-    fn into_identifier_name(self) -> Result<String, ()> {
+    fn into_identifier_name(self) -> Result<String, Option<estree::SourceLocation>> {
         match self.kind {
             NodeKind::Identifier(ir_identifier) => Ok(ir_identifier.name),
-            _ => Err(()),
+            _ => Err(self.loc),
         }
     }
 }
@@ -361,6 +448,7 @@ impl<L: Logger> Context<L> {
                         LogKind::ESTree,
                         Severity::Error,
                         "error in toplevel transformation",
+                        projstd::log::SourceLocation::default(),
                     );
                     x
                 })?;
@@ -373,6 +461,7 @@ impl<L: Logger> Context<L> {
                     LogKind::ESTree,
                     Severity::Error,
                     "root node of ESTree must be Program",
+                    es_node.loc.into_loggable(),
                 );
                 return Result::Err(());
             }
@@ -517,8 +606,8 @@ impl<L: Logger> Context<L> {
             .into_iter()
             .map(|ir_node| {
                 ir_node.into_identifier_name().map_err(|e| {
-                    write_error(self, "Expected ESTree Identifier here");
-                    e
+                    write_error(self, "Expected ESTree Identifier here", e.into_loggable());
+                    ()
                 })
             })
             .collect::<Result<Box<[String]>, _>>()?;
@@ -590,12 +679,16 @@ impl<L: Logger> Context<L> {
 
         // encode the body of the function
         match *es_body {
-            Node{ location: _, kind: NodeKind::BlockStatement(block_statement)} => {
+            Node {
+                loc: _,
+                kind: NodeKind::BlockStatement(block_statement),
+            } => {
                 ir_function.block.statements.push(ir::Statement::Block {
                     block: self.parse_block_statement(block_statement)?,
                 });
             }
             other => {
+                let source_loc = other.loc.loggable();
                 match self.parse_expression_node(other) {
                     Ok(ir_expr) => {
                         ir_function
@@ -608,6 +701,7 @@ impl<L: Logger> Context<L> {
                             LogKind::ESTree,
                             Severity::Note,
                             "body of ESTree function must be BlockStatement or Expression",
+                            source_loc,
                         );
                         return Err(err);
                     }
@@ -644,8 +738,9 @@ impl<L: Logger> Context<L> {
                                                     write_error(
                                                         self,
                                                         "Expected ESTree Identifier here",
+                                                        e.loggable(),
                                                     );
-                                                    e
+                                                    ()
                                                 })?
                                                 .to_owned(),
                                         );
@@ -655,6 +750,7 @@ impl<L: Logger> Context<L> {
                                                 LogKind::ESTree,
                                                 Severity::Error,
                                                 "ESTree VariableDeclaration must only contain VariableDeclarator children",
+                                                declarator.loc.loggable()
                                             );
                                         return Err(());
                                     }
@@ -665,6 +761,7 @@ impl<L: Logger> Context<L> {
                                 LogKind::SourceRestriction,
                                 Severity::Error,
                                 "ESTree VariableDeclaration must be `const`",
+                                node.loc.loggable(),
                             );
                             return Err(());
                         }
@@ -675,8 +772,12 @@ impl<L: Logger> Context<L> {
                                 .id
                                 .as_identifier_name()
                                 .map_err(|e| {
-                                    write_error(self, "Expected ESTree Identifier here");
-                                    e
+                                    write_error(
+                                        self,
+                                        "Expected ESTree Identifier here",
+                                        e.loggable(),
+                                    );
+                                    ()
                                 })?
                                 .to_owned(),
                         );
@@ -756,22 +857,23 @@ impl<L: Logger> Context<L> {
                 .map(|ir_block| ir::Statement::Block { block: ir_block })
                 .map(|x| Box::new([x]) as Box<[ir::Statement]>),
             NodeKind::ReturnStatement(stmt) => self
-                .parse_return_statement(stmt)
+                .parse_return_statement(stmt, es_node.loc)
                 .map(|x| Box::new([x]) as Box<[ir::Statement]>),
             NodeKind::IfStatement(stmt) => self
-                .parse_if_statement(stmt)
+                .parse_if_statement(stmt, es_node.loc)
                 .map(|x| Box::new([x]) as Box<[ir::Statement]>),
             NodeKind::FunctionDeclaration(func_declaration) => {
+                let name_loc = func_declaration.id.loc.loggable();
                 let name = func_declaration
                     .id
                     .as_identifier_name()
                     .map_err(|e| {
-                        write_error(self, "Expected ESTree Identifier here");
-                        e
+                        write_error(self, "Expected ESTree Identifier here", e.loggable());
+                        ()
                     })?
                     .to_owned();
                 let ir_expr = self.prepare_context_and_parse_function(func_declaration)?;
-                self.make_assignment_statement(&name, ir_expr)
+                self.make_assignment_statement(&name, ir_expr, name_loc)
                     .map(|x| Box::new([x]) as Box<[ir::Statement]>)
             }
             NodeKind::VariableDeclaration(var_declaration) => {
@@ -779,29 +881,39 @@ impl<L: Logger> Context<L> {
                 var_declaration
                     .declarations
                     .into_iter()
-                    .map(|decl| match decl.kind {
-                        NodeKind::VariableDeclarator(VariableDeclarator { id, init }) => {
-                            let name = id.into_identifier_name().map_err(|e| {
-                                write_error(self, "Expected ESTree Identifier here");
-                                e
-                            })?;
-                            let ir_expr = init
-                                .map_or_else(
-                                    || {
-                                        make_error(
-                                            self,
-                                            "variable initializer must be present for Source",
-                                        )
-                                    },
-                                    |expr_node| Ok(expr_node),
-                                )
-                                .and_then(|expr_node| self.parse_expression_node(*expr_node))?;
-                            self.make_assignment_statement(&name, ir_expr)
+                    .map(|decl| {
+                        let loc = decl.loc.into_loggable();
+                        match decl.kind {
+                            NodeKind::VariableDeclarator(VariableDeclarator { id, init }) => {
+                                let loc = id.loc.loggable();
+                                let name = id.into_identifier_name().map_err(|e| {
+                                    write_error(
+                                        self,
+                                        "Expected ESTree Identifier here",
+                                        e.into_loggable(),
+                                    );
+                                    ()
+                                })?;
+                                let ir_expr = init
+                                    .map_or_else(
+                                        || {
+                                            make_error(
+                                                self,
+                                                "variable initializer must be present for Source",
+                                                loc,
+                                            )
+                                        },
+                                        |expr_node| Ok(expr_node),
+                                    )
+                                    .and_then(|expr_node| self.parse_expression_node(*expr_node))?;
+                                self.make_assignment_statement(&name, ir_expr, loc)
+                            }
+                            _ => make_error(
+                                self,
+                                "children of VariableDeclaration must only be VariableDeclarator",
+                                loc,
+                            ),
                         }
-                        _ => make_error(
-                            self,
-                            "children of VariableDeclaration must only be VariableDeclarator",
-                        ),
                     })
                     .collect::<Result<Box<[ir::Statement]>, Error>>()
             }
@@ -814,8 +926,13 @@ impl<L: Logger> Context<L> {
                 self,
                 LogKind::SourceRestriction,
                 "This statement type is not allowed",
+                es_node.loc.into_loggable(),
             ),
-            _ => make_error(self, "Statement node expected in ESTree"),
+            _ => make_error(
+                self,
+                "Statement node expected in ESTree",
+                es_node.loc.into_loggable(),
+            ),
         }
     }
 
@@ -835,20 +952,23 @@ impl<L: Logger> Context<L> {
         {
             match operator.as_str() {
                 "=" => {
+                    let loc = left.loc.loggable();
                     let name = left.into_identifier_name().map_err(|e| {
                         write_error(
                             self,
                             "Expected ESTree Identifier at LHS of AssignmentExpression",
+                            e.into_loggable(),
                         );
-                        e
+                        ()
                     })?;
                     let ir_expr = self.parse_expression_node(*right)?;
-                    self.make_assignment_statement(&name, ir_expr)
+                    self.make_assignment_statement(&name, ir_expr, loc)
                 }
                 other => make_owned_error_with_kind(
                     self,
                     LogKind::SourceRestriction,
                     format!("Compound assignment operator \"{}\" not allowed", other),
+                    es_expr_node.loc.into_loggable(),
                 ),
             }
         } else {
@@ -860,21 +980,25 @@ impl<L: Logger> Context<L> {
     fn parse_return_statement(
         &mut self,
         es_return_statement: estree::ReturnStatement,
+        loc: Option<estree::SourceLocation>,
     ) -> Result<ir::Statement, Error> {
         match es_return_statement.argument {
             Some(box_node) => self
                 .parse_expression_node(*box_node)
                 .map(|expr| ir::Statement::Return { expr: expr }),
             _ => {
+                let loggable = loc.into_loggable();
                 self.logger.log(
                     LogKind::SourceRestriction,
                     Severity::Error,
                     "return statement must have a value",
+                    loggable,
                 );
                 self.logger.log(
                     LogKind::SourceRestriction,
                     Severity::Hint,
                     "try `return undefined;` instead",
+                    loggable,
                 );
                 Err(())
             }
@@ -884,6 +1008,7 @@ impl<L: Logger> Context<L> {
     fn parse_if_statement(
         &mut self,
         es_if_statement: estree::IfStatement,
+        loc: Option<estree::SourceLocation>,
     ) -> Result<ir::Statement, Error> {
         if let NodeKind::BlockStatement(es_true_block) = es_if_statement.consequent.kind {
             if let Some(es_false_node) = es_if_statement.alternate {
@@ -898,6 +1023,7 @@ impl<L: Logger> Context<L> {
                         self,
                         LogKind::SourceRestriction,
                         "alternative of IfStatement must be Block",
+                        es_false_node.loc.into_loggable(),
                     )
                 }
             } else {
@@ -905,6 +1031,7 @@ impl<L: Logger> Context<L> {
                     self,
                     LogKind::SourceRestriction,
                     "alternative of IfStatement must be present",
+                    loc.into_loggable(),
                 )
             }
         } else {
@@ -912,6 +1039,7 @@ impl<L: Logger> Context<L> {
                 self,
                 LogKind::SourceRestriction,
                 "consequent of IfStatement must be Block",
+                es_if_statement.consequent.loc.into_loggable(),
             )
         }
     }
@@ -924,7 +1052,7 @@ impl<L: Logger> Context<L> {
             NodeKind::Identifier(identifier) => Ok(ir::Expr {
                 vartype: ir::VarType::Any,
                 kind: ir::ExprKind::VarName {
-                    source: self.make_target_expr(&identifier.name)?,
+                    source: self.make_target_expr(&identifier.name, es_node.loc.loggable())?,
                 },
             }),
             NodeKind::Literal(literal) => match literal.value {
@@ -944,11 +1072,13 @@ impl<L: Logger> Context<L> {
                     self,
                     LogKind::SourceRestriction,
                     "null literal not allowed",
+                    es_node.loc.into_loggable(),
                 ),
                 LiteralValue::RegExp => make_error_with_kind(
                     self,
                     LogKind::SourceRestriction,
                     "regular expression not allowed",
+                    es_node.loc.into_loggable(),
                 ),
                 LiteralValue::Undefined => Ok(ir::Expr {
                     vartype: ir::VarType::Undefined,
@@ -959,12 +1089,14 @@ impl<L: Logger> Context<L> {
                 self,
                 LogKind::SourceRestriction,
                 "FunctionExpression not allowed",
+                es_node.loc.into_loggable(),
             ),
             NodeKind::ArrowFunctionExpression(function) => {
                 self.prepare_context_and_parse_function(function)
             }
             NodeKind::UnaryExpression(unary_expr) => {
-                let funcidx = self.get_funcidx_for_unary_operator(&unary_expr.operator)?;
+                let funcidx =
+                    self.get_funcidx_for_unary_operator(&unary_expr.operator, es_node.loc)?;
                 Ok(ir::Expr {
                     vartype: self.ir_program.funcs[funcidx - self.ir_program.imports.len()]
                         .result
@@ -979,9 +1111,11 @@ impl<L: Logger> Context<L> {
                 self,
                 LogKind::SourceRestriction,
                 "UpdateExpression not allowed",
+                es_node.loc.into_loggable(),
             ),
             NodeKind::BinaryExpression(binary_expr) => {
-                let funcidx = self.get_funcidx_for_binary_operator(&binary_expr.operator)?;
+                let funcidx =
+                    self.get_funcidx_for_binary_operator(&binary_expr.operator, es_node.loc)?;
                 Ok(ir::Expr {
                     vartype: self.ir_program.funcs[funcidx - self.ir_program.imports.len()]
                         .result
@@ -999,9 +1133,11 @@ impl<L: Logger> Context<L> {
                 self,
                 LogKind::SourceRestriction,
                 "AssignmentExpression must not be a subexpression",
+                es_node.loc.into_loggable(),
             ),
             NodeKind::LogicalExpression(logical_expr) => {
-                let funcidx = self.get_funcidx_for_logical_operator(&logical_expr.operator)?;
+                let funcidx =
+                    self.get_funcidx_for_logical_operator(&logical_expr.operator, es_node.loc)?;
                 Ok(ir::Expr {
                     vartype: self.ir_program.funcs[funcidx - self.ir_program.imports.len()]
                         .result
@@ -1034,17 +1170,26 @@ impl<L: Logger> Context<L> {
                         .collect::<Result<Box<[ir::Expr]>, Error>>()?,
                 },
             }),
-            _ => make_error(self, "Expression node expected in ESTree"),
+            _ => make_error(
+                self,
+                "Expression node expected in ESTree",
+                es_node.loc.into_loggable(),
+            ),
         }
     }
 
-    fn make_target_expr(&self, name: &str) -> Result<ir::TargetExpr, Error> {
+    fn make_target_expr(
+        &self,
+        name: &str,
+        loc: projstd::log::SourceLocation,
+    ) -> Result<ir::TargetExpr, Error> {
         let var_loc: VariableLocation = self.names.get(name).map_or_else(
             || {
                 make_owned_error_with_kind(
                     self,
                     LogKind::UndeclaredVariable,
                     format!("Name \"{}\" is undeclared", name),
+                    loc,
                 )
             },
             |var_loc| Ok(*var_loc),
@@ -1056,8 +1201,9 @@ impl<L: Logger> Context<L> {
         &self,
         name: &str,
         expr: ir::Expr,
+        lhs_loc: projstd::log::SourceLocation,
     ) -> Result<ir::Statement, Error> {
-        let ir_targetexpr: ir::TargetExpr = self.make_target_expr(name)?;
+        let ir_targetexpr: ir::TargetExpr = self.make_target_expr(name, lhs_loc)?;
         Ok(ir::Statement::Assign {
             target: ir_targetexpr,
             expr: expr,
@@ -1102,7 +1248,7 @@ fn transform_toplevel(es_program: estree::Program) -> Result<ArrowFunctionExpres
     Ok(ArrowFunctionExpression {
         params: Vec::new(),
         body: Box::new(Node {
-            location: None,
+            loc: None,
             kind: NodeKind::BlockStatement(BlockStatement {
                 body: transform_last_statement(es_program.body)?,
             }),
@@ -1117,13 +1263,13 @@ fn transform_last_statement(mut statements: Vec<Node>) -> Result<Vec<Node>, Erro
         None => Box::new([]),
         Some(node) => match node {
             Node {
-                location: _,
+                loc: _,
                 kind:
                     NodeKind::ExpressionStatement(ExpressionStatement {
                         expression: box_expr,
                     }),
             } => Box::new([Node {
-                location: None,
+                loc: None,
                 kind: NodeKind::ReturnStatement(ReturnStatement {
                     argument: Some(box_expr),
                 }),
@@ -1131,14 +1277,14 @@ fn transform_last_statement(mut statements: Vec<Node>) -> Result<Vec<Node>, Erro
             node
             @
             Node {
-                location: _,
+                loc: _,
                 kind: NodeKind::BlockStatement(_),
             } => Box::new([transform_last_block_statement(node)?]),
             Node {
-                location: loc,
+                loc: loc,
                 kind: NodeKind::IfStatement(if_stmt),
             } => Box::new([Node {
-                location: loc,
+                loc: loc,
                 kind: NodeKind::IfStatement(IfStatement {
                     test: if_stmt.test,
                     consequent: Box::new(transform_last_block_statement(*if_stmt.consequent)?),
@@ -1151,10 +1297,10 @@ fn transform_last_statement(mut statements: Vec<Node>) -> Result<Vec<Node>, Erro
             node => Box::new([
                 node,
                 Node {
-                    location: None,
+                    loc: None,
                     kind: NodeKind::ReturnStatement(ReturnStatement {
                         argument: Some(Box::new(Node {
-                            location: None,
+                            loc: None,
                             kind: NodeKind::Literal(Literal {
                                 value: LiteralValue::Undefined,
                             }),
@@ -1171,10 +1317,10 @@ fn transform_last_statement(mut statements: Vec<Node>) -> Result<Vec<Node>, Erro
 fn transform_last_block_statement(node: Node) -> Result<Node, Error> {
     match node {
         Node {
-            location: loc,
+            loc: loc,
             kind: NodeKind::BlockStatement(block),
         } => Ok(Node {
-            location: loc,
+            loc: loc,
             kind: NodeKind::BlockStatement(BlockStatement {
                 body: transform_last_statement(block.body)?,
             }),

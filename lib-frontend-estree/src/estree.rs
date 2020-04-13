@@ -16,7 +16,7 @@ pub struct Position {
 
 #[derive(Deserialize, Debug)]
 pub struct Node {
-    pub location: Option<SourceLocation>,
+    pub loc: Option<SourceLocation>,
     #[serde(flatten)]
     pub kind: NodeKind,
 }

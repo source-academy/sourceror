@@ -17,20 +17,15 @@ const SOURCE_CODE: &'static str = r#"
 {"type":"FunctionDeclaration","start":0,"end":72,"id":{"type":"Identifier","start":9,"end":10,"name":"f"},"expression":false,"generator":false,"async":false,"params":[],"body":{"type":"BlockStatement","start":17,"end":72,"body":[]}}
 "#;*/
 
-fn severity_value(severity: projstd::log::Severity) -> i32 {
-    match severity {
-        projstd::log::Severity::Hint => 0,
-        projstd::log::Severity::Note => 1,
-        projstd::log::Severity::Info => 2,
-        projstd::log::Severity::Warning => 3,
-        projstd::log::Severity::Error => 4,
-    }
-}
-
 pub struct MainLogger {}
 impl projstd::log::Logger for MainLogger {
-    fn log(&self, severity: projstd::log::Severity, message: String) {
-        print!("Error level {}: {}", severity_value(severity), &message);
+    fn log(
+        &self,
+        severity: projstd::log::Severity,
+        message: String,
+        loc: projstd::log::SourceLocation,
+    ) {
+        print!("Error level {}: {} {:?}", severity.code(), &message, loc);
     }
 }
 

@@ -18,26 +18,43 @@ use projstd;
 
 #[wasm_bindgen]
 extern "C" {
-    #[wasm_bindgen(js_namespace = console)]
-    pub fn log(s: &str);
+    #[wasm_bindgen(js_name = sourcerorLogCallback)]
+    pub fn compiler_log(context: i32, severity_code: i32, message: String, line: i32, column: i32);
 }
 
-pub struct MainLogger {}
-impl projstd::log::Logger for MainLogger {
-    fn log(&self, severity: projstd::log::Severity, message: String) {
-        let string = format!("{}: {}", severity, message);
-        crate::log(&string);
+pub struct MainLogger {
+    context: i32,
+}
+
+impl MainLogger {
+    fn new(context: i32) -> Self {
+        Self { context: context }
     }
 }
 
+impl projstd::log::Logger for MainLogger {
+    fn log(
+        &self,
+        severity: projstd::log::Severity,
+        message: String,
+        loc: projstd::log::SourceLocation,
+    ) {
+        compiler_log(self.context, severity.code(), message, loc.line, loc.column);
+    }
+}
+
+/**
+ * The entry function for compilation.
+ * `context` is an opaque value so that the host code can associate our calls to compiler_log() with the correct call to compile().
+ */
 #[wasm_bindgen]
-pub fn compile(source_code: &str) -> Box<[u8]> {
+pub fn compile(context: i32, source_code: &str) -> Box<[u8]> {
     // nice console errors in debug mode
     #[cfg(all(debug_assertions, target_arch = "wasm32"))]
     console_error_panic_hook::set_once();
 
     use wasmgen::WasmSerialize;
-    match frontend_estree::run_frontend(source_code, MainLogger {}) {
+    match frontend_estree::run_frontend(source_code, MainLogger::new(context)) {
         Ok(ir_program) => {
             let wasm_module =
                 backend_wasm::run_backend(&ir_program, backend_wasm::Options::default());
