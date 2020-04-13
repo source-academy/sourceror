@@ -4,6 +4,7 @@ node_modules
 *.map
 dist/
 .idea/
+.vs/
 
 # emacs backup files
 *~

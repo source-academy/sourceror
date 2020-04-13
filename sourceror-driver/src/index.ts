@@ -1,4 +1,4 @@
-import { compile as wasm_compile } from "@btzy/source-compiler";
+import * as Sourceror from "@btzy/source-compiler";
 import { Context } from "js-slang";
 import { ErrorType, ErrorSeverity } from "js-slang/dist/types";
 import { parse as slang_parse } from "js-slang/dist/parser/parser";
@@ -26,34 +26,67 @@ export async function compile(
       new CompileError("js-slang cannot parse the program")
     );
   }
-  let es_str: string = JSON.stringify(estree);
-  let compile_promise = wasm_compile(es_str);
-  return compile_promise
-    .then((wasm_binary: Uint8Array) => {
-      return WebAssembly.compile(wasm_binary);
-    })
-    .catch((err: string) => {
-      context.errors.push({
-        type: ErrorType.SYNTAX,
-        severity: ErrorSeverity.ERROR,
-        location: {
-          source: null,
-          start: {
-            line: 0,
-            column: 0,
-          },
-          end: {
-            line: 0,
-            column: 0,
-          },
-        },
-        explain: (): string => err,
-        elaborate: (): string => err,
-      });
-      return Promise.reject(
-        new CompileError("sourceror cannot compile the program")
-      );
+    let es_str: string = JSON.stringify(estree);
+    let has_errors: boolean = false;
+    let wasm_context: number = Sourceror.create_context((severity_code: number, message: string, line: number, column: number) => {
+        if (severity_code >= 4) has_errors = true;
+        context.errors.push({
+            type: ErrorType.SYNTAX,
+            severity: severity_code >= 4 ? ErrorSeverity.ERROR : ErrorSeverity.WARNING, // Sourceror supports other severity levels, but js-slang does not
+            location: {
+                source: null,
+                start: {
+                    line,
+                    column,
+                },
+                end: {
+                    line,
+                    column: column + 1,
+                },
+            },
+            explain: (): string => message,
+            elaborate: (): string => "",
+        });
     });
+    return Sourceror.compile(wasm_context, es_str)
+        .then((wasm_binary: Uint8Array) => {
+            if (!has_errors) {
+                return WebAssembly.compile(wasm_binary).catch((err: string) => {
+                    context.errors.push({
+                        type: ErrorType.SYNTAX,
+                        severity: ErrorSeverity.ERROR,
+                        location: {
+                            source: null,
+                            start: {
+                                line: 0,
+                                column: 0,
+                            },
+                            end: {
+                                line: 0,
+                                column: 0,
+                            },
+                        },
+                        explain: (): string => err,
+                        elaborate: (): string => "Your browser's WebAssembly engine is unable to compile the WebAssembly binary produced by Sourceror.  This is probably a bug in Sourceror; please report it.",
+                    });
+                    return Promise.reject(
+                        new CompileError("WebAssembly compilation error")
+                    );
+                });
+            }
+            else {
+                return Promise.reject(
+                    new CompileError("Syntax error")
+                );
+            }
+        })
+        .then((x: WebAssembly.Module) => {
+            Sourceror.destroy_context(wasm_context);
+            return x;
+        }, (e: any) => {
+            Sourceror.destroy_context(wasm_context);
+            return e;
+        });
 }
 
 function read_js_result(linear_memory: WebAssembly.Memory): any {
