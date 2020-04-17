@@ -22,6 +22,7 @@ extern "C" {
     pub fn compiler_log(context: i32, severity_code: i32, message: String, line: i32, column: i32);
 }
 
+#[derive(Copy, Clone)]
 pub struct MainLogger {
     context: i32,
 }
@@ -46,24 +47,27 @@ impl projstd::log::Logger for MainLogger {
 /**
  * The entry function for compilation.
  * `context` is an opaque value so that the host code can associate our calls to compiler_log() with the correct call to compile().
+ * `source_code`: ESTree JSON representation of validated program
+ * `import_spec`: list of imports following the import file format
  */
 #[wasm_bindgen]
-pub fn compile(context: i32, source_code: &str) -> Box<[u8]> {
+pub fn compile(context: i32, source_code: &str, import_spec: &str) -> Box<[u8]> {
     // nice console errors in debug mode
     #[cfg(all(debug_assertions, target_arch = "wasm32"))]
     console_error_panic_hook::set_once();
 
-    use wasmgen::WasmSerialize;
-    match frontend_estree::run_frontend(source_code, MainLogger::new(context)) {
-        Ok(ir_program) => {
-            let wasm_module =
-                backend_wasm::run_backend(&ir_program, backend_wasm::Options::default());
-            let mut receiver = std::vec::Vec::<u8>::new();
-            wasm_module.wasm_serialize(&mut receiver);
-            receiver.into_boxed_slice()
-        }
-        Err(()) => Box::new([]),
-    }
+    (|| {
+        use wasmgen::WasmSerialize;
+
+        let ir_imports = frontend_estree::parse_imports(import_spec, MainLogger::new(context))?;
+        let ir_program =
+            frontend_estree::run_frontend(source_code, ir_imports, MainLogger::new(context))?;
+        let wasm_module = backend_wasm::run_backend(&ir_program, backend_wasm::Options::default());
+        let mut receiver = std::vec::Vec::<u8>::new();
+        wasm_module.wasm_serialize(&mut receiver);
+        Ok(receiver.into_boxed_slice())
+    })()
+    .unwrap_or_else(|_: ()| Box::new([]))
 
     // for now we just generate a dummy function that returns 42
     /*use wasmgen::*;

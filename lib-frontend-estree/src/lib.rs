@@ -1,4 +1,6 @@
 mod estree;
+mod importer;
+mod typecheck;
 
 use ir;
 use projstd::log::Logger;
@@ -15,6 +17,7 @@ enum LogKind {
     ESTree,
     UndeclaredVariable,
     SourceRestriction,
+    Import,
 }
 impl fmt::Display for LogKind {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -22,6 +25,7 @@ impl fmt::Display for LogKind {
             LogKind::ESTree => f.write_str("ESTree"),
             LogKind::UndeclaredVariable => f.write_str("UndeclaredVariable"),
             LogKind::SourceRestriction => f.write_str("SourceRestriction"),
+            LogKind::Import => f.write_str("Import"),
         }
     }
 }
@@ -102,6 +106,7 @@ struct VariableInfo {
 struct Context<L: Logger> {
     ir_program: ir::Program,
     builtin_funcs: [ir::FuncIdx; ir::NUM_BUILTINS as usize],
+    imports: HashMap<String, ir::FuncIdx>,
     closures: Vec<VariableInfo>, // list of sizes of structs from outside this function
     closure_typeidx: Option<usize>,
     locals_offset: usize,      // number of ir params
@@ -402,12 +407,28 @@ impl IntoIdentifierName for Node {
     }
 }
 
-pub fn run_frontend<L: Logger>(estree_str: &str, logger: L) -> FrontendResult {
-    let (ir_program, builtin_funcs) = ir::Program::new(Box::new([]));
+pub fn run_frontend<L: Logger>(
+    estree_str: &str,
+    imports_map: HashMap<String, ir::Import>,
+    logger: L,
+) -> FrontendResult {
+    let (ir_program, builtin_funcs, imports) = ir::Program::new(imports_map);
     let es_program: estree::Node = serde_json::from_str(estree_str).unwrap();
-    let mut context = Context::new(ir_program, builtin_funcs, FrontendLogger::new(logger));
+    let mut context = Context::new(
+        ir_program,
+        builtin_funcs,
+        imports,
+        FrontendLogger::new(logger),
+    );
     context.parse_program(es_program)?;
     Ok(context.build())
+}
+
+pub fn parse_imports<L: Logger + Copy>(
+    imports_spec: &str,
+    logger: L,
+) -> Result<HashMap<String, ir::Import>, ()> {
+    importer::parse_imports(imports_spec, logger)
 }
 
 /*
@@ -418,11 +439,13 @@ impl<L: Logger> Context<L> {
     fn new(
         ir_program: ir::Program,
         builtin_funcs: [ir::FuncIdx; ir::NUM_BUILTINS as usize],
+        imports: HashMap<String, ir::FuncIdx>,
         logger: FrontendLogger<L>,
     ) -> Self {
         Self {
             ir_program: ir_program,
             builtin_funcs: builtin_funcs,
+            imports: imports,
             closures: Default::default(),
             closure_typeidx: None,
             locals_offset: 0,
@@ -437,10 +460,8 @@ impl<L: Logger> Context<L> {
     }
 
     fn parse_program(&mut self, es_node: estree::Node) -> ContextResult {
-        /**
-         * Toplevel func should be a function that takes in zero parameters, and returns the result normally.
-         * The backend should generate the proper convention so that the host can read the return value.
-         */
+        // Toplevel func should be a function that takes in zero parameters, and returns the result normally.
+        // The backend should generate the proper convention so that the host can read the return value.
         match es_node.kind {
             estree::NodeKind::Program(es_program) => {
                 let es_funcexpr = transform_toplevel(es_program).map_err(|x| {
@@ -1044,6 +1065,17 @@ impl<L: Logger> Context<L> {
         }
     }
 
+    /*fn try_parse_identifier_node(&mut self, identifier: &estree::Identifier, loc: projstd::log::SourceLocation) -> Option<ir::Expr> {
+        Some(ir::Expr {
+            vartype: ir::VarType::Any,
+            kind: ir::ExprKind::VarName {
+                source: {
+                    self.make_target_expr(&identifier.name)?
+                },
+            },
+        })
+    }*/
+
     /**
      * This function parses a node that contains what is logically an ir::Expr (i.e. no assignment statements).
      */
@@ -1052,7 +1084,18 @@ impl<L: Logger> Context<L> {
             NodeKind::Identifier(identifier) => Ok(ir::Expr {
                 vartype: ir::VarType::Any,
                 kind: ir::ExprKind::VarName {
-                    source: self.make_target_expr(&identifier.name, es_node.loc.loggable())?,
+                    source: {
+                        let loc = es_node.loc.loggable();
+                        self.make_target_expr(&identifier.name).ok_or_else(|| {
+                            write_owned_error_with_kind(
+                                self,
+                                LogKind::UndeclaredVariable,
+                                format!("Name \"{}\" is undeclared", &identifier.name),
+                                loc,
+                            );
+                            ()
+                        })?
+                    },
                 },
             }),
             NodeKind::Literal(literal) => match literal.value {
@@ -1159,17 +1202,7 @@ impl<L: Logger> Context<L> {
                     false_expr: Box::new(self.parse_expression_node(*cond_expr.alternate)?),
                 },
             }),
-            NodeKind::CallExpression(call_expr) => Ok(ir::Expr {
-                vartype: ir::VarType::Any,
-                kind: ir::ExprKind::Appl {
-                    func: Box::new(self.parse_expression_node(*call_expr.callee)?),
-                    args: call_expr
-                        .arguments
-                        .into_iter()
-                        .map(|arg| self.parse_expression_node(arg))
-                        .collect::<Result<Box<[ir::Expr]>, Error>>()?,
-                },
-            }),
+            NodeKind::CallExpression(call_expr) => self.parse_call_expr(call_expr),
             _ => make_error(
                 self,
                 "Expression node expected in ESTree",
@@ -1178,23 +1211,102 @@ impl<L: Logger> Context<L> {
         }
     }
 
-    fn make_target_expr(
-        &self,
-        name: &str,
-        loc: projstd::log::SourceLocation,
-    ) -> Result<ir::TargetExpr, Error> {
-        let var_loc: VariableLocation = self.names.get(name).map_or_else(
-            || {
-                make_owned_error_with_kind(
-                    self,
-                    LogKind::UndeclaredVariable,
-                    format!("Name \"{}\" is undeclared", name),
-                    loc,
-                )
+    fn parse_call_expr(&mut self, call_expr: estree::CallExpression) -> Result<ir::Expr, Error> {
+        if let estree::Node {
+            loc: loc,
+            kind: NodeKind::Identifier(identifier),
+        } = &*call_expr.callee
+        {
+            if !self.names.contains_key(&identifier.name) {
+                match self.imports.get(&identifier.name) {
+                    None => {}
+                    Some(ir_funcidx) => {
+                        // need to synthesise the type protection here
+                        return self.make_imported_call(
+                            loc.loggable(),
+                            &identifier.name,
+                            *ir_funcidx,
+                            call_expr.arguments,
+                        );
+                    }
+                }
+            }
+        }
+        Ok(ir::Expr {
+            vartype: ir::VarType::Any,
+            kind: ir::ExprKind::Appl {
+                func: Box::new(self.parse_expression_node(*call_expr.callee)?),
+                args: call_expr
+                    .arguments
+                    .into_iter()
+                    .map(|arg| self.parse_expression_node(arg))
+                    .collect::<Result<Box<[ir::Expr]>, Error>>()?,
             },
-            |var_loc| Ok(*var_loc),
-        )?;
-        Ok(self.make_targetexpr_from_variable_location(var_loc))
+        })
+    }
+
+    fn make_imported_call(
+        &mut self,
+        loc: projstd::log::SourceLocation,
+        name: &str,
+        ir_funcidx: ir::FuncIdx,
+        args: Vec<estree::Node>,
+    ) -> Result<ir::Expr, Error> {
+        // TODO: Horrible hack to clone the import due to rust restrictions.  Probably Context should not contain the ir_program or something like that.
+        let import: ir::Import = self.ir_program.imports[ir_funcidx].clone();
+
+        if import.params.len() != args.len() {
+            // number of arguments doesn't match... we raise an error
+            return make_owned_error_with_kind(
+                self,
+                LogKind::Import,
+                format!(
+                    "in call to imported function \"{}\", expected {} arguments, but got {}",
+                    name,
+                    import.params.len(),
+                    args.len()
+                ),
+                loc,
+            );
+        };
+
+        // now the number of arguments is correct
+        // so we emit the typecheck and typecast for each argument
+        let typed_exprs: Box<[ir::Expr]> = import
+            .params
+            .iter()
+            .copied()
+            .zip(args.into_iter())
+            .map(|(import_val_type, es_node)| {
+                let unchecked_ir_expr = self.parse_expression_node(es_node)?;
+                let checked_ir_expr = typecheck::add_import_typecheck(
+                    import_val_type,
+                    unchecked_ir_expr,
+                    self.locals_offset + self.locals.len(),
+                )
+                .ok_or_else(|| {
+                    write_error_with_kind(self, LogKind::Import, "incorrect import type", loc);
+                    ()
+                })?;
+                Ok(checked_ir_expr)
+            })
+            .collect::<Result<Box<[ir::Expr]>, Error>>()?;
+
+        Ok(ir::Expr {
+            vartype: import.result.into(),
+            kind: ir::ExprKind::DirectAppl {
+                funcidx: ir_funcidx,
+                args: typed_exprs,
+            },
+        })
+    }
+
+    fn make_target_expr(&self, name: &str) -> Option<ir::TargetExpr> {
+        let var_loc: VariableLocation = self
+            .names
+            .get(name)
+            .map_or(None, |var_loc_ptr| Some(*var_loc_ptr))?;
+        Some(self.make_targetexpr_from_variable_location(var_loc))
     }
 
     fn make_assignment_statement(
@@ -1203,7 +1315,18 @@ impl<L: Logger> Context<L> {
         expr: ir::Expr,
         lhs_loc: projstd::log::SourceLocation,
     ) -> Result<ir::Statement, Error> {
-        let ir_targetexpr: ir::TargetExpr = self.make_target_expr(name, lhs_loc)?;
+        let ir_targetexpr: ir::TargetExpr = self.make_target_expr(name).ok_or_else(|| {
+            write_owned_error_with_kind(
+                self,
+                LogKind::UndeclaredVariable,
+                format!(
+                    "Name \"{}\" is undeclared in LHS of assigment statement",
+                    name
+                ),
+                lhs_loc,
+            );
+            ()
+        })?;
         Ok(ir::Statement::Assign {
             target: ir_targetexpr,
             expr: expr,

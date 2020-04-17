@@ -13,8 +13,8 @@ export function destroy_context(context) {
 }
 
 // called by frontend
-export function compile(context, code) {
-    return import("../pkg/index.js").then(module => module.compile(context, code));
+export function compile(context, code, imports) {
+    return import("../pkg/index.js").then(module => module.compile(context, code, imports));
 }
 
 // called by the compiler to log stuff
