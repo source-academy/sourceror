@@ -48,7 +48,7 @@ export async function compile(
             elaborate: (): string => "",
         });
     });
-    return Sourceror.compile(wasm_context, es_str)
+    return Sourceror.compile(wasm_context, es_str, "")
         .then((wasm_binary: Uint8Array) => {
             if (!has_errors) {
                 return WebAssembly.compile(wasm_binary).catch((err: string) => {
@@ -113,10 +113,8 @@ function read_js_result(linear_memory: WebAssembly.Memory): any {
     }
     case 5:
       return "(function was returned)";
-    case 6:
-      return "(struct was returned)";
     default:
-      return "(invalid type was returned)";
+      return "(struct or invalid type (" + tag + ") was returned)";
   }
 }
 
