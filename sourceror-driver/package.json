@@ -5,10 +5,10 @@
   "dependencies": {
     "@btzy/libsourceror": "^0.0.1",
     "@btzy/source-compiler": "../sourceror/dist/",
-    "@types/node": "^13.11.0",
-    "node-getopt": "^0.3.2",
-    "js-slang": "0.4.16",
-    "@types/estree": "0.0.39"
+    "@types/estree": "^0.0.39",
+    "@types/node": "^13.11.1",
+    "js-slang": "^0.4.31",
+    "node-getopt": "^0.3.2"
   },
   "devDependencies": {
     "prettier": "^2.0.0",
