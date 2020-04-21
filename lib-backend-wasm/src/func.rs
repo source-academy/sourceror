@@ -237,6 +237,11 @@ pub fn encode_funcs<Heap: HeapManager>(
                     encode_block(&ir_func.block, ctx, &mut mutctx, expr_builder);
 
                 if !is_stack_polymorphic {
+                    // todo!: We should generate 'unreachable' for non-stack-polymorphic functions instead.
+                    // Since the frontend will insert 'return undefined;' statements, we are guaranteed to never end up here.
+                    // We should actually check if the last statement is a return statement, and then don't emit unreachable, and let control fall off the end of the function.
+                    // and only emit 'unreachable' if the end of the function is indeed unreachable.
+
                     // encode a dummy return value since we fall off the end of the function
                     // this dummy will never be used if we are returning something not null/undefined, but we have to encode the instruction in order to pass validation
                     encode_load_dummies(
