@@ -707,6 +707,13 @@ impl<L: Logger> Context<L> {
                 ir_function.block.statements.push(ir::Statement::Block {
                     block: self.parse_block_statement(block_statement)?,
                 });
+                // push 'return undefined;'
+                ir_function.block.statements.push(ir::Statement::Return {
+                    expr: ir::Expr {
+                        vartype: ir::VarType::Undefined,
+                        kind: ir::ExprKind::PrimUndefined,
+                    },
+                });
             }
             other => {
                 let source_loc = other.loc.loggable();
