@@ -1,0 +1,24 @@
+[->Main Driver:compile(estree_json: &str)
+activate Main Driver
+Main Driver->Frontend:run_frontend(estree_json)
+activate Frontend
+Frontend->Serde:from_str(estree_json)
+activate Serde
+Serde-->Frontend:estree: ESTree
+deactivate Serde
+Frontend->Frontend:parse_program(estree)
+activate Frontend
+Frontend-->Frontend:ir: IR
+deactivate Frontend
+Main Driver<--Frontend:ir
+deactivate Frontend
+Main Driver->Backend:run_backend(ir)
+activate Backend
+Main Driver<--Backend:wasm_module: WasmModule
+deactivate Backend
+Main Driver->Wasmgen:wasm_serialize(wasm_module)
+activate Wasmgen
+Main Driver<--Wasmgen:wasm_bytecode: Box<[u8]>
+deactivate Wasmgen
+[<--Main Driver:wasm_bytecode
+deactivate Main Driver
