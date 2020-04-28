@@ -106,4 +106,34 @@ impl<'a> Scratch<'a> {
         assert!(*idx > 0);
         *idx -= 1;
     }
+    pub fn with_i32<R, F: FnOnce(&mut Self, LocalIdx) -> R>(&mut self, f: F) -> R {
+        let idx = self.push_i32();
+        let result = f(self, idx);
+        self.pop_i32();
+        result
+    }
+    pub fn with_i64<R, F: FnOnce(&mut Self, LocalIdx) -> R>(&mut self, f: F) -> R {
+        let idx = self.push_i64();
+        let result = f(self, idx);
+        self.pop_i64();
+        result
+    }
+    pub fn with_f32<R, F: FnOnce(&mut Self, LocalIdx) -> R>(&mut self, f: F) -> R {
+        let idx = self.push_f32();
+        let result = f(self, idx);
+        self.pop_f32();
+        result
+    }
+    pub fn with_f64<R, F: FnOnce(&mut Self, LocalIdx) -> R>(&mut self, f: F) -> R {
+        let idx = self.push_f64();
+        let result = f(self, idx);
+        self.pop_f64();
+        result
+    }
+    pub fn with<R, F: FnOnce(&mut Self, LocalIdx) -> R>(&mut self, valtype: ValType, f: F) -> R {
+        let idx = self.push(valtype);
+        let result = f(self, idx);
+        self.pop(valtype);
+        result
+    }
 }

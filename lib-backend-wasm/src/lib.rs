@@ -59,6 +59,7 @@ use wasmgen;
 
 mod func;
 mod gc;
+mod mutcontext;
 mod pre_traverse;
 mod string_prim_inst;
 mod var_conv;
