@@ -1,3 +1,5 @@
+use crate::mutcontext::MutContext;
+
 use super::gc::HeapManager;
 /**
  * Contains stuff related to encoding of function bodies.
@@ -42,61 +44,12 @@ impl<'a, 'b, 'c, 'd, 'e, 'f, 'g, Heap: HeapManager> Clone
     }
 }
 
-struct MutContext<'a, 'b> {
-    // Local to this function
-    scratch: Scratch<'a>,
-    wasm_local_map: Vec<wasmgen::LocalIdx>,
-    local_map: Vec<usize>, // map from ir param/local index to wasm_local_map index
-    local_types: Vec<ir::VarType>, // map from ir param/local index to ir param type
-    // Global for whole program
-    module_wrapper: ModuleEncodeWrapper<'b>,
-    // will also include function indices
-}
-impl<'a, 'b> MutContext<'a, 'b> {
-    /**
-     * Adds a local to the context, storing it in scratch, and updating wasm_local_map, local_map, local_types appropriately.
-     */
-    fn push_local(&mut self, ir_vartype: ir::VarType) {
-        assert!(self.local_types.len() == self.local_map.len());
-        self.local_types.push(ir_vartype);
-        self.local_map.push(self.wasm_local_map.len());
-        let wasm_valtypes = encode_vartype(ir_vartype);
-        for wasm_valtype in wasm_valtypes {
-            let localidx = self.scratch.push(*wasm_valtype);
-            self.wasm_local_map.push(localidx);
-        }
-    }
-    /**
-     * Undoes the corresponding push_local().  Locals are pushed and popped like a stack.
-     */
-    fn pop_local(&mut self, ir_vartype: ir::VarType) {
-        assert!(self.local_types.len() == self.local_map.len());
-        let wasm_valtypes = encode_vartype(ir_vartype);
-        for wasm_valtype in wasm_valtypes {
-            self.wasm_local_map.pop();
-            self.scratch.pop(*wasm_valtype);
-        }
-        assert!(self.local_map.last().copied() == Some(self.wasm_local_map.len()));
-        self.local_map.pop();
-        assert!(self.local_types.last().copied() == Some(ir_vartype));
-        self.local_types.pop();
-    }
-
-    fn wasm_local_slice(&self, ir_localidx: usize) -> &[wasmgen::LocalIdx] {
-        &self.wasm_local_map[self.local_map[ir_localidx]
-            ..(if ir_localidx + 1 < self.local_map.len() {
-                self.local_map[ir_localidx + 1]
-            } else {
-                self.wasm_local_map.len()
-            })]
-    }
-}
-
 /**
  * Wraps the WasmModule, to only allow operations that are allows while encoding a function body.
  * (Because a raw WasmModule might allow a lot of other things which shouldn't be done midway encoding the function body.)
+ * todo!: Refactor ModuleEncodeWrapper out of this module, because MutContext depends on it, and the gc depends on MutContext.
  */
-struct ModuleEncodeWrapper<'a> {
+pub struct ModuleEncodeWrapper<'a> {
     wasm_module: &'a mut wasmgen::WasmModule,
 }
 impl<'a> ModuleEncodeWrapper<'a> {
@@ -226,13 +179,13 @@ pub fn encode_funcs<Heap: HeapManager>(
                     error_func: error_func,
                     options: options,
                 };
-                let mut mutctx = MutContext {
-                    scratch: scratch,
-                    wasm_local_map: registry.wasm_param_map.to_vec(),
-                    local_map: registry.param_map.to_vec(),
-                    local_types: registry.param_types.to_vec(),
-                    module_wrapper: ModuleEncodeWrapper { wasm_module },
-                };
+                let mut mutctx = MutContext::new(
+                    scratch,
+                    &registry.wasm_param_map,
+                    &registry.param_map,
+                    &registry.param_types,
+                    ModuleEncodeWrapper { wasm_module },
+                );
                 let is_stack_polymorphic =
                     encode_block(&ir_func.block, ctx, &mut mutctx, expr_builder);
 
@@ -337,27 +290,16 @@ fn encode_block<H: HeapManager>(
     mutctx: &mut MutContext,
     expr_builder: &mut wasmgen::ExprBuilder,
 ) -> bool {
-    let curr_num_locals = mutctx.local_types.len();
-    // push all the locals
-    for ir_vartype in &block.locals {
-        mutctx.push_local(*ir_vartype);
-    }
-    // initialize the locals
-    ctx.heap.encode_local_roots_init(
-        &mutctx.local_types[curr_num_locals..],
-        &mutctx.local_map[curr_num_locals..],
-        &mutctx.wasm_local_map,
-        &mut mutctx.scratch,
+    // add locals (automatically initialized if necessary for the gc)
+    mutctx.with_locals(
+        &block.locals,
+        ctx.heap,
         expr_builder,
-    );
-    // encode the statements
-    let is_stack_polymorphic = encode_statements(&block.statements, ctx, mutctx, expr_builder);
-    // pop all the locals
-    for ir_vartype in &block.locals {
-        mutctx.pop_local(*ir_vartype);
-    }
-
-    is_stack_polymorphic
+        |mutctx, expr_builder, start_idx| {
+            // encode the statements
+            encode_statements(&block.statements, ctx, mutctx, expr_builder)
+        },
+    )
 }
 
 // net wasm stack: [] -> []
@@ -406,7 +348,7 @@ fn encode_statement<H: HeapManager>(
                         expr.vartype,
                         ctx.options.wasm_multi_value,
                         ctx.stackptr,
-                        &mut mutctx.scratch,
+                        mutctx.scratch_mut(),
                         expr_builder,
                     );
                     // return the value on the stack (or in the unprotected stack) (which now has the correct type)
@@ -438,7 +380,7 @@ fn encode_statement<H: HeapManager>(
                     expr_builder.call(ctx.error_func);
                     expr_builder.unreachable();
                 },
-                &mut mutctx.scratch,
+                mutctx.scratch_mut(),
                 expr_builder,
             );
             // emit the if statement
@@ -505,7 +447,7 @@ fn encode_target_addr_pre<H: HeapManager>(
 
                     // For Source1, structs can only arise from closures and local variables, so their types must already be known at compilation time.
                     assert!(
-                        mutctx.local_types[*localidx]
+                        mutctx.local_types_elem(*localidx)
                             == ir::VarType::StructT {
                                 typeidx: struct_field.typeidx
                             },
@@ -554,7 +496,7 @@ fn encode_target_addr_post<H: HeapManager>(
                 None => {
                     encode_store_local(
                         mutctx.wasm_local_slice(*localidx),
-                        mutctx.local_types[*localidx],
+                        mutctx.local_types_elem(*localidx),
                         incoming_vartype,
                         expr_builder,
                     );
@@ -582,7 +524,7 @@ fn encode_target_addr_post<H: HeapManager>(
                         offset,
                         ir_dest_vartype,
                         incoming_vartype,
-                        &mut mutctx.scratch,
+                        mutctx.scratch_mut(),
                         expr_builder,
                     );
                 }
@@ -644,14 +586,7 @@ fn encode_expr<H: HeapManager>(
                 "ICE: IR->Wasm: PrimStructT does not have correct type, or typeidx is incorrect"
             );
             // todo!(Only store locals that are in scope at this point, instead of all of them.)
-            ctx.heap.encode_fixed_allocation(
-                expr.vartype,
-                &mutctx.local_types,
-                &mutctx.local_map,
-                &mutctx.wasm_local_map,
-                &mut mutctx.scratch,
-                expr_builder,
-            );
+            mutctx.heap_encode_fixed_allocation(ctx.heap, expr.vartype, expr_builder);
         }
         ir::ExprKind::PrimFunc { funcidx, closure } => {
             assert!(
@@ -696,11 +631,11 @@ fn encode_expr<H: HeapManager>(
 
             // now, the stack still contains the i64 data beneath our result... we have to get rid of it before returning
             // net wasm stack: [i64 data, i32 result] -> [i32 result]
-            let localidx_result: wasmgen::LocalIdx = mutctx.scratch.push_i32();
-            expr_builder.local_set(localidx_result);
-            expr_builder.drop(); // remove the top thing (which is now the i64 data) from the stack
-            expr_builder.local_get(localidx_result);
-            mutctx.scratch.pop_i32();
+            mutctx.scratch_mut().with_i32(|_, localidx_result| {
+                expr_builder.local_set(localidx_result);
+                expr_builder.drop(); // remove the top thing (which is now the i64 data) from the stack
+                expr_builder.local_get(localidx_result);
+            });
         }
         ir::ExprKind::VarName { source } => {
             // net wasm stack: [] -> [<source_vartype>]
@@ -738,7 +673,7 @@ fn encode_expr<H: HeapManager>(
                     expr_builder.call(ctx.error_func);
                     expr_builder.unreachable();
                 },
-                &mut mutctx.scratch,
+                mutctx.scratch_mut(),
                 expr_builder,
             );
             // emit the if statement
@@ -751,7 +686,7 @@ fn encode_expr<H: HeapManager>(
                     encode_widening_operation(
                         expr.vartype,
                         true_expr.vartype,
-                        &mut mutctx.scratch,
+                        mutctx.scratch_mut(),
                         expr_builder,
                     );
                 }
@@ -761,7 +696,7 @@ fn encode_expr<H: HeapManager>(
                     encode_widening_operation(
                         expr.vartype,
                         false_expr.vartype,
-                        &mut mutctx.scratch,
+                        mutctx.scratch_mut(),
                         expr_builder,
                     );
                 }
@@ -770,34 +705,33 @@ fn encode_expr<H: HeapManager>(
                 // use additional local variables
 
                 // add the temporary locals
-                let tmp_locals: Box<[wasmgen::LocalIdx]> = encode_vartype(expr.vartype)
-                    .iter()
-                    .copied()
-                    .map(|wasm_valtype| mutctx.scratch.push(wasm_valtype))
-                    .collect();
+                mutctx.with_scratches(encode_vartype(expr.vartype), |mutctx, tmp_locals| {
+                    // net wasm stack: [i32 (condition)] -> []
+                    expr_builder.if_(&[]);
+                    {
+                        encode_expr(true_expr, ctx, mutctx, expr_builder);
+                        encode_store_local(
+                            &tmp_locals,
+                            expr.vartype,
+                            true_expr.vartype,
+                            expr_builder,
+                        );
+                    }
+                    expr_builder.else_();
+                    {
+                        encode_expr(false_expr, ctx, mutctx, expr_builder);
+                        encode_store_local(
+                            &tmp_locals,
+                            expr.vartype,
+                            false_expr.vartype,
+                            expr_builder,
+                        );
+                    }
+                    expr_builder.end();
 
-                // net wasm stack: [i32 (condition)] -> []
-                expr_builder.if_(&[]);
-                {
-                    encode_expr(true_expr, ctx, mutctx, expr_builder);
-                    encode_store_local(&tmp_locals, expr.vartype, true_expr.vartype, expr_builder);
-                }
-                expr_builder.else_();
-                {
-                    encode_expr(false_expr, ctx, mutctx, expr_builder);
-                    encode_store_local(&tmp_locals, expr.vartype, false_expr.vartype, expr_builder);
-                }
-                expr_builder.end();
-
-                // net wasm stack: [] -> [<expr.vartype>]
-                encode_load_local(&tmp_locals, expr.vartype, expr.vartype, expr_builder);
-
-                // remove the temporary locals
-                encode_vartype(expr.vartype)
-                    .iter()
-                    .rev()
-                    .copied()
-                    .for_each(|wasm_valtype| mutctx.scratch.pop(wasm_valtype));
+                    // net wasm stack: [] -> [<expr.vartype>]
+                    encode_load_local(&tmp_locals, expr.vartype, expr.vartype, expr_builder);
+                });
             }
         }
         ir::ExprKind::Sequence {
@@ -809,10 +743,10 @@ fn encode_expr<H: HeapManager>(
                 expr.vartype == last.vartype,
                 "ICE: IR->Wasm: sequence expression must return the vartype of the last expression that it contains"
             );
-            mutctx.push_local(*local);
-            encode_statements(&statements, ctx, mutctx, expr_builder);
-            encode_expr(last, ctx, mutctx, expr_builder);
-            mutctx.pop_local(*local);
+            mutctx.with_local(*local, ctx.heap, expr_builder, |mutctx, expr_builder, _| {
+                encode_statements(&statements, ctx, mutctx, expr_builder);
+                encode_expr(last, ctx, mutctx, expr_builder);
+            });
         }
         ir::ExprKind::Trap {
             code: _,
@@ -876,7 +810,7 @@ fn encode_target_value<H: HeapManager>(
                     // `outgoing_vartype` is required to be equivalent or subtype of the source vartype
                     encode_load_local(
                         mutctx.wasm_local_slice(*localidx),
-                        mutctx.local_types[*localidx],
+                        mutctx.local_types_elem(*localidx),
                         outgoing_vartype,
                         expr_builder,
                     );
@@ -884,7 +818,7 @@ fn encode_target_value<H: HeapManager>(
                 Some(struct_field) => {
                     // For Source1, structs can only arise from closures and local variables, so their types must already be known at compilation time.
                     assert!(
-                        mutctx.local_types[*localidx]
+                        mutctx.local_types_elem(*localidx)
                             == ir::VarType::StructT {
                                 typeidx: struct_field.typeidx
                             },
@@ -926,7 +860,7 @@ fn encode_target_value<H: HeapManager>(
                                 offset,
                                 ir_source_vartype,
                                 outgoing_vartype,
-                                &mut mutctx.scratch,
+                                mutctx.scratch_mut(),
                                 expr_builder,
                             );
                         }
@@ -973,19 +907,19 @@ fn encode_returnable_prim_inst<H: HeapManager>(
                     // note: not very numerically rigourous, there might be some rounding errors
                     // algorithm used here for `a % b`:
                     // a - (trunc(a / b) * b)
-                    let localidx_first: wasmgen::LocalIdx = mutctx.scratch.push_f64();
-                    let localidx_second: wasmgen::LocalIdx = mutctx.scratch.push_f64();
-                    expr_builder.local_set(localidx_second);
-                    expr_builder.local_tee(localidx_first);
-                    expr_builder.local_get(localidx_first);
-                    expr_builder.local_get(localidx_second);
-                    expr_builder.f64_div();
-                    expr_builder.f64_trunc();
-                    expr_builder.local_get(localidx_second);
-                    expr_builder.f64_mul();
-                    expr_builder.f64_sub();
-                    mutctx.scratch.pop_f64();
-                    mutctx.scratch.pop_f64();
+                    mutctx.with_scratch_f64(|mutctx, localidx_first| {
+                        mutctx.with_scratch_f64(|_mutctx, localidx_second| {
+                            expr_builder.local_set(localidx_second);
+                            expr_builder.local_tee(localidx_first);
+                            expr_builder.local_get(localidx_first);
+                            expr_builder.local_get(localidx_second);
+                            expr_builder.f64_div();
+                            expr_builder.f64_trunc();
+                            expr_builder.local_get(localidx_second);
+                            expr_builder.f64_mul();
+                            expr_builder.f64_sub();
+                        });
+                    });
                 }
                 ir::PrimInst::NumberEq => expr_builder.f64_eq(),
                 ir::PrimInst::NumberNeq => expr_builder.f64_ne(),
@@ -1013,30 +947,27 @@ fn encode_returnable_prim_inst<H: HeapManager>(
                         ctx.memidx,
                         ctx.heap,
                         ctx.options.wasm_bulk_memory,
-                        &mutctx.local_types,
-                        &mutctx.local_map,
-                        &mutctx.wasm_local_map,
-                        &mut mutctx.scratch,
+                        mutctx,
                         expr_builder,
                     );
                 }
                 ir::PrimInst::StringEq => {
-                    string_prim_inst::encode_string_eq(&mut mutctx.scratch, expr_builder);
+                    string_prim_inst::encode_string_eq(mutctx.scratch_mut(), expr_builder);
                 }
                 ir::PrimInst::StringNeq => {
-                    string_prim_inst::encode_string_ne(&mut mutctx.scratch, expr_builder);
+                    string_prim_inst::encode_string_ne(mutctx.scratch_mut(), expr_builder);
                 }
                 ir::PrimInst::StringGt => {
-                    string_prim_inst::encode_string_gt(&mut mutctx.scratch, expr_builder);
+                    string_prim_inst::encode_string_gt(mutctx.scratch_mut(), expr_builder);
                 }
                 ir::PrimInst::StringLt => {
-                    string_prim_inst::encode_string_lt(&mut mutctx.scratch, expr_builder);
+                    string_prim_inst::encode_string_lt(mutctx.scratch_mut(), expr_builder);
                 }
                 ir::PrimInst::StringGe => {
-                    string_prim_inst::encode_string_ge(&mut mutctx.scratch, expr_builder);
+                    string_prim_inst::encode_string_ge(mutctx.scratch_mut(), expr_builder);
                 }
                 ir::PrimInst::StringLe => {
-                    string_prim_inst::encode_string_le(&mut mutctx.scratch, expr_builder);
+                    string_prim_inst::encode_string_le(mutctx.scratch_mut(), expr_builder);
                 }
             }
         }
@@ -1072,113 +1003,97 @@ fn encode_returnable_appl<H: HeapManager>(
 
     // Emit the convertion to function if necessary, storing the tableidx in a i32 local variable
     // net wasm stack: [<func_expr.vartype>] -> [i32(closure ptr)]
-    let localidx_tableidx: wasmgen::LocalIdx = mutctx.scratch.push_i32();
-    {
-        match func_expr.vartype {
-            ir::VarType::Func => {
-                // already a function, just pop out the tableidx from the stack
-                expr_builder.local_set(localidx_tableidx);
-            }
-            ir::VarType::Any => {
-                // emit the check if it is a function type
-                expr_builder.i32_const(ir::VarType::Func.tag());
-                expr_builder.i32_ne();
-                expr_builder.if_(&[]);
-                {
-                    // not a function type... so we will raise a runtime error
-                    expr_builder.i32_const(
-                        ir::error::ERROR_CODE_FUNCTION_APPLICATION_NOT_CALLABLE_TYPE as i32,
-                    );
-                    expr_builder.i32_const(0);
-                    expr_builder.i32_const(0); // todo!(add actual source location)
-                    expr_builder.i32_const(0);
-                    expr_builder.i32_const(0);
-                    expr_builder.call(ctx.error_func);
-                    expr_builder.unreachable();
-                }
-                expr_builder.end();
-                // now it is a function type, we have to reinterpret the i64 as two i32s
-                {
-                    let localidx_data: wasmgen::LocalIdx = mutctx.scratch.push_i64();
-                    expr_builder.local_tee(localidx_data);
-                    expr_builder.local_get(localidx_data);
-                    mutctx.scratch.pop_i64();
-                    expr_builder.i32_wrap_i64();
+    mutctx.with_scratch_i32(|mutctx, localidx_tableidx| {
+        {
+            match func_expr.vartype {
+                ir::VarType::Func => {
+                    // already a function, just pop out the tableidx from the stack
                     expr_builder.local_set(localidx_tableidx);
-                    expr_builder.i64_const(32);
-                    expr_builder.i64_shr_u();
-                    expr_builder.i32_wrap_i64();
                 }
-            }
-            _ => {
-                panic!("Cannot call function with static VarType that is not Func or Any");
-            }
-        };
-    }
+                ir::VarType::Any => {
+                    // emit the check if it is a function type
+                    expr_builder.i32_const(ir::VarType::Func.tag());
+                    expr_builder.i32_ne();
+                    expr_builder.if_(&[]);
+                    {
+                        // not a function type... so we will raise a runtime error
+                        expr_builder.i32_const(
+                            ir::error::ERROR_CODE_FUNCTION_APPLICATION_NOT_CALLABLE_TYPE as i32,
+                        );
+                        expr_builder.i32_const(0);
+                        expr_builder.i32_const(0); // todo!(add actual source location)
+                        expr_builder.i32_const(0);
+                        expr_builder.i32_const(0);
+                        expr_builder.call(ctx.error_func);
+                        expr_builder.unreachable();
+                    }
+                    expr_builder.end();
+                    // now it is a function type, we have to reinterpret the i64 as two i32s
+                    {
+                        mutctx.with_scratch_i64(|_mutctx, localidx_data| {
+                            expr_builder.local_tee(localidx_data);
+                            expr_builder.local_get(localidx_data);
+                        });
+                        expr_builder.i32_wrap_i64();
+                        expr_builder.local_set(localidx_tableidx);
+                        expr_builder.i64_const(32);
+                        expr_builder.i64_shr_u();
+                        expr_builder.i32_wrap_i64();
+                    }
+                }
+                _ => {
+                    panic!("Cannot call function with static VarType that is not Func or Any");
+                }
+            };
+        }
 
-    // Encode all the arguments
-    // net wasm stack: [] -> [args...]
-    let anys: Box<[ir::VarType]> = args.iter().map(|_| ir::VarType::Any).collect();
-    encode_args_to_call_function(&anys, args, ctx, mutctx, expr_builder);
+        // Encode all the arguments
+        // net wasm stack: [] -> [args...]
+        let anys: Box<[ir::VarType]> = args.iter().map(|_| ir::VarType::Any).collect();
+        encode_args_to_call_function(&anys, args, ctx, mutctx, expr_builder);
 
-    // push the tableidx onto the stack
-    // net wasm stack: [] -> [tableidx]
-    expr_builder.local_get(localidx_tableidx);
+        // push the tableidx onto the stack
+        // net wasm stack: [] -> [tableidx]
+        expr_builder.local_get(localidx_tableidx);
 
-    if true {
-        // This function might allocate memory, so we need to store the locals in the gc_roots stack first.
+        if true {
+            // This function might allocate memory, so we need to store the locals in the gc_roots stack first.
 
-        // encode local roots prologue
-        ctx.heap.encode_local_roots_prologue(
-            &mutctx.local_types,
-            &mutctx.local_map,
-            &mutctx.wasm_local_map,
-            &mut mutctx.scratch,
+            // call the function with gc prologue and epilogue
+            mutctx.heap_encode_prologue_epilogue(ctx.heap, expr_builder, |mutctx, expr_builder| {
+                // call the function (indirectly)
+                expr_builder.call_indirect(
+                    mutctx.module_wrapper().add_ir_type_with_closure(
+                        &anys,
+                        Some(ir::VarType::Any),
+                        ctx.options.wasm_multi_value,
+                    ),
+                    wasmgen::TableIdx { idx: 0 },
+                );
+            });
+        } else {
+            // This function is guaranteed not to allocate memory, so we don't need to put the locals on the gc_roots stack.
+
+            // call the function (indirectly)
+            expr_builder.call_indirect(
+                mutctx.module_wrapper().add_ir_type_with_closure(
+                    &anys,
+                    Some(ir::VarType::Any),
+                    ctx.options.wasm_multi_value,
+                ),
+                wasmgen::TableIdx { idx: 0 },
+            );
+        }
+
+        // fetch return values from the location prescribed by the calling convention back to the stack
+        encode_post_appl_calling_conv(
+            ir::VarType::Any,
+            ctx.options.wasm_multi_value,
+            ctx.stackptr,
+            mutctx.scratch_mut(),
             expr_builder,
         );
-
-        // call the function (indirectly)
-        expr_builder.call_indirect(
-            mutctx.module_wrapper.add_ir_type_with_closure(
-                &anys,
-                Some(ir::VarType::Any),
-                ctx.options.wasm_multi_value,
-            ),
-            wasmgen::TableIdx { idx: 0 },
-        );
-
-        // encode local roots prologue
-        ctx.heap.encode_local_roots_epilogue(
-            &mutctx.local_types,
-            &mutctx.local_map,
-            &mutctx.wasm_local_map,
-            &mut mutctx.scratch,
-            expr_builder,
-        );
-    } else {
-        // This function is guaranteed not to allocate memory, so we don't need to put the locals on the gc_roots stack.
-
-        // call the function (indirectly)
-        expr_builder.call_indirect(
-            mutctx.module_wrapper.add_ir_type_with_closure(
-                &anys,
-                Some(ir::VarType::Any),
-                ctx.options.wasm_multi_value,
-            ),
-            wasmgen::TableIdx { idx: 0 },
-        );
-    }
-
-    // fetch return values from the location prescribed by the calling convention back to the stack
-    encode_post_appl_calling_conv(
-        ir::VarType::Any,
-        ctx.options.wasm_multi_value,
-        ctx.stackptr,
-        &mut mutctx.scratch,
-        expr_builder,
-    );
-
-    mutctx.scratch.pop_i32();
+    });
 }
 
 // Requires: the callee actually has the correct number of parameters,
@@ -1209,26 +1124,11 @@ fn encode_returnable_direct_appl<H: HeapManager>(
     if true {
         // This function might allocate memory, so we need to store the locals in the gc_roots stack first.
 
-        // encode local roots prologue
-        ctx.heap.encode_local_roots_prologue(
-            &mutctx.local_types,
-            &mutctx.local_map,
-            &mutctx.wasm_local_map,
-            &mut mutctx.scratch,
-            expr_builder,
-        );
-
-        // call the function
-        expr_builder.call(ctx.wasm_funcidxs[funcidx]);
-
-        // encode local roots prologue
-        ctx.heap.encode_local_roots_epilogue(
-            &mutctx.local_types,
-            &mutctx.local_map,
-            &mutctx.wasm_local_map,
-            &mut mutctx.scratch,
-            expr_builder,
-        );
+        // call the function with gc prologue and epilogue
+        mutctx.heap_encode_prologue_epilogue(ctx.heap, expr_builder, |mutctx, expr_builder| {
+            // call the function
+            expr_builder.call(ctx.wasm_funcidxs[funcidx]);
+        });
     } else {
         // This function is guaranteed not to allocate memory, so we don't need to put the locals on the gc_roots stack.
 
@@ -1241,7 +1141,7 @@ fn encode_returnable_direct_appl<H: HeapManager>(
         return_type,
         ctx.options.wasm_multi_value,
         ctx.stackptr,
-        &mut mutctx.scratch,
+        mutctx.scratch_mut(),
         expr_builder,
     );
 }
@@ -1273,26 +1173,11 @@ fn encode_void_direct_appl<H: HeapManager>(
     if true {
         // This function might allocate memory, so we need to store the locals in the gc_roots stack first.
 
-        // encode local roots prologue
-        ctx.heap.encode_local_roots_prologue(
-            &mutctx.local_types,
-            &mutctx.local_map,
-            &mutctx.wasm_local_map,
-            &mut mutctx.scratch,
-            expr_builder,
-        );
-
-        // call the function
-        expr_builder.call(ctx.wasm_funcidxs[funcidx]);
-
-        // encode local roots prologue
-        ctx.heap.encode_local_roots_epilogue(
-            &mutctx.local_types,
-            &mutctx.local_map,
-            &mutctx.wasm_local_map,
-            &mut mutctx.scratch,
-            expr_builder,
-        );
+        // call the function with gc prologue and epilogue
+        mutctx.heap_encode_prologue_epilogue(ctx.heap, expr_builder, |mutctx, expr_builder| {
+            // call the function
+            expr_builder.call(ctx.wasm_funcidxs[funcidx]);
+        });
     } else {
         // This function is guaranteed not to allocate memory, so we don't need to put the locals on the gc_roots stack.
 
@@ -1324,7 +1209,7 @@ fn encode_args_to_call_function<H: HeapManager>(
         encode_widening_operation(
             *expected_type,
             arg.vartype,
-            &mut mutctx.scratch,
+            mutctx.scratch_mut(),
             expr_builder,
         );
     }
