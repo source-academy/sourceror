@@ -699,6 +699,10 @@ impl<'a, 'b, 'c> HeapManager for Cheney<'a, 'b, 'c> {
                     expr_builder.local_set(wasm_local_map[wasm_local_map_index + 1]);
                     // Note: "+1" above to access the closure
                 }
+                ir::VarType::Any => {
+                    expr_builder.i32_const(ir::VarType::Unassigned.tag());
+                    expr_builder.local_set(wasm_local_map[wasm_local_map_index]);
+                }
                 _ => {}
             }
         }
