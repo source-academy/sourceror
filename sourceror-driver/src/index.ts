@@ -1,4 +1,4 @@
-import * as Sourceror from "@btzy/source-compiler";
+import * as Sourceror from "sourceror";
 import { Context } from "js-slang";
 import { ErrorType, ErrorSeverity } from "js-slang/dist/types";
 import { parse as slang_parse } from "js-slang/dist/parser/parser";

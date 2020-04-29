@@ -4,11 +4,11 @@
   "description": "Thing that invokes the Sourceror compiler and supplies the standard library files from libsourceror",
   "dependencies": {
     "@btzy/libsourceror": "^0.0.1",
-    "@btzy/source-compiler": "../sourceror/dist/",
     "@types/estree": "^0.0.39",
     "@types/node": "^13.11.1",
     "js-slang": "^0.4.31",
-    "node-getopt": "^0.3.2"
+    "node-getopt": "^0.3.2",
+    "sourceror": "^0.2.0"
   },
   "devDependencies": {
     "prettier": "^2.0.0",

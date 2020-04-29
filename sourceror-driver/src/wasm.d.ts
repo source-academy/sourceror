@@ -1,1 +1,1 @@
-declare module "@btzy/source-compiler";
+declare module "sourceror";
