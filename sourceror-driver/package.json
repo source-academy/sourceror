@@ -1,6 +1,6 @@
 {
   "name": "sourceror-driver",
-  "version": "1.0.3",
+  "version": "1.0.5",
   "description": "Thing that invokes the Sourceror compiler and supplies the standard library files from libsourceror",
   "dependencies": {
     "@btzy/libsourceror": "^0.0.1",
@@ -8,7 +8,7 @@
     "@types/node": "^13.11.1",
     "js-slang": "^0.4.31",
     "node-getopt": "^0.3.2",
-    "sourceror": "^0.2.0"
+    "sourceror": "^0.5.2"
   },
   "devDependencies": {
     "prettier": "^2.0.0",
