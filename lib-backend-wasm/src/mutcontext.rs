@@ -68,6 +68,25 @@ impl<'a, 'b> MutContext<'a, 'b> {
         result
     }
     /**
+     * Adds an uninitialized local to the context.  It is like with_local(), but caller must guarantee that something is assigned to it before doing any heap allocations.
+     */
+    pub fn with_uninitialized_local<
+        H: HeapManager,
+        R,
+        F: FnOnce(&mut MutContext<'a, 'b>, usize) -> R,
+    >(
+        &mut self,
+        ir_vartype: ir::VarType,
+        heap: &H,
+        f: F,
+    ) -> R {
+        let idx = self.local_types.len();
+        self.push_local(ir_vartype);
+        let result = f(self, idx);
+        self.pop_local(ir_vartype);
+        result
+    }
+    /**
      * Like `with_local()` but with many locals.
      * f(mutctx, expr_builder, idx), where `idx` is the starting index into `local_map` and `local_types` of the new locals.
      */
@@ -154,6 +173,21 @@ impl<'a, 'b> MutContext<'a, 'b> {
             } else {
                 self.wasm_local_map.len()
             })]
+    }
+    // Same as wasm_local_slice() and scratch_mut() combined, but plays nice with the lifetime checker.
+    pub fn wasm_local_slice_and_scratch(
+        &mut self,
+        ir_localidx: usize,
+    ) -> (&[wasmgen::LocalIdx], &mut Scratch<'a>) {
+        (
+            &self.wasm_local_map[self.local_map[ir_localidx]
+                ..(if ir_localidx + 1 < self.local_map.len() {
+                    self.local_map[ir_localidx + 1]
+                } else {
+                    self.wasm_local_map.len()
+                })],
+            &mut self.scratch,
+        )
     }
     pub fn with_scratch_i32<R, F: FnOnce(&mut Self, wasmgen::LocalIdx) -> R>(&mut self, f: F) -> R {
         let idx = self.scratch.push_i32();

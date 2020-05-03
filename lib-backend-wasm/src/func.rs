@@ -6,13 +6,17 @@ use super::gc::HeapManager;
  */
 use wasmgen::Scratch;
 
+use crate::multi_value_polyfill;
 use crate::pre_traverse::ShiftedStringPool;
 use crate::string_prim_inst;
 use crate::Options;
 
+use super::opt_var_conv::*;
 use super::var_conv::*;
 
 use projstd::searchablevec::SearchableVec;
+
+use boolinator::*;
 
 struct EncodeContext<'a, 'b, 'c, 'd, 'e, 'f, 'g, Heap: HeapManager> {
     // Local to this function
@@ -186,10 +190,13 @@ pub fn encode_funcs<Heap: HeapManager>(
                     &registry.param_types,
                     ModuleEncodeWrapper { wasm_module },
                 );
-                let is_stack_polymorphic =
-                    encode_block(&ir_func.block, ctx, &mut mutctx, expr_builder);
+                encode_expr(&ir_func.expr, ctx, &mut mutctx, expr_builder);
 
-                if !is_stack_polymorphic {
+                if let None = ir_func.expr.vartype {
+                    expr_builder.unreachable(); // todo! are we emitting multiple `unreachable` instructions?  is that too many?
+                }
+
+                /*if !is_stack_polymorphic {
                     // todo!: We should generate 'unreachable' for non-stack-polymorphic functions instead.
                     // Since the frontend will insert 'return undefined;' statements, we are guaranteed to never end up here.
                     // We should actually check if the last statement is a return statement, and then don't emit unreachable, and let control fall off the end of the function.
@@ -201,7 +208,7 @@ pub fn encode_funcs<Heap: HeapManager>(
                         &encode_result(ir_func.result, options.wasm_multi_value),
                         expr_builder,
                     );
-                }
+                }*/
 
                 // append the end instruction to end the function
                 expr_builder.end();
@@ -283,132 +290,7 @@ fn encode_load_dummies(
     }
 }
 
-// net wasm stack: [] -> []
-fn encode_block<H: HeapManager>(
-    block: &ir::Block,
-    ctx: EncodeContext<H>,
-    mutctx: &mut MutContext,
-    expr_builder: &mut wasmgen::ExprBuilder,
-) -> bool {
-    // add locals (automatically initialized if necessary for the gc)
-    mutctx.with_locals(
-        &block.locals,
-        ctx.heap,
-        expr_builder,
-        |mutctx, expr_builder, start_idx| {
-            // encode the statements
-            encode_statements(&block.statements, ctx, mutctx, expr_builder)
-        },
-    )
-}
-
-// net wasm stack: [] -> []
-fn encode_statements<H: HeapManager>(
-    statements: &[ir::Statement],
-    ctx: EncodeContext<H>,
-    mutctx: &mut MutContext,
-    expr_builder: &mut wasmgen::ExprBuilder,
-) -> bool {
-    let mut is_stack_polymorphic = false;
-    for statement in statements {
-        if encode_statement(statement, ctx, mutctx, expr_builder) {
-            is_stack_polymorphic = true;
-        }
-    }
-    is_stack_polymorphic
-}
-
-// net wasm stack: [] -> []
-fn encode_statement<H: HeapManager>(
-    statement: &ir::Statement,
-    ctx: EncodeContext<H>,
-    mutctx: &mut MutContext,
-    expr_builder: &mut wasmgen::ExprBuilder,
-) -> bool {
-    match statement {
-        ir::Statement::Assign { target, expr } => {
-            // encode stuff needed before expr (e.g. compute addresses):
-            encode_target_addr_pre(target, expr.vartype, ctx, mutctx, expr_builder);
-            // encode the expr (net wasm stack: [] -> [t...] where `t...` is a valid encoding of expr.vartype)
-            encode_expr(expr, ctx, mutctx, expr_builder);
-            // write the value from the stack to the target
-            encode_target_addr_post(target, expr.vartype, ctx, mutctx, expr_builder);
-            false
-        }
-        ir::Statement::Return { expr } => {
-            match ctx.return_type {
-                None => panic!("Cannot have return expression in a function that returns Void"),
-                Some(ret) => {
-                    // net wasm stack: [] -> [<expr.vartype>]
-                    encode_expr(expr, ctx, mutctx, expr_builder);
-
-                    // net wasm stack: [<expr.vartype>] -> [<return_calling_conv(ctx.return_type.unwrap())>]
-                    encode_return_calling_conv(
-                        ret,
-                        expr.vartype,
-                        ctx.options.wasm_multi_value,
-                        ctx.stackptr,
-                        mutctx.scratch_mut(),
-                        expr_builder,
-                    );
-                    // return the value on the stack (or in the unprotected stack) (which now has the correct type)
-                    expr_builder.return_();
-                }
-            };
-            true
-        }
-        ir::Statement::If {
-            cond,
-            true_block,
-            false_block,
-        } => {
-            // encode the condition
-            // net wasm stack: [] -> [<cond.vartype>]
-            encode_expr(cond, ctx, mutctx, expr_builder);
-            // convert the condition
-            // net wasm stack: [<cond.vartype>] -> [i32 (condition)]
-            encode_narrowing_operation(
-                ir::VarType::Boolean,
-                cond.vartype,
-                |expr_builder| {
-                    expr_builder
-                        .i32_const(ir::error::ERROR_CODE_IF_STATEMENT_CONDITION_TYPE as i32);
-                    expr_builder.i32_const(0);
-                    expr_builder.i32_const(0);
-                    expr_builder.i32_const(0);
-                    expr_builder.i32_const(0);
-                    expr_builder.call(ctx.error_func);
-                    expr_builder.unreachable();
-                },
-                mutctx.scratch_mut(),
-                expr_builder,
-            );
-            // emit the if statement
-            expr_builder.if_(&[]);
-            encode_block(true_block, ctx, mutctx, expr_builder);
-            expr_builder.else_();
-            encode_block(false_block, ctx, mutctx, expr_builder);
-            expr_builder.end();
-            false
-        }
-        ir::Statement::Block { block } => {
-            encode_block(block, ctx, mutctx, expr_builder);
-            false
-        }
-        ir::Statement::Expr { expr } => {
-            // encode the expression
-            encode_expr(expr, ctx, mutctx, expr_builder);
-            // remove the value from the stack
-            encode_drop_value(expr.vartype, expr_builder);
-            false
-        }
-        ir::Statement::Void { expr_kind } => {
-            encode_void_expr(expr_kind, ctx, mutctx, expr_builder);
-            true
-        }
-    }
-}
-
+// net wasm stack: [<vartype>] -> []
 fn encode_drop_value(ir_vartype: ir::VarType, expr_builder: &mut wasmgen::ExprBuilder) {
     match ir_vartype {
         ir::VarType::Any | ir::VarType::Func => {
@@ -533,67 +415,69 @@ fn encode_target_addr_post<H: HeapManager>(
     }
 }
 
-// temporary function until proper local scoping is available to the IR
-/*fn get_local_roots_for_allocation<H: HeapManager>(
-    mutctx: &MutContext<H>,
-) -> Box<[(ir::VarType, wasmgen::LocalIdx)]> {
-    ctx.params_locals_types
-        .iter()
-        .cloned()
-        .zip(ctx.var_map.iter().cloned())
-        .collect()
-}*/
-
+// Returns false if WebAssembly knows that the expr returns Void, true otherwise
+// // Note: This is subset of IR::Expr that are Void, for example if-statements are never Void in WebAssembly, even though both branches return Void.
 // net wasm stack: [] -> [<irvartype>] where `<irvartype>` is a valid encoding of an object with IR type expr.vartype
 fn encode_expr<H: HeapManager>(
     expr: &ir::Expr,
     ctx: EncodeContext<H>,
     mutctx: &mut MutContext,
     expr_builder: &mut wasmgen::ExprBuilder,
-) {
+) -> bool {
     match &expr.kind {
         ir::ExprKind::PrimUndefined => {
+            // encodes the 'undefined' value
             assert!(
-                expr.vartype == ir::VarType::Undefined,
+                expr.vartype == Some(ir::VarType::Undefined),
                 "ICE: IR->Wasm: PrimUndefined does not have type undefined"
             );
             // Don't do anything, because undefined is encoded as <nothing>
+            true
         }
         ir::ExprKind::PrimNumber { val } => {
+            // encodes a literal number
             assert!(
-                expr.vartype == ir::VarType::Number,
+                expr.vartype == Some(ir::VarType::Number),
                 "ICE: IR->Wasm: PrimNumber does not have type number"
             );
             expr_builder.f64_const(*val);
+            true
         }
         ir::ExprKind::PrimBoolean { val } => {
+            // encodes a literal boolean
             assert!(
-                expr.vartype == ir::VarType::Boolean,
+                expr.vartype == Some(ir::VarType::Boolean),
                 "ICE: IR->Wasm: PrimBoolean does not have type boolean"
             );
             expr_builder.i32_const(if *val { 1 } else { 0 });
+            true
         }
         ir::ExprKind::PrimString { val } => {
+            // encodes a literal string
             assert!(
-                expr.vartype == ir::VarType::String,
+                expr.vartype == Some(ir::VarType::String),
                 "ICE: IR->Wasm: PrimString does not have type string"
             );
             expr_builder.i32_const(ctx.string_pool.lookup(val) as i32);
+            true
         }
         ir::ExprKind::PrimStructT { typeidx } => {
+            // encodes a literal struct (semantically this is like the `new` keyword in Java), it will do a heap allocation
             assert!(
-                expr.vartype == ir::VarType::StructT { typeidx: *typeidx },
+                expr.vartype == Some(ir::VarType::StructT { typeidx: *typeidx }),
                 "ICE: IR->Wasm: PrimStructT does not have correct type, or typeidx is incorrect"
             );
             // todo!(Only store locals that are in scope at this point, instead of all of them.)
-            mutctx.heap_encode_fixed_allocation(ctx.heap, expr.vartype, expr_builder);
+            mutctx.heap_encode_fixed_allocation(ctx.heap, expr.vartype.unwrap(), expr_builder);
+            true
         }
         ir::ExprKind::PrimFunc { funcidx, closure } => {
+            // encodes a function pointer and associated closure struct
             assert!(
-                expr.vartype == ir::VarType::Func,
+                expr.vartype == Some(ir::VarType::Func),
                 "ICE: IR->Wasm: PrimFunc does not have type func"
             );
-            assert!(ctx.funcs[*funcidx].params.first().copied() == Some(closure.vartype)); // make sure the closure type given to us is indeed what the function will expect
+            assert!(ctx.funcs[*funcidx].params.first().copied() == Some(closure.vartype.unwrap())); // make sure the closure type given to us is indeed what the function will expect
 
             // encode the closure expr (might contain sub-exprs in general)
             // net wasm stack: [] -> [<closure_irvartype>] (note: this might not be i32, if there is an empty closure)
@@ -605,17 +489,19 @@ fn encode_expr<H: HeapManager>(
                 Some(elemidx) => expr_builder.i32_const(elemidx as i32),
                 None => panic!("addressed function is not in the indirect function call table"),
             };
+            true
         }
-        ir::ExprKind::TypeOf {
-            expr: arg,
+        ir::ExprKind::TypeCast {
+            test: arg,
             expected,
+            create_narrow_local,
+            true_expr,
+            false_expr,
         } => {
+            // encodes a narrowing type cast
+
             assert!(
-                expr.vartype == ir::VarType::Boolean,
-                "ICE: IR->Wasm: Return value of TypeOf builtin should have static type Boolean"
-            );
-            assert!(
-                arg.vartype == ir::VarType::Any,
+                arg.vartype == Some(ir::VarType::Any),
                 "ICE: IR->Wasm: LHS of TypeOf builtin should have static type Any"
             );
 
@@ -629,144 +515,295 @@ fn encode_expr<H: HeapManager>(
             // net wasm stack: [i32 tag, i32 constant] -> [i32 result]
             expr_builder.i32_eq(); // compare two arguments for equality (1=true,0=false)
 
-            // now, the stack still contains the i64 data beneath our result... we have to get rid of it before returning
-            // net wasm stack: [i64 data, i32 result] -> [i32 result]
-            mutctx.scratch_mut().with_i32(|_, localidx_result| {
-                expr_builder.local_set(localidx_result);
-                expr_builder.drop(); // remove the top thing (which is now the i64 data) from the stack
-                expr_builder.local_get(localidx_result);
-            });
+            // net wasm stack: [i32 result] -> [<expr.vartype>]
+            if *create_narrow_local {
+                // temporarily store the i64 data in a local, because we might need it later
+                mutctx.with_scratch_i64(|mutctx, tmp_i64_data| {
+                    // net wasm stack: [i64 data, i32 result] -> [i32 result]
+                    mutctx.with_scratch_i32(|mutctx, tmp_i32_result| {
+                        expr_builder.local_set(tmp_i32_result);
+                        expr_builder.local_set(tmp_i64_data);
+                        expr_builder.local_get(tmp_i32_result);
+                    });
+                    // net wasm stack: [i32 result] -> [<expr.vartype>]
+                    multi_value_polyfill::if_with_opt_else(
+                        encode_opt_vartype(expr.vartype),
+                        ctx.options.wasm_multi_value,
+                        mutctx,
+                        expr_builder,
+                        |mutctx, expr_builder| {
+                            mutctx.with_uninitialized_local(
+                                *expected,
+                                ctx.heap,
+                                |mutctx, ir_localidx| {
+                                    // net wasm stack: [] -> []
+                                    {
+                                        let (wasm_local_slice, scratch) =
+                                            mutctx.wasm_local_slice_and_scratch(ir_localidx);
+                                        encode_unchecked_local_conv_any_narrowing(
+                                            tmp_i64_data,
+                                            wasm_local_slice,
+                                            *expected,
+                                            scratch,
+                                            expr_builder,
+                                        );
+                                    }
+                                    // net wasm stack: [] -> [<true_expr.vartype>]
+                                    let wasm_reachable =
+                                        encode_expr(true_expr, ctx, mutctx, expr_builder);
+                                    // [<true_expr.vartype>] -> [<expr.vartype>]
+                                    encode_opt_result_widening_operation(
+                                        expr.vartype,
+                                        true_expr.vartype,
+                                        wasm_reachable,
+                                        mutctx.scratch_mut(),
+                                        expr_builder,
+                                    );
+                                },
+                            );
+                        },
+                        (!false_expr.is_prim_undefined()).as_some(
+                            |mutctx: &mut MutContext, expr_builder: &mut wasmgen::ExprBuilder| {
+                                // net wasm stack: [] -> [<false_expr.vartype>]
+                                let wasm_reachable =
+                                    encode_expr(false_expr, ctx, mutctx, expr_builder);
+                                // [<false_expr.vartype>] -> [<expr.vartype>]
+                                encode_opt_result_widening_operation(
+                                    expr.vartype,
+                                    false_expr.vartype,
+                                    wasm_reachable,
+                                    mutctx.scratch_mut(),
+                                    expr_builder,
+                                );
+                            },
+                        ),
+                    );
+                });
+            } else {
+                // we don't want a narrow local
+
+                // now, the stack still contains the i64 data beneath our result... we get rid of it first
+                // net wasm stack: [i64 data, i32 result] -> [i32 result]
+                mutctx.scratch_mut().with_i32(|_, localidx_result| {
+                    expr_builder.local_set(localidx_result);
+                    expr_builder.drop(); // remove the top thing (which is now the i64 data) from the stack
+                    expr_builder.local_get(localidx_result);
+                });
+
+                // then we encode the true_expr and false_expr
+                // net wasm stack:  [i32 result] -> [<expr.vartype>]
+                multi_value_polyfill::if_with_opt_else(
+                    encode_opt_vartype(expr.vartype),
+                    ctx.options.wasm_multi_value,
+                    mutctx,
+                    expr_builder,
+                    |mutctx, expr_builder| {
+                        // net wasm stack: [] -> [<true_expr.vartype>]
+                        let wasm_reachable = encode_expr(true_expr, ctx, mutctx, expr_builder);
+                        // [<true_expr.vartype>] -> [<expr.vartype>]
+                        encode_opt_result_widening_operation(
+                            expr.vartype,
+                            true_expr.vartype,
+                            wasm_reachable,
+                            mutctx.scratch_mut(),
+                            expr_builder,
+                        );
+                    },
+                    (!false_expr.is_prim_undefined()).as_some(
+                        |mutctx: &mut MutContext, expr_builder: &mut wasmgen::ExprBuilder| {
+                            // net wasm stack: [] -> [<false_expr.vartype>]
+                            let wasm_reachable = encode_expr(false_expr, ctx, mutctx, expr_builder);
+                            // [<false_expr.vartype>] -> [<expr.vartype>]
+                            encode_opt_result_widening_operation(
+                                expr.vartype,
+                                false_expr.vartype,
+                                wasm_reachable,
+                                mutctx.scratch_mut(),
+                                expr_builder,
+                            );
+                        },
+                    ),
+                );
+            };
+            true // since if-statements are never known by WebAssembly to be unreachable
         }
         ir::ExprKind::VarName { source } => {
+            // encodes a read of a variable
+            assert!(
+                expr.vartype != None,
+                "ICE: IR->Wasm: VarName expression cannot be Void"
+            );
             // net wasm stack: [] -> [<source_vartype>]
-            encode_target_value(source, expr.vartype, ctx, mutctx, expr_builder);
+            encode_target_value(source, expr.vartype.unwrap(), ctx, mutctx, expr_builder);
+            true
         }
         ir::ExprKind::PrimAppl { prim_inst, args } => {
-            encode_returnable_prim_inst(expr.vartype, *prim_inst, args, ctx, mutctx, expr_builder);
+            // encodes a primitive (builtin) instruction, e.g. '<number>+<number>'
+            encode_prim_inst(expr.vartype, *prim_inst, args, ctx, mutctx, expr_builder);
+            true
         }
         ir::ExprKind::Appl { func, args } => {
-            encode_returnable_appl(expr.vartype, func, args, ctx, mutctx, expr_builder);
+            // encodes an indirect function call
+            encode_appl(expr.vartype, func, args, ctx, mutctx, expr_builder);
+            true
         }
         ir::ExprKind::DirectAppl { funcidx, args } => {
-            encode_returnable_direct_appl(expr.vartype, *funcidx, args, ctx, mutctx, expr_builder);
+            // encodes a function call
+            encode_direct_appl(expr.vartype, *funcidx, args, ctx, mutctx, expr_builder);
+            true
         }
         ir::ExprKind::Conditional {
             cond,
             true_expr,
             false_expr,
         } => {
-            // encode the condition
-            // net wasm stack: [] -> [<cond.vartype>]
-            encode_expr(cond, ctx, mutctx, expr_builder);
-            // convert the condition
-            // net wasm stack: [<cond.vartype>] -> [i32 (condition)]
-            encode_narrowing_operation(
-                ir::VarType::Boolean,
-                cond.vartype,
-                |expr_builder| {
-                    expr_builder
-                        .i32_const(ir::error::ERROR_CODE_IF_STATEMENT_CONDITION_TYPE as i32);
-                    expr_builder.i32_const(0);
-                    expr_builder.i32_const(0);
-                    expr_builder.i32_const(0);
-                    expr_builder.i32_const(0);
-                    expr_builder.call(ctx.error_func);
-                    expr_builder.unreachable();
-                },
-                mutctx.scratch_mut(),
-                expr_builder,
-            );
-            // emit the if statement
-            if encode_vartype(expr.vartype).len() <= 1 || ctx.options.wasm_multi_value {
-                // use normal stack
-                // net wasm stack: [i32 (condition)] -> [<expr.vartype>]
-                expr_builder.if_(encode_vartype(expr.vartype));
-                {
-                    encode_expr(true_expr, ctx, mutctx, expr_builder);
-                    encode_widening_operation(
-                        expr.vartype,
-                        true_expr.vartype,
-                        mutctx.scratch_mut(),
-                        expr_builder,
-                    );
-                }
-                expr_builder.else_();
-                {
-                    encode_expr(false_expr, ctx, mutctx, expr_builder);
-                    encode_widening_operation(
-                        expr.vartype,
-                        false_expr.vartype,
-                        mutctx.scratch_mut(),
-                        expr_builder,
-                    );
-                }
-                expr_builder.end();
-            } else {
-                // use additional local variables
+            // encodes a conditional (i.e. a?b:c or an if-statement)
 
-                // add the temporary locals
-                mutctx.with_scratches(encode_vartype(expr.vartype), |mutctx, tmp_locals| {
-                    // net wasm stack: [i32 (condition)] -> []
-                    expr_builder.if_(&[]);
-                    {
-                        encode_expr(true_expr, ctx, mutctx, expr_builder);
-                        encode_store_local(
-                            &tmp_locals,
+            if let Some(actual_cond_vartype) = cond.vartype {
+                // encode the condition
+                // net wasm stack: [] -> [<cond.vartype>]
+                encode_expr(cond, ctx, mutctx, expr_builder);
+                // convert the condition
+                // net wasm stack: [<cond.vartype>] -> [i32 (condition)]
+                encode_narrowing_operation(
+                    ir::VarType::Boolean,
+                    actual_cond_vartype,
+                    |expr_builder| {
+                        expr_builder
+                            .i32_const(ir::error::ERROR_CODE_IF_STATEMENT_CONDITION_TYPE as i32);
+                        expr_builder.i32_const(0);
+                        expr_builder.i32_const(0);
+                        expr_builder.i32_const(0);
+                        expr_builder.i32_const(0);
+                        expr_builder.call(ctx.error_func);
+                        expr_builder.unreachable();
+                    },
+                    mutctx.scratch_mut(),
+                    expr_builder,
+                );
+                // emit the if statement
+                // net wasm stack:  [i32 result] -> [<expr.vartype>]
+                multi_value_polyfill::if_with_opt_else(
+                    encode_opt_vartype(expr.vartype),
+                    ctx.options.wasm_multi_value,
+                    mutctx,
+                    expr_builder,
+                    |mutctx, expr_builder| {
+                        // net wasm stack: [] -> [<true_expr.vartype>]
+                        let wasm_reachable = encode_expr(true_expr, ctx, mutctx, expr_builder);
+                        // net wasm stack: [<true_expr.vartype>] -> [<expr.vartype>]
+                        encode_opt_result_widening_operation(
                             expr.vartype,
                             true_expr.vartype,
+                            wasm_reachable,
+                            mutctx.scratch_mut(),
                             expr_builder,
                         );
-                    }
-                    expr_builder.else_();
-                    {
-                        encode_expr(false_expr, ctx, mutctx, expr_builder);
-                        encode_store_local(
-                            &tmp_locals,
-                            expr.vartype,
-                            false_expr.vartype,
-                            expr_builder,
-                        );
-                    }
-                    expr_builder.end();
+                    },
+                    (!false_expr.is_prim_undefined()).as_some(
+                        |mutctx: &mut MutContext, expr_builder: &mut wasmgen::ExprBuilder| {
+                            // net wasm stack: [] -> [<false_expr.vartype>]
+                            let wasm_reachable = encode_expr(false_expr, ctx, mutctx, expr_builder);
+                            // net wasm stack: [<false_expr.vartype>] -> [<expr.vartype>]
+                            encode_opt_result_widening_operation(
+                                expr.vartype,
+                                false_expr.vartype,
+                                wasm_reachable,
+                                mutctx.scratch_mut(),
+                                expr_builder,
+                            );
+                        },
+                    ),
+                );
+            } else {
+                panic!("ICE: IR->Wasm: condition of conditional expression cannot be Void");
+            }
+            true
+        }
+        ir::ExprKind::Declaration {
+            local,
+            expr: inner_expr,
+        } => {
+            assert!(expr.vartype == inner_expr.vartype, "ICE: IR->Wasm: the expression in a Declaration must have the same type as the Declaration itself");
+            mutctx.with_local(*local, ctx.heap, expr_builder, |mutctx, expr_builder, _| {
+                encode_expr(inner_expr, ctx, mutctx, expr_builder)
+            })
+            // note: we automatically propagate the WebAssembly-Voidness from the inner expr by returning it
+        }
+        ir::ExprKind::Assign {
+            target,
+            expr: rhs_expr,
+        } => {
+            if let Some(actual_vartype) = rhs_expr.vartype {
+                // encode stuff needed before expr (e.g. compute addresses):
+                encode_target_addr_pre(target, actual_vartype, ctx, mutctx, expr_builder);
+                // encode the expr (net wasm stack: [] -> [<actual_vartype>] where `<actual_vartype>` is a valid encoding of actual_vartype)
+                encode_expr(rhs_expr, ctx, mutctx, expr_builder);
+                // write the value from the stack to the target
+                encode_target_addr_post(target, actual_vartype, ctx, mutctx, expr_builder);
+            }
+            true
+        }
+        ir::ExprKind::Return { expr: inner_expr } => {
+            // For return expressions, we assume that any type inference engine already ensures that:
+            // - the return type of this function is not Void
+            // - the inner expr type is not Void
+            // - the return type is at least as wide as the inner expr type
+            match inner_expr.vartype {
+                None => panic!("ICE: IR->Wasm: expression in return statement cannot be Void"),
+                Some(inner_type) => {
+                    match ctx.return_type {
+                        None => panic!("ICE: IR->Wasm: cannot have return expression in a function that returns Void"),
+                        Some(ret_type) => {
+                            // net wasm stack: [] -> [<expr.vartype>]
+                            encode_expr(inner_expr, ctx, mutctx, expr_builder);
 
-                    // net wasm stack: [] -> [<expr.vartype>]
-                    encode_load_local(&tmp_locals, expr.vartype, expr.vartype, expr_builder);
-                });
+                            // net wasm stack: [<expr.vartype>] -> [<return_calling_conv(ctx.return_type.unwrap())>]
+                            encode_return_calling_conv(
+                                ret_type,
+                                inner_type,
+                                ctx.options.wasm_multi_value,
+                                ctx.stackptr,
+                                mutctx.scratch_mut(),
+                                expr_builder,
+                            );
+                            // return the value on the stack (or in the unprotected stack) (which now has the correct type)
+                            expr_builder.return_();
+                        }
+                    };
+                }
+            };
+
+            // returns false, because WebAssembly knows that anything after a return instruction is unreachable
+            false
+        }
+        ir::ExprKind::Sequence { content } => {
+            if content.is_empty() {
+                assert!(
+                    expr.vartype == Some(ir::VarType::Undefined),
+                    "ICE: IR->Wasm: an empty sequence expression must return undefined"
+                );
+                // Don't do anything, because undefined is encoded as <nothing>
+                true
+            } else {
+                let (others, last_slice) = content.split_at(content.len() - 1);
+                assert!(last_slice.len() == 1);
+                let last = &last_slice[0];
+                assert!(
+                    last.vartype == expr.vartype,
+                    "sequence expression must return the type of its last expression"
+                );
+                for inner_expr in others {
+                    encode_expr(inner_expr, ctx, mutctx, expr_builder);
+                    if let Some(actual_vartype) = inner_expr.vartype {
+                        encode_drop_value(actual_vartype, expr_builder);
+                    } else {
+                        panic!("ICE: IR->Wasm: Void expression can only be the last expression in a sequence");
+                    }
+                }
+                encode_expr(last, ctx, mutctx, expr_builder)
             }
         }
-        ir::ExprKind::Sequence {
-            local,
-            statements,
-            last,
-        } => {
-            assert!(
-                expr.vartype == last.vartype,
-                "ICE: IR->Wasm: sequence expression must return the vartype of the last expression that it contains"
-            );
-            mutctx.with_local(*local, ctx.heap, expr_builder, |mutctx, expr_builder, _| {
-                encode_statements(&statements, ctx, mutctx, expr_builder);
-                encode_expr(last, ctx, mutctx, expr_builder);
-            });
-        }
-        ir::ExprKind::Trap {
-            code: _,
-            location: _,
-        } => {
-            panic!("trap cannot be an expression");
-        }
-    }
-}
-
-// Encodes a function that never returns
-// net wasm stack: [] -> []
-// Note: for validation, we still need to ensure stack consistency.
-fn encode_void_expr<H: HeapManager>(
-    expr_kind: &ir::ExprKind,
-    ctx: EncodeContext<H>,
-    mutctx: &mut MutContext,
-    expr_builder: &mut wasmgen::ExprBuilder,
-) {
-    match expr_kind {
         ir::ExprKind::Trap { code, location } => {
             // Calls the predefined imported function, which must never return.
             expr_builder.i32_const(*code as i32);
@@ -778,12 +815,7 @@ fn encode_void_expr<H: HeapManager>(
             expr_builder.unreachable();
             // in the future, PrimInst::Trap should take a error code parameter, and maybe source location
             // and call a noreturn function to the embedder (JavaScript).
-        }
-        ir::ExprKind::DirectAppl { funcidx, args } => {
-            encode_void_direct_appl(*funcidx, args, ctx, mutctx, expr_builder);
-        }
-        _ => {
-            panic!("This expr_kind is not allowed for void expr");
+            false
         }
     }
 }
@@ -878,101 +910,95 @@ fn encode_target_value<H: HeapManager>(
 // and the return type is exactly the correct type of the primitive instruction.
 // (so we allow widening for params, and it must be exact for returns)
 // net wasm stack: [] -> [<return_type>]
-fn encode_returnable_prim_inst<H: HeapManager>(
-    return_type: ir::VarType,
+fn encode_prim_inst<H: HeapManager>(
+    return_type: Option<ir::VarType>,
     prim_inst: ir::PrimInst,
     args: &[ir::Expr],
     ctx: EncodeContext<H>,
     mutctx: &mut MutContext,
     expr_builder: &mut wasmgen::ExprBuilder,
 ) {
-    match prim_inst.signature() {
-        (prim_param_types, Some(prim_return_type)) => {
-            assert!(
-                prim_return_type == return_type,
-                "Return type of PrimInst must match the type of Expr"
-            );
-            // net wasm stack: [] -> [<prim_param_types[0]>, <prim_param_types[1]>, ...]
-            encode_args_to_call_function(prim_param_types, args, ctx, mutctx, expr_builder);
-            // net wasm stack: [<prim_param_types[0]>, <prim_param_types[1]>, ...] -> [<return_type>]
-            match prim_inst {
-                ir::PrimInst::NumberAdd => expr_builder.f64_add(),
-                ir::PrimInst::NumberSub => expr_builder.f64_sub(),
-                ir::PrimInst::NumberMul => expr_builder.f64_mul(),
-                ir::PrimInst::NumberDiv => expr_builder.f64_div(),
-                ir::PrimInst::NumberRem => {
-                    // webassembly has no floating point remainder operation...
-                    // we have to manually do it
-                    // https://stackoverflow.com/questions/26342823/implementation-of-fmod-function
-                    // note: not very numerically rigourous, there might be some rounding errors
-                    // algorithm used here for `a % b`:
-                    // a - (trunc(a / b) * b)
-                    mutctx.with_scratch_f64(|mutctx, localidx_first| {
-                        mutctx.with_scratch_f64(|_mutctx, localidx_second| {
-                            expr_builder.local_set(localidx_second);
-                            expr_builder.local_tee(localidx_first);
-                            expr_builder.local_get(localidx_first);
-                            expr_builder.local_get(localidx_second);
-                            expr_builder.f64_div();
-                            expr_builder.f64_trunc();
-                            expr_builder.local_get(localidx_second);
-                            expr_builder.f64_mul();
-                            expr_builder.f64_sub();
-                        });
-                    });
-                }
-                ir::PrimInst::NumberEq => expr_builder.f64_eq(),
-                ir::PrimInst::NumberNeq => expr_builder.f64_ne(),
-                ir::PrimInst::NumberGt => expr_builder.f64_gt(),
-                ir::PrimInst::NumberLt => expr_builder.f64_lt(),
-                ir::PrimInst::NumberGe => expr_builder.f64_ge(),
-                ir::PrimInst::NumberLe => expr_builder.f64_le(),
-                ir::PrimInst::BooleanEq => expr_builder.i32_eq(),
-                ir::PrimInst::BooleanNeq => expr_builder.i32_ne(),
-                ir::PrimInst::BooleanAnd => expr_builder.i32_and(),
-                ir::PrimInst::BooleanOr => expr_builder.i32_or(),
-                ir::PrimInst::BooleanNot => {
-                    // webassembly has no boolean negation operation...
-                    // we have to manually do it
-                    // not(0) -> 1
-                    // not(1) -> 0
-                    // algorithm used here for `!a`:
-                    // a xor 1
-                    expr_builder.i32_const(1);
-                    expr_builder.i32_xor();
-                }
-                ir::PrimInst::NumberNegate => expr_builder.f64_neg(),
-                ir::PrimInst::StringAdd => {
-                    string_prim_inst::encode_string_add(
-                        ctx.memidx,
-                        ctx.heap,
-                        ctx.options.wasm_bulk_memory,
-                        mutctx,
-                        expr_builder,
-                    );
-                }
-                ir::PrimInst::StringEq => {
-                    string_prim_inst::encode_string_eq(mutctx.scratch_mut(), expr_builder);
-                }
-                ir::PrimInst::StringNeq => {
-                    string_prim_inst::encode_string_ne(mutctx.scratch_mut(), expr_builder);
-                }
-                ir::PrimInst::StringGt => {
-                    string_prim_inst::encode_string_gt(mutctx.scratch_mut(), expr_builder);
-                }
-                ir::PrimInst::StringLt => {
-                    string_prim_inst::encode_string_lt(mutctx.scratch_mut(), expr_builder);
-                }
-                ir::PrimInst::StringGe => {
-                    string_prim_inst::encode_string_ge(mutctx.scratch_mut(), expr_builder);
-                }
-                ir::PrimInst::StringLe => {
-                    string_prim_inst::encode_string_le(mutctx.scratch_mut(), expr_builder);
-                }
-            }
+    let (prim_param_types, prim_return_type) = prim_inst.signature();
+    assert!(
+        prim_return_type == return_type,
+        "Return type of PrimInst must match the type of Expr"
+    );
+    // net wasm stack: [] -> [<prim_param_types[0]>, <prim_param_types[1]>, ...]
+    encode_args_to_call_function(prim_param_types, args, ctx, mutctx, expr_builder);
+    // net wasm stack: [<prim_param_types[0]>, <prim_param_types[1]>, ...] -> [<return_type>]
+    match prim_inst {
+        ir::PrimInst::NumberAdd => expr_builder.f64_add(),
+        ir::PrimInst::NumberSub => expr_builder.f64_sub(),
+        ir::PrimInst::NumberMul => expr_builder.f64_mul(),
+        ir::PrimInst::NumberDiv => expr_builder.f64_div(),
+        ir::PrimInst::NumberRem => {
+            // webassembly has no floating point remainder operation...
+            // we have to manually do it
+            // https://stackoverflow.com/questions/26342823/implementation-of-fmod-function
+            // note: not very numerically rigourous, there might be some rounding errors
+            // algorithm used here for `a % b`:
+            // a - (trunc(a / b) * b)
+            mutctx.with_scratch_f64(|mutctx, localidx_first| {
+                mutctx.with_scratch_f64(|_mutctx, localidx_second| {
+                    expr_builder.local_set(localidx_second);
+                    expr_builder.local_tee(localidx_first);
+                    expr_builder.local_get(localidx_first);
+                    expr_builder.local_get(localidx_second);
+                    expr_builder.f64_div();
+                    expr_builder.f64_trunc();
+                    expr_builder.local_get(localidx_second);
+                    expr_builder.f64_mul();
+                    expr_builder.f64_sub();
+                });
+            });
         }
-        _ => {
-            panic!("Cannot encode noreturn function in an expression");
+        ir::PrimInst::NumberEq => expr_builder.f64_eq(),
+        ir::PrimInst::NumberNeq => expr_builder.f64_ne(),
+        ir::PrimInst::NumberGt => expr_builder.f64_gt(),
+        ir::PrimInst::NumberLt => expr_builder.f64_lt(),
+        ir::PrimInst::NumberGe => expr_builder.f64_ge(),
+        ir::PrimInst::NumberLe => expr_builder.f64_le(),
+        ir::PrimInst::BooleanEq => expr_builder.i32_eq(),
+        ir::PrimInst::BooleanNeq => expr_builder.i32_ne(),
+        ir::PrimInst::BooleanAnd => expr_builder.i32_and(),
+        ir::PrimInst::BooleanOr => expr_builder.i32_or(),
+        ir::PrimInst::BooleanNot => {
+            // webassembly has no boolean negation operation...
+            // we have to manually do it
+            // not(0) -> 1
+            // not(1) -> 0
+            // algorithm used here for `!a`:
+            // a xor 1
+            expr_builder.i32_const(1);
+            expr_builder.i32_xor();
+        }
+        ir::PrimInst::NumberNegate => expr_builder.f64_neg(),
+        ir::PrimInst::StringAdd => {
+            string_prim_inst::encode_string_add(
+                ctx.memidx,
+                ctx.heap,
+                ctx.options.wasm_bulk_memory,
+                mutctx,
+                expr_builder,
+            );
+        }
+        ir::PrimInst::StringEq => {
+            string_prim_inst::encode_string_eq(mutctx.scratch_mut(), expr_builder);
+        }
+        ir::PrimInst::StringNeq => {
+            string_prim_inst::encode_string_ne(mutctx.scratch_mut(), expr_builder);
+        }
+        ir::PrimInst::StringGt => {
+            string_prim_inst::encode_string_gt(mutctx.scratch_mut(), expr_builder);
+        }
+        ir::PrimInst::StringLt => {
+            string_prim_inst::encode_string_lt(mutctx.scratch_mut(), expr_builder);
+        }
+        ir::PrimInst::StringGe => {
+            string_prim_inst::encode_string_ge(mutctx.scratch_mut(), expr_builder);
+        }
+        ir::PrimInst::StringLe => {
+            string_prim_inst::encode_string_le(mutctx.scratch_mut(), expr_builder);
         }
     }
 }
@@ -982,8 +1008,8 @@ fn encode_returnable_prim_inst<H: HeapManager>(
 // and the callee must have all params of type Any, and return type must also be Any.
 // (to use more specific types, we must know the target function at compilation time, and hence use the DirectAppl)
 // net wasm stack: [] -> [<return_type>]
-fn encode_returnable_appl<H: HeapManager>(
-    return_type: ir::VarType,
+fn encode_appl<H: HeapManager>(
+    return_type: Option<ir::VarType>,
     func_expr: &ir::Expr,
     args: &[ir::Expr],
     ctx: EncodeContext<H>,
@@ -995,7 +1021,7 @@ fn encode_returnable_appl<H: HeapManager>(
     // Eventually we might want to check the signature manually.
 
     // Assert that the return type is Any (calling a function indirectly should return Any)
-    assert!(return_type == ir::VarType::Any);
+    assert!(return_type == Some(ir::VarType::Any));
 
     // Evaluate the `func_expr`:
     // net wasm stack: [] -> [<func_expr.vartype>]
@@ -1006,11 +1032,11 @@ fn encode_returnable_appl<H: HeapManager>(
     mutctx.with_scratch_i32(|mutctx, localidx_tableidx| {
         {
             match func_expr.vartype {
-                ir::VarType::Func => {
+                Some(ir::VarType::Func) => {
                     // already a function, just pop out the tableidx from the stack
                     expr_builder.local_set(localidx_tableidx);
                 }
-                ir::VarType::Any => {
+                Some(ir::VarType::Any) => {
                     // emit the check if it is a function type
                     expr_builder.i32_const(ir::VarType::Func.tag());
                     expr_builder.i32_ne();
@@ -1087,7 +1113,7 @@ fn encode_returnable_appl<H: HeapManager>(
 
         // fetch return values from the location prescribed by the calling convention back to the stack
         encode_post_appl_calling_conv(
-            ir::VarType::Any,
+            Some(ir::VarType::Any),
             ctx.options.wasm_multi_value,
             ctx.stackptr,
             mutctx.scratch_mut(),
@@ -1100,8 +1126,8 @@ fn encode_returnable_appl<H: HeapManager>(
 // and the each parameter of the callee must have a type at least as wide as (i.e. be a supertype of) the corresponding args[i].vartype,
 // and the return type of the callee is exactly return_type.
 // net wasm stack: [] -> [<return_type>]
-fn encode_returnable_direct_appl<H: HeapManager>(
-    return_type: ir::VarType,
+fn encode_direct_appl<H: HeapManager>(
+    return_type: Option<ir::VarType>,
     funcidx: ir::FuncIdx,
     args: &[ir::Expr],
     ctx: EncodeContext<H>,
@@ -1114,7 +1140,7 @@ fn encode_returnable_direct_appl<H: HeapManager>(
     let func: &ir::Func = &ctx.funcs[funcidx];
 
     // Assert that the function has correct return type
-    assert!(Some(return_type) == func.result);
+    assert!(return_type == func.result);
 
     // Encode all the arguments
     encode_args_to_call_function(&func.params, args, ctx, mutctx, expr_builder);
@@ -1125,7 +1151,7 @@ fn encode_returnable_direct_appl<H: HeapManager>(
         // This function might allocate memory, so we need to store the locals in the gc_roots stack first.
 
         // call the function with gc prologue and epilogue
-        mutctx.heap_encode_prologue_epilogue(ctx.heap, expr_builder, |mutctx, expr_builder| {
+        mutctx.heap_encode_prologue_epilogue(ctx.heap, expr_builder, |mutctx_, expr_builder| {
             // call the function
             expr_builder.call(ctx.wasm_funcidxs[funcidx]);
         });
@@ -1146,46 +1172,6 @@ fn encode_returnable_direct_appl<H: HeapManager>(
     );
 }
 
-// Like `encode_returnable_direct_appl`, but the encoded function is guaranteed to never return.
-// Requires: the callee actually has the correct number of parameters,
-// and the each parameter of the callee must have a type at least as wide as (i.e. be a supertype of) the corresponding args[i].vartype,
-// and the callee is specified to not return.
-// net wasm stack: [] -> []
-fn encode_void_direct_appl<H: HeapManager>(
-    funcidx: ir::FuncIdx,
-    args: &[ir::Expr],
-    ctx: EncodeContext<H>,
-    mutctx: &mut MutContext,
-    expr_builder: &mut wasmgen::ExprBuilder,
-) {
-    // Assert that this funcidx exists
-    assert!(funcidx < ctx.funcs.len(), "invalid funcidx");
-
-    let func: &ir::Func = &ctx.funcs[funcidx];
-
-    // Assert that the function does not return
-    assert!(None == func.result);
-
-    // Encode all the arguments
-    encode_args_to_call_function(&func.params, args, ctx, mutctx, expr_builder);
-
-    // todo!(For optimisation, encode_local_roots_prologue and encode_local_roots_epilogue should only be called if the callee might allocate)
-    if true {
-        // This function might allocate memory, so we need to store the locals in the gc_roots stack first.
-
-        // call the function with gc prologue and epilogue
-        mutctx.heap_encode_prologue_epilogue(ctx.heap, expr_builder, |mutctx, expr_builder| {
-            // call the function
-            expr_builder.call(ctx.wasm_funcidxs[funcidx]);
-        });
-    } else {
-        // This function is guaranteed not to allocate memory, so we don't need to put the locals on the gc_roots stack.
-
-        // call the function
-        expr_builder.call(ctx.wasm_funcidxs[funcidx]);
-    }
-}
-
 // This function prepares subexpressions when calling a function.
 // It evaluates arguments in left-to-right order, which is required for Source.
 // Each `expected_param_types` must be at least as wide as each `[args[i].vartype, ...]`
@@ -1203,15 +1189,19 @@ fn encode_args_to_call_function<H: HeapManager>(
         "expected_param_types and args must be same length when encoding args to call function"
     );
     for (expected_type, arg) in expected_param_types.iter().zip(args.iter()) {
-        // net wasm stack: [] -> [<arg.vartype>]
-        encode_expr(arg, ctx, mutctx, expr_builder);
-        // net wasm stack: [<arg.vartype>] -> [<expected_type>]
-        encode_widening_operation(
-            *expected_type,
-            arg.vartype,
-            mutctx.scratch_mut(),
-            expr_builder,
-        );
+        if let Some(unwrapped_arg_vartype) = arg.vartype {
+            // net wasm stack: [] -> [<arg.vartype>]
+            encode_expr(arg, ctx, mutctx, expr_builder);
+            // net wasm stack: [<arg.vartype>] -> [<expected_type>]
+            encode_widening_operation(
+                *expected_type,
+                unwrapped_arg_vartype,
+                mutctx.scratch_mut(),
+                expr_builder,
+            );
+        } else {
+            panic!("argument type cannot be Void");
+        }
     }
 }
 
@@ -1279,29 +1269,31 @@ fn encode_return_calling_conv(
 // Otherwise, this function loads the return value from the unprotected stack.
 // net wasm stack: [return_calling_conv(vartype)] -> [vartype]
 fn encode_post_appl_calling_conv(
-    vartype: ir::VarType,
+    opt_vartype: Option<ir::VarType>,
     use_wasm_multi_value_feature: bool,
     stackptr: wasmgen::GlobalIdx,
     scratch: &mut Scratch,
     expr_builder: &mut wasmgen::ExprBuilder,
 ) {
-    if encode_vartype(vartype).len() <= 1 || use_wasm_multi_value_feature {
-        // Return value is on the stack already
+    if let Some(vartype) = opt_vartype {
+        if encode_vartype(vartype).len() <= 1 || use_wasm_multi_value_feature {
+            // Return value is on the stack already
 
-        // Do nothing
-    } else {
-        // Return value is on the unprotected stack
-        // Recall that the unprotected stack grows downward
-        // The convention is to put the data at [stackptr-size, stackptr) where `size` is the size of the target type
+            // Do nothing
+        } else {
+            // Return value is on the unprotected stack
+            // Recall that the unprotected stack grows downward
+            // The convention is to put the data at [stackptr-size, stackptr) where `size` is the size of the target type
 
-        // return_ptr = stackptr - size
-        // net wasm stack: [] -> [return_ptr]
-        expr_builder.global_get(stackptr);
-        expr_builder.i32_const(size_in_memory(vartype) as i32);
-        expr_builder.i32_sub();
+            // return_ptr = stackptr - size
+            // net wasm stack: [] -> [return_ptr]
+            expr_builder.global_get(stackptr);
+            expr_builder.i32_const(size_in_memory(vartype) as i32);
+            expr_builder.i32_sub();
 
-        // load the source value from memory
-        // net wasm stack: [return_ptr] -> [source_type]
-        encode_load_memory(0, vartype, vartype, scratch, expr_builder);
+            // load the source value from memory
+            // net wasm stack: [return_ptr] -> [source_type]
+            encode_load_memory(0, vartype, vartype, scratch, expr_builder);
+        }
     }
 }

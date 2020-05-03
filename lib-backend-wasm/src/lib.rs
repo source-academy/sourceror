@@ -59,7 +59,9 @@ use wasmgen;
 
 mod func;
 mod gc;
+mod multi_value_polyfill;
 mod mutcontext;
+mod opt_var_conv;
 mod pre_traverse;
 mod string_prim_inst;
 mod var_conv;

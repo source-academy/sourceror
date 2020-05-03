@@ -484,6 +484,50 @@ pub fn encode_narrowing_operation<F: FnOnce(&mut wasmgen::ExprBuilder)>(
     }
 }
 
+// A very very specific function that converts an i64 local (the data of an Any) to locals representing a specific type
+// It is used in the TypeCast expression
+// net wasm stack: [] -> []
+pub fn encode_unchecked_local_conv_any_narrowing(
+    wasm_source_localidx: wasmgen::LocalIdx,
+    wasm_dest_localidx: &[wasmgen::LocalIdx],
+    ir_dest_vartype: ir::VarType,
+    scratch: &mut Scratch,
+    expr_builder: &mut wasmgen::ExprBuilder,
+) {
+    match ir_dest_vartype {
+        ir::VarType::Any => {
+            panic!("ICE: IR->Wasm: Cannot TypeCast from Any to Any");
+        }
+        ir::VarType::Undefined => {}
+        ir::VarType::Unassigned => {
+            panic!("ICE: IR->Wasm: Cannot TypeCast from Any to Unassigned");
+        }
+        ir::VarType::Number => {
+            assert!(wasm_dest_localidx.len() == 1);
+            expr_builder.local_get(wasm_source_localidx);
+            expr_builder.f64_reinterpret_i64(); // convert i64 to f64
+            expr_builder.local_set(wasm_dest_localidx[0]);
+        }
+        ir::VarType::Boolean | ir::VarType::String | ir::VarType::StructT { typeidx: _ } => {
+            assert!(wasm_dest_localidx.len() == 1);
+            expr_builder.local_get(wasm_source_localidx);
+            expr_builder.i32_wrap_i64(); // convert i64 to i32
+            expr_builder.local_set(wasm_dest_localidx[0]);
+        }
+        ir::VarType::Func => {
+            assert!(wasm_dest_localidx.len() == 2);
+            expr_builder.local_get(wasm_source_localidx);
+            expr_builder.i32_wrap_i64();
+            expr_builder.local_set(wasm_dest_localidx[0]); // function ptr
+            expr_builder.local_get(wasm_source_localidx);
+            expr_builder.i64_const(32);
+            expr_builder.i64_shr_u();
+            expr_builder.i32_wrap_i64();
+            expr_builder.local_set(wasm_dest_localidx[1]); // closure ptr
+        }
+    }
+}
+
 pub fn size_in_memory(ir_vartype: ir::VarType) -> u32 {
     match ir_vartype {
         ir::VarType::Any => 4 + 8,
