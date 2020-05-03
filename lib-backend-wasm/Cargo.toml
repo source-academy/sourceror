@@ -18,6 +18,7 @@ wasmtest = ["wasm-test-harness"]
 wasmgen = { path = "../lib-wasmgen" }
 ir = { path = "../lib-ir" }
 projstd = { path = "../lib-projstd" }
+boolinator = "2.4.0"
 
 [dependencies.wasm-test-harness]
 path = "../wasm-test-harness"

@@ -27,7 +27,9 @@ pub struct TraverseResult {
 }
 
 /*
-Traverses the IR to put all string constants in a string pool, and encodes the static data buffer.
+Traverses the IR to:
+- put all string constants in a string pool, and encodes the static data buffer
+- put all addressed functions in a vector
 */
 pub fn pre_traverse_funcs(funcs: &[ir::Func]) -> TraverseResult {
     let mut res = TraverseResult::default();
@@ -38,36 +40,7 @@ pub fn pre_traverse_funcs(funcs: &[ir::Func]) -> TraverseResult {
 }
 
 fn pre_traverse_func(func: &ir::Func, res: &mut TraverseResult) {
-    pre_traverse_block(&func.block, res);
-}
-
-fn pre_traverse_block(block: &ir::Block, res: &mut TraverseResult) {
-    pre_traverse_statements(&block.statements, res);
-}
-
-fn pre_traverse_statements(statements: &[ir::Statement], res: &mut TraverseResult) {
-    for statement in statements {
-        pre_traverse_statement(statement, res);
-    }
-}
-
-fn pre_traverse_statement(statement: &ir::Statement, res: &mut TraverseResult) {
-    match statement {
-        ir::Statement::Assign { target: _, expr } => pre_traverse_expr(expr, res),
-        ir::Statement::Return { expr } => pre_traverse_expr(expr, res),
-        ir::Statement::If {
-            cond,
-            true_block,
-            false_block,
-        } => {
-            pre_traverse_expr(cond, res);
-            pre_traverse_block(true_block, res);
-            pre_traverse_block(false_block, res);
-        }
-        ir::Statement::Block { block } => pre_traverse_block(block, res),
-        ir::Statement::Expr { expr } => pre_traverse_expr(expr, res),
-        ir::Statement::Void { expr_kind } => pre_traverse_expr_kind(expr_kind, res),
-    }
+    pre_traverse_expr(&func.expr, res);
 }
 
 fn pre_traverse_exprs(exprs: &[ir::Expr], res: &mut TraverseResult) {
@@ -91,7 +64,17 @@ fn pre_traverse_expr_kind(expr_kind: &ir::ExprKind, res: &mut TraverseResult) {
             res.addressed_funcs.insert_copy(funcidx);
             pre_traverse_expr(closure, res);
         }
-        ir::ExprKind::TypeOf { expr, expected: _ } => pre_traverse_expr(expr, res),
+        ir::ExprKind::TypeCast {
+            test,
+            expected: _,
+            create_narrow_local: _,
+            true_expr,
+            false_expr,
+        } => {
+            pre_traverse_expr(test, res);
+            pre_traverse_expr(true_expr, res);
+            pre_traverse_expr(false_expr, res);
+        }
         ir::ExprKind::VarName { source: _ } => {}
         ir::ExprKind::PrimAppl { prim_inst: _, args } => pre_traverse_exprs(args, res),
         ir::ExprKind::Appl { func, args } => {
@@ -108,13 +91,11 @@ fn pre_traverse_expr_kind(expr_kind: &ir::ExprKind, res: &mut TraverseResult) {
             pre_traverse_expr(true_expr, res);
             pre_traverse_expr(false_expr, res);
         }
-        ir::ExprKind::Sequence {
-            local: _,
-            statements,
-            last,
-        } => {
-            pre_traverse_statements(&statements, res);
-            pre_traverse_expr(last, res);
+        ir::ExprKind::Declaration { local: _, expr }
+        | ir::ExprKind::Assign { target: _, expr }
+        | ir::ExprKind::Return { expr } => pre_traverse_expr(expr, res),
+        ir::ExprKind::Sequence { content } => {
+            pre_traverse_exprs(content, res);
         }
         ir::ExprKind::Trap {
             code: _,
