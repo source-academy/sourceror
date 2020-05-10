@@ -1,3 +1,6 @@
+use crate::subslice::SubsliceOffset;
+use std::fmt::Display;
+
 // This module contains stuff for platform independent compiler error printing.
 
 #[derive(PartialEq, Eq, Copy, Clone, Debug)]
@@ -21,9 +24,102 @@ impl Severity {
 }
 
 #[derive(PartialEq, Eq, Copy, Clone, Debug, Default)]
-pub struct SourceLocation {
+pub struct SourceLocationRef<'a> {
+    pub source: Option<&'a str>,
+    pub start: Position,
+    pub end: Position,
+}
+
+#[derive(PartialEq, Eq, Copy, Clone, Debug, Default)]
+pub struct Position {
     pub line: i32,
     pub column: i32,
+}
+
+impl<'a> SourceLocationRef<'a> {
+    pub fn new(
+        start_line: i32,
+        start_column: i32,
+        end_line: i32,
+        end_column: i32,
+        source: Option<&'a str>,
+    ) -> Self {
+        Self {
+            source: source,
+            start: Position {
+                line: start_line,
+                column: start_column,
+            },
+            end: Position {
+                line: end_line,
+                column: end_column,
+            },
+        }
+    }
+    pub fn entire_line(line: i32, source: Option<&'a str>) -> Self {
+        Self {
+            source: source,
+            start: Position {
+                line: line,
+                column: 0,
+            },
+            end: Position {
+                line: line,
+                column: 0,
+            },
+        }
+    }
+    pub fn entire_file(source: Option<&'a str>) -> Self {
+        Self {
+            source: source,
+            start: Position { line: 0, column: 0 },
+            end: Position { line: 0, column: 0 },
+        }
+    }
+    pub fn within_line(line: i32, range: &str, line_start: &str, source: Option<&'a str>) -> Self {
+        let std::ops::Range { start, end } = line_start.subslice_offset_range(range);
+        Self {
+            source: source,
+            start: Position {
+                line: line,
+                column: start as i32,
+            },
+            end: Position {
+                line: line,
+                column: end as i32,
+            },
+        }
+    }
+    pub fn to_owned(&self) -> SourceLocation {
+        SourceLocation {
+            source: self.source.map(|x| x.into()),
+            start: self.start,
+            end: self.end,
+        }
+    }
+}
+
+#[derive(PartialEq, Eq, Clone, Debug, Default)]
+pub struct SourceLocation {
+    pub source: Option<String>,
+    pub start: Position,
+    pub end: Position,
+}
+
+impl SourceLocation {
+    pub fn as_ref(&self) -> SourceLocationRef {
+        SourceLocationRef {
+            source: self.source.as_deref(),
+            start: self.start,
+            end: self.end,
+        }
+    }
+}
+
+impl<'a> std::fmt::Display for SourceLocationRef<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
 }
 
 impl std::fmt::Display for Severity {
@@ -32,6 +128,76 @@ impl std::fmt::Display for Severity {
     }
 }
 
+#[derive(Debug)]
+pub struct CompileMessage<E> {
+    location: SourceLocation,
+    severity: Severity,
+    message: E,
+}
+impl<E> CompileMessage<E> {
+    pub fn new<SL: Into<SourceLocation>, SV: Into<Severity>>(
+        location: SL,
+        severity: SV,
+        message: E,
+    ) -> Self {
+        Self {
+            location: location.into(),
+            severity: severity.into(),
+            message: message,
+        }
+    }
+    pub fn new_error<SL: Into<SourceLocation>>(location: SL, message: E) -> Self {
+        Self {
+            location: location.into(),
+            severity: Severity::Error,
+            message: message,
+        }
+    }
+    pub fn into_cm<F: From<E>>(self) -> CompileMessage<F> {
+        CompileMessage {
+            location: self.location,
+            severity: self.severity,
+            message: self.message.into(),
+        }
+    }
+}
+impl<E: std::error::Error> std::error::Error for CompileMessage<E> {}
+impl<E: std::fmt::Display> std::fmt::Display for CompileMessage<E> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "At {}: {}: {}",
+            self.location.as_ref(),
+            self.severity,
+            self.message
+        )
+    }
+}
+
 pub trait Logger {
-    fn log(&self, severity: Severity, message: String, loc: SourceLocation);
+    fn log(&self, message: String);
+    fn log_msg<M: Display>(&self, msg: M) {
+        self.log(format!("{}", msg));
+    }
+    /*fn display<M: std::fmt::Display, SL: Into<SourceLocation>>(
+        &self,
+        severity: Severity,
+        message: M,
+        loc: SL,
+    ) {
+        self.log(severity, format!("{}", message), loc.into());
+    }
+    fn error<M: std::fmt::Display, SL: Into<SourceLocation>>(&self, message: M, loc: SL) {
+        self.log(Severity::Error, format!("{}", message), loc.into());
+    }*/
+}
+
+pub trait LogErr<R> {
+    fn log_err<L: Logger>(self, logger: &L) -> R;
+}
+
+impl<T, E: std::fmt::Display> LogErr<Result<T, ()>> for Result<T, E> {
+    fn log_err<L: Logger>(self, logger: &L) -> Result<T, ()> {
+        self.map_err(|e| logger.log_msg(e))
+    }
 }

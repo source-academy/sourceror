@@ -75,7 +75,7 @@ impl VarType {
 }
 pub const NUM_PRIMITIVE_TAG_TYPES: usize = 6; // does not include Any
 
-#[derive(Debug, Clone)]
+#[derive(Eq, PartialEq, Ord, PartialOrd, Clone, Hash, Debug)]
 pub struct Import {
     pub module_name: String,
     pub entity_name: String,
@@ -84,7 +84,7 @@ pub struct Import {
 }
 
 // Types that can be imported (subset of VarType)
-#[derive(Eq, PartialEq, Copy, Clone, Debug)]
+#[derive(Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Hash, Debug)]
 pub enum ImportValType {
     Undefined, // compiles into nothing
     Number,    // compiles into f64 parameter
@@ -113,7 +113,7 @@ pub struct Expr {
 }
 
 // Represents any lvalue (assignable value)
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum TargetExpr {
     // if the field is a struct, then `next` can (but not necessarily) refer to a field inside the struct
     Global {
@@ -126,7 +126,7 @@ pub enum TargetExpr {
     }, // for targetting a local variable
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct StructField {
     pub typeidx: usize,                 // the struct type id (index into struct_types)
     pub fieldidx: usize,                // the index of the referred field in the struct

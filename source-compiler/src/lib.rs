@@ -1,4 +1,5 @@
 use wasm_bindgen::prelude::*;
+use wasm_bindgen_futures::JsFuture;
 
 use wasmgen;
 
@@ -19,7 +20,10 @@ use projstd;
 #[wasm_bindgen]
 extern "C" {
     #[wasm_bindgen(js_name = sourcerorLogCallback)]
-    pub fn compiler_log(context: i32, severity_code: i32, message: String, line: i32, column: i32);
+    pub fn compiler_log(context: i32, message: String);
+
+    #[wasm_bindgen(js_name = sourcerorFetchDepCallback)]
+    pub fn fetch_dep(name: &str) -> JsFuture;
 }
 
 #[derive(Copy, Clone)]
@@ -34,13 +38,8 @@ impl MainLogger {
 }
 
 impl projstd::log::Logger for MainLogger {
-    fn log(
-        &self,
-        severity: projstd::log::Severity,
-        message: String,
-        loc: projstd::log::SourceLocation,
-    ) {
-        compiler_log(self.context, severity.code(), message, loc.line, loc.column);
+    fn log(&self, message: String) {
+        compiler_log(self.context, message);
     }
 }
 
@@ -51,7 +50,7 @@ impl projstd::log::Logger for MainLogger {
  * `import_spec`: list of imports following the import file format
  */
 #[wasm_bindgen]
-pub fn compile(context: i32, source_code: &str, import_spec: &str) -> Box<[u8]> {
+pub async fn compile(context: i32, source_code: &str) -> Box<[u8]> {
     // nice console errors in debug mode
     #[cfg(all(debug_assertions, target_arch = "wasm32"))]
     console_error_panic_hook::set_once();
@@ -59,9 +58,9 @@ pub fn compile(context: i32, source_code: &str, import_spec: &str) -> Box<[u8]> 
     (|| {
         use wasmgen::WasmSerialize;
 
-        let ir_imports = frontend_estree::parse_imports(import_spec, MainLogger::new(context))?;
+        //let ir_imports = frontend_estree::parse_imports(import_spec, MainLogger::new(context))?;
         let ir_program =
-            frontend_estree::run_frontend(source_code, ir_imports, MainLogger::new(context))?;
+            frontend_estree::run_frontend(source_code, fetch_dep, MainLogger::new(context)).await?;
         let wasm_module = backend_wasm::run_backend(&ir_program, backend_wasm::Options::default());
         let mut receiver = std::vec::Vec::<u8>::new();
         wasm_module.wasm_serialize(&mut receiver);
