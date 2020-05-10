@@ -1,111 +1,133 @@
+use crate::compact_state;
+use crate::error::ImportsParseError;
 use ir::Import;
 use ir::ImportValType;
+use projstd::log::CompileMessage;
 use projstd::log::Logger;
 use projstd::log::Severity;
-use projstd::log::SourceLocation;
+use projstd::log::SourceLocationRef as plslRef;
 use std::boxed::Box;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::result::Result;
 
-pub fn parse_imports<L: Logger + Copy>(
-    import_spec: &str,
-    logger: L,
-) -> Result<HashMap<String, Import>, ()> {
-    let mut ret = HashMap::new();
-    for (i, line) in import_spec.lines().enumerate() {
-        let (name, import) = parse_import(line, (i + 1) as i32, logger)?;
-        match ret.entry(name) {
-            Entry::Vacant(vacant_entry) => {
-                vacant_entry.insert(import);
-            }
-            Entry::Occupied(occupied_entry) => {
-                logger.log(
-                    Severity::Error,
-                    format!("duplicate import declaration \"{}\"", occupied_entry.key()),
-                    SourceLocation {
-                        line: (i + 1) as i32,
-                        column: 0,
-                    },
-                );
-                return Err(());
-            }
-        }
-    }
-    Ok(ret)
+pub struct ImportSpec {
+    pub content: Vec<(String, Import)>,
 }
 
-fn parse_import<L: Logger + Copy>(
+pub fn has_imports_header(import_spec: &str) -> bool {
+    return import_spec.lines().next() == Some("@SourceImports");
+}
+
+pub fn parse_imports(
+    filename: &str,
+    import_spec: &str,
+) -> Result<ImportSpec, CompileMessage<ImportsParseError>> {
+    let ret: Vec<(String, Import)> = Vec::new();
+    let iter = import_spec.lines().enumerate();
+    iter.next()
+        .and_then(|(_, line)| {
+            if line == "@SourceImports" {
+                Some(())
+            } else {
+                None
+            }
+        })
+        .ok_or_else(|| {
+            CompileMessage::new_error(
+                plslRef::entire_line(1, Some(filename)).to_owned(),
+                ImportsParseError::InvalidHeader,
+            )
+            .into_cm()
+        })?;
+    for (i, line) in iter {
+        if let Some(name_import) = parse_import(filename, line, i as i32 + 1)? {
+            ret.push(name_import);
+        }
+    }
+    Ok(ImportSpec { content: ret })
+}
+
+fn parse_import(
+    filename: &str,
     import_line: &str,
     line_num: i32,
-    logger: L,
-) -> Result<(String, Import), ()> {
+) -> Result<Option<(String, Import)>, CompileMessage<ImportsParseError>> {
     //"__ffi_display misc display undefined string";
-    fn log_if_error<L: Logger>(
-        x: Option<&str>,
-        line_num: i32,
-        logger: L,
-        seen_so_far: usize,
-    ) -> Result<&str, ()> {
-        match x {
-            Some(y) => Ok(y),
-            None => {
-                logger.log(
-                    Severity::Error,
-                    format!(
-                        "expected at least 4 strings in this line, got {}",
-                        seen_so_far
-                    ),
-                    SourceLocation {
-                        line: line_num,
-                        column: 0,
-                    },
-                );
-                Err(())
-            }
-        }
+    fn error_if_none<'a>(
+        x: Option<&'a str>,
+        err: ImportsParseError,
+        filename: &str,
+        line: i32,
+        col: i32,
+    ) -> Result<&'a str, CompileMessage<ImportsParseError>> {
+        x.ok_or_else(|| {
+            CompileMessage::new_error(
+                plslRef::new(line, col, line + 1, 0, Some(filename)).to_owned(),
+                err,
+            )
+        })
     };
 
-    fn log_if_not_valid_vartype<L: Logger>(
+    fn error_if_not_valid_vartype(
         x: Option<ImportValType>,
-        line_num: i32,
-        logger: L,
         bad_name: &str,
-    ) -> Result<ImportValType, ()> {
-        match x {
-            Some(y) => Ok(y),
-            None => {
-                logger.log(
-                    Severity::Error,
-                    format!("the name \"{}\" is not a valid ImportValType", bad_name),
-                    SourceLocation {
-                        line: line_num,
-                        column: 0,
-                    },
-                );
-                Err(())
-            }
-        }
+        filename: &str,
+        line_num: i32,
+        line: &str,
+    ) -> Result<ImportValType, CompileMessage<ImportsParseError>> {
+        x.ok_or_else(|| {
+            CompileMessage::new_error(
+                plslRef::within_line(line_num, bad_name, line, Some(filename)).to_owned(),
+                ImportsParseError::InvalidVarType(bad_name.to_owned()),
+            )
+        })
     };
 
     let mut it = import_line.split(' ');
-    let source_name = log_if_error(it.next(), line_num, logger, 0)?;
-    let host_module = log_if_error(it.next(), line_num, logger, 1)?;
-    let host_entity = log_if_error(it.next(), line_num, logger, 2)?;
-    let return_type_str = log_if_error(it.next(), line_num, logger, 3)?;
 
-    let return_type = log_if_not_valid_vartype(
-        make_vartype(return_type_str),
+    // this allows for empty lines
+    let source_name = if let Some(s) = it.next() {
+        s
+    } else {
+        return Ok(None);
+    };
+
+    let host_module = error_if_none(
+        it.next(),
+        ImportsParseError::MissingHostModuleName,
+        filename,
         line_num,
-        logger,
+        import_line.len() as i32,
+    )?;
+    let host_entity = error_if_none(
+        it.next(),
+        ImportsParseError::MissingHostEntityName,
+        filename,
+        line_num,
+        import_line.len() as i32,
+    )?;
+    let return_type_str = error_if_none(
+        it.next(),
+        ImportsParseError::MissingReturnType,
+        filename,
+        line_num,
+        import_line.len() as i32,
+    )?;
+
+    let return_type = error_if_not_valid_vartype(
+        make_vartype(return_type_str),
         return_type_str,
+        filename,
+        line_num,
+        import_line,
     )?;
 
     let param_types = it
-        .map(|x| log_if_not_valid_vartype(make_vartype(x), line_num, logger, x))
-        .collect::<Result<Box<[ImportValType]>, ()>>()?;
+        .map(|x| error_if_not_valid_vartype(make_vartype(x), x, filename, line_num, import_line))
+        .collect::<Result<Box<[ImportValType]>, CompileMessage<ImportsParseError>>>()?;
 
-    Ok((
+    Ok(Some((
         source_name.to_owned(),
         Import {
             module_name: host_module.to_owned(),
@@ -113,7 +135,7 @@ fn parse_import<L: Logger + Copy>(
             params: param_types,
             result: return_type,
         },
-    ))
+    )))
 }
 
 fn make_vartype(type_name: &str) -> Option<ImportValType> {
@@ -122,5 +144,24 @@ fn make_vartype(type_name: &str) -> Option<ImportValType> {
         "number" => Some(ImportValType::Number),
         "string" => Some(ImportValType::String),
         _ => None,
+    }
+}
+
+pub fn add_import_spec_to_state(
+    state: &mut compact_state::CompactState<compact_state::FrontendVar>,
+    import_spec: ImportSpec,
+    order: usize,
+    import_funcidx_map: &HashMap<ir::Import, ir::FuncIdx>,
+) {
+    for (name, import) in import_spec.content {
+        // note: we can safely unwrap because it is guaranteed to exist (because we added it in earlier)
+        let funcidx = *import_funcidx_map.get(&import).unwrap();
+        let overload = compact_state::Overload {
+            params: import.params.into_iter().map(|p| (*p).into()).collect(),
+            result: import.result.into(),
+            funcidx: funcidx,
+            order: order,
+        };
+        state.insert(name, compact_state::FrontendVar::new_overload(overload));
     }
 }

@@ -8,7 +8,7 @@ pub struct SourceLocation {
     pub end: Position,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Copy, Clone)]
 pub struct Position {
     pub line: usize,
     pub column: usize,
@@ -50,6 +50,10 @@ pub enum NodeKind {
     LogicalExpression(LogicalExpression),
     ConditionalExpression(ConditionalExpression),
     CallExpression(CallExpression),
+    ImportDeclaration(ImportDeclaration),
+    ImportSpecifier(ImportSpecifier),
+    ImportDefaultSpecifier(ImportDefaultSpecifier),
+    ImportNamespaceSpecifier(ImportNamespaceSpecifier),
 }
 
 #[derive(Deserialize, Debug)]
@@ -215,6 +219,28 @@ pub struct ConditionalExpression {
 pub struct CallExpression {
     pub callee: Box<Node>,
     pub arguments: Vec<Node>,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct ImportDeclaration {
+    pub specifiers: Vec<Node>,
+    pub source: Box<Node>,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct ImportSpecifier {
+    pub local: Box<Node>,
+    pub source: Box<Node>,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct ImportDefaultSpecifier {
+    pub local: Box<Node>,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct ImportNamespaceSpecifier {
+    pub local: Box<Node>,
 }
 
 pub trait Function {
