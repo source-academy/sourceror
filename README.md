@@ -3,6 +3,8 @@
 
 Sourceror is a compiler from Source to WebAssembly, written in Rust.  For deployment, the compiler is itself compiled to WebAssembly using the existing Rust toolchain.  It is also possible to compile the compiler to the native binary format and architecture (e.g. x86), which is useful for debugging.
 
+Note: If you just want to play with it and don't want to spend time building it on your own, you can go to [Source Academy](https://source-academy.github.io/) and switch the language to "Source §1 WebAssembly".  Your Source programs will be compiled and run in your browser.
+
 ## Usage
 
 Sourceror should be used with [Sourceror Driver](https://github.com/source-academy/sourceror-driver).  On its own, Sourceror only compiles a validated ESTree to WebAssembly.  Sourceror Driver invokes js-slang to convert Source to a validated ESTree, and then invokes Sourceror for the rest of the compilation process.  Sourceror Driver also includes functionality to run the compiled WebAssembly binary.
