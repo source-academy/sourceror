@@ -3,11 +3,8 @@ use crate::error::ImportsParseError;
 use ir::Import;
 use ir::ImportValType;
 use projstd::log::CompileMessage;
-use projstd::log::Logger;
-use projstd::log::Severity;
-use projstd::log::SourceLocationRef as plslRef;
+use projstd::log::SourceLocationRef as plSLRef;
 use std::boxed::Box;
-use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::result::Result;
 
@@ -35,7 +32,7 @@ pub fn parse_imports(
         })
         .ok_or_else(|| {
             CompileMessage::new_error(
-                plslRef::entire_line(1, Some(filename)).to_owned(),
+                plSLRef::entire_line(1, Some(filename)).to_owned(),
                 ImportsParseError::InvalidHeader,
             )
             .into_cm()
@@ -63,7 +60,7 @@ fn parse_import(
     ) -> Result<&'a str, CompileMessage<ImportsParseError>> {
         x.ok_or_else(|| {
             CompileMessage::new_error(
-                plslRef::new(line, col, line + 1, 0, Some(filename)).to_owned(),
+                plSLRef::new(line, col, line + 1, 0, Some(filename)).to_owned(),
                 err,
             )
         })
@@ -78,7 +75,7 @@ fn parse_import(
     ) -> Result<ImportValType, CompileMessage<ImportsParseError>> {
         x.ok_or_else(|| {
             CompileMessage::new_error(
-                plslRef::within_line(line_num, bad_name, line, Some(filename)).to_owned(),
+                plSLRef::within_line(line_num, bad_name, line, Some(filename)).to_owned(),
                 ImportsParseError::InvalidVarType(bad_name.to_owned()),
             )
         })
@@ -156,7 +153,7 @@ pub fn add_import_spec_to_state(
     for (name, import) in import_spec.content {
         // note: we can safely unwrap because it is guaranteed to exist (because we added it in earlier)
         let funcidx = *import_funcidx_map.get(&import).unwrap();
-        let overload = compact_state::Overload {
+        let overload = compact_state::MaterializedOverload {
             params: import.params.into_iter().map(|p| (*p).into()).collect(),
             result: import.result.into(),
             funcidx: funcidx,

@@ -20,7 +20,7 @@ pub trait Fetcher<T> {
 
 pub trait ExtractDeps<'a> {
     type Iter: Iterator<Item = (&'a str, plSLRef<'a>)>;
-    fn extract_deps(&self, filename: Option<&str>) -> Self::Iter;
+    fn extract_deps(&self, filename: Option<&'a str>) -> Self::Iter;
 }
 
 struct GraphNode<T> {
@@ -33,7 +33,10 @@ pub struct Graph<T> {
     nodes: Vec<GraphNode<T>>,
 }
 
-impl<'a, T: ExtractDeps<'a>> Graph<T> {
+impl<T> Graph<T>
+where
+    for<'a> T: ExtractDeps<'a>,
+{
     // Will ensure that nodes with larger index will only depend on nodes with smaller index
     // So the largest index will be the given `t` (root)
     pub async fn try_async_build_from_root<F: Fetcher<T>>(
@@ -108,7 +111,10 @@ impl<T> Graph<T> {
             .iter()
             .map(|node| (&node.content, node.name.as_deref()))
     }
-    pub fn topological_traverse_state_into<S, F: FnMut(usize, Box<[&S]>, T, Option<String>) -> S>(
+    pub fn topological_traverse_state_into<
+        S,
+        F: FnMut(usize, Box<[&S]>, T, Option<String>) -> S,
+    >(
         self,
         f: F,
     ) {
