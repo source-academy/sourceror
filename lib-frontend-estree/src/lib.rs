@@ -1,5 +1,6 @@
 mod dep_graph;
 // mod dep_extract;
+mod attributes;
 mod builtins;
 mod compact_state;
 mod error;
@@ -474,8 +475,8 @@ impl<
 
 impl<'a> dep_graph::ExtractDeps<'a> for SourceItem {
     // todo! Change `dyn Iterator` to some compile-time thing when Rust gets impl Traits support for traits.
-    type Iter = Box<dyn Iterator<Item = (&'a str, plSLRef<'a>)>>;
-    fn extract_deps(&self, filename: Option<&str>) -> Self::Iter {
+    type Iter = Box<dyn Iterator<Item = (&'a str, plSLRef<'a>)> + 'a>;
+    fn extract_deps(&self, filename: Option<&'a str>) -> Self::Iter {
         match self {
             SourceItem::ESTree(es_node) => Box::new(
                 (match es_node.kind {
@@ -514,10 +515,7 @@ pub async fn run_frontend<
     // parse the given string as estree
     let es_program: estree::Node = serde_json::from_str(estree_str)
         .map_err(|_| {
-            CompileMessage::new_error(
-                plSLRef::entire_file(Some("")).to_owned(),
-                ESTreeParseError {},
-            )
+            CompileMessage::new_error(plSLRef::entire_file(None).to_owned(), ESTreeParseError {})
         })
         .log_err(&logger)?;
 
@@ -533,7 +531,7 @@ pub async fn run_frontend<
 
     // find all the FFI imports first
     // (because ir imports must come before all other functions in the ir_program)
-    let imports: Vec<ir::Import> = dep_graph
+    let mut imports: Vec<ir::Import> = dep_graph
         .topological_traverse()
         .filter_map(|(source_item, _)| {
             if let SourceItem::ImportSpec(import_spec) = source_item {
@@ -560,6 +558,7 @@ pub async fn run_frontend<
 
     // construct the ir_program with the given imports
     let mut ir_program = ir::Program::new_with_imports(imports.into_boxed_slice());
+    let mut ir_toplevel_sequence: Vec<ir::Expr> = Vec::new();
 
     // parse all the source files in topological order
     let default_state: compact_state::CompactState<compact_state::FrontendVar> =
@@ -576,6 +575,7 @@ pub async fn run_frontend<
                     i,
                     &logger,
                     &mut ir_program,
+                    &mut ir_toplevel_sequence,
                 );
             }
             SourceItem::ImportSpec(import_spec) => {
