@@ -6,6 +6,7 @@ mod compact_state;
 mod error;
 mod estree;
 mod extensions;
+mod frontendvar;
 mod func;
 mod importer;
 mod typecheck;

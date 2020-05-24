@@ -59,6 +59,8 @@ pub enum NodeKind {
 #[derive(Deserialize, Debug)]
 pub struct Identifier {
     pub name: String,
+    #[serde(skip)]
+    pub prevar: Option<PreVar>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -97,7 +99,20 @@ pub struct ExpressionStatement {
 #[derive(Deserialize, Debug)]
 pub struct BlockStatement {
     pub body: Vec<Node>,
+    #[serde(skip)]
+    pub address_taken_vars: Vec<usize>,
 }
+
+/*#[derive(Debug)]
+pub struct StmtAttr {
+    pub declared_vars: Vec<VarAttr>, // variables declared at this statement
+}
+
+#[derive(Debug)]
+pub struct VarAttr {
+    pub name: String,
+    pub address_taken: bool,
+}*/
 
 pub type FunctionBody = BlockStatement;
 
@@ -146,6 +161,10 @@ pub struct FunctionDeclaration {
     pub id: Box<Node>,
     pub params: Vec<Node>,
     pub body: Box<Node>,
+    #[serde(skip)]
+    pub address_taken_vars: Vec<usize>,
+    #[serde(skip)]
+    pub captured_vars: Vec<VarLocId>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -171,6 +190,10 @@ pub struct ArrowFunctionExpression {
     pub params: Vec<Node>,
     pub body: Box<Node>,
     pub expression: bool,
+    #[serde(skip)]
+    pub address_taken_vars: Vec<usize>,
+    #[serde(skip)]
+    pub captured_vars: Vec<VarLocId>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -245,22 +268,70 @@ pub struct ImportNamespaceSpecifier {
 
 pub trait Function {
     fn destructure_params_body(self) -> (Vec<Node>, Box<Node>);
+    fn params_body_mut(&mut self) -> (&[Node], &mut Node);
+    fn captured_vars_mut(&mut self) -> &mut Vec<VarLocId>; // captured variables, except globals
 }
 
 impl Function for FunctionDeclaration {
     fn destructure_params_body(self) -> (Vec<Node>, Box<Node>) {
-        return (self.params, self.body);
+        (self.params, self.body)
+    }
+    fn params_body_mut(&mut self) -> (&[Node], &mut Node) {
+        (&self.params, &mut *self.body)
+    }
+    fn captured_vars_mut(&mut self) -> &mut Vec<VarLocId> {
+        &mut self.captured_vars
     }
 }
 
-impl Function for FunctionExpression {
+/*impl Function for FunctionExpression {
     fn destructure_params_body(self) -> (Vec<Node>, Box<Node>) {
         return (self.params, self.body);
     }
-}
+}*/
 
 impl Function for ArrowFunctionExpression {
     fn destructure_params_body(self) -> (Vec<Node>, Box<Node>) {
-        return (self.params, self.body);
+        (self.params, self.body)
     }
+    fn params_body_mut(&mut self) -> (&[Node], &mut Node) {
+        (&self.params, &mut *self.body)
+    }
+    fn captured_vars_mut(&mut self) -> &mut Vec<VarLocId> {
+        &mut self.captured_vars
+    }
+}
+
+pub trait Scope {
+    fn address_taken_vars_mut(&mut self) -> &mut Vec<usize>;
+}
+
+impl Scope for BlockStatement {
+    fn address_taken_vars_mut(&mut self) -> &mut Vec<usize> {
+        &mut self.address_taken_vars
+    }
+}
+
+impl Scope for FunctionDeclaration {
+    fn address_taken_vars_mut(&mut self) -> &mut Vec<usize> {
+        &mut self.address_taken_vars
+    }
+}
+
+impl Scope for ArrowFunctionExpression {
+    fn address_taken_vars_mut(&mut self) -> &mut Vec<usize> {
+        &mut self.address_taken_vars
+    }
+}
+
+#[derive(PartialEq, Eq, Copy, Clone, PartialOrd, Ord, Debug)]
+pub struct VarLocId {
+    pub depth: usize, // depth of 0 means it is a global
+    pub index: usize,
+}
+
+#[derive(PartialEq, Eq, Copy, Clone, PartialOrd, Ord, Debug)]
+pub enum PreVar {
+    Target(VarLocId),
+    Direct,
 }

@@ -11,15 +11,26 @@ use projstd::log::SourceLocationRef as plSLRef;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 
+mod constraint;
+mod pre_parse;
+mod undoable_hash_map;
+mod vartype_superset;
+mod varusage;
+
 pub enum ParseProgramError {
-    ESTreeError(&'static str),         // ESTree semantic error (reason)
+    ESTreeError(&'static str), // ESTree semantic error (reason)
+    SourceRestrictionError(&'static str),
     DuplicateDeclarationError(String), // duplicate declaration of the same name in the same scope (varname)
-    ConstraintTargetError,             // constraint cannot be applied to this type of node
     DanglingAttributeError, // multiple consecutive attributes, or last statement of block is an attribute
     AttributeNotStringLiteralError, // RHS of attribute assignment is not a string literal
     AttributeParseError,    // attribute string cannot be parsed into a hashmap
+    AttributeContentError(&'static str), // some issue with the key or value of an attribute
+    AttributeUnrecognizedError(String), // this attribute key is not recognized
+    /*ConstraintTargetError,             // constraint cannot be applied to this type of node
     ConstraintMissingError, // constraint attribute did not come with a value
-    ConstraintParseError,   // constraint attribute value cannot be parsed into a hashmap
+    ConstraintParseError,   // constraint attribute value cannot be parsed into a hashmap*/
+    DirectFunctionCaptureError, // direct function tried to capture a non-global variable // todo! store the variable name and declaration location?
+    UndeclaredNameError(String), // undeclared variable name (both direct and target)
 }
 
 /**
@@ -199,7 +210,7 @@ fn extract_func_decl_with_constraint(
                             kind: NodeKind::Identifier(id),
                         } = id_node
                         {
-                            constraint_map.get(id.name()).unwrap_or(ir::VarType::Any)
+                            constraint_map.get(id.name).unwrap_or(ir::VarType::Any)
                         } else {
                             return Err(CompileMessage::new_error(
                                 id_loc.into_sl(filename).to_owned(),
