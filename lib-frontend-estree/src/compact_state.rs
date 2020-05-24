@@ -188,7 +188,7 @@ impl Overload for MaterializedOverload {
 }
 impl Overload for UnmaterializedOverload {
     fn params(&self) -> &[ir::VarType] {
-        &*self.params;
+        &*self.params
     }
     fn order(&self) -> usize {
         self.order
@@ -208,5 +208,24 @@ impl CompactState<CurrentScopeItem> {
             .into_iter()
             .map(|(key, val)| (key, CurrentScopeItem::Unmaterialized(val)))
             .collect()
+    }
+}
+
+impl CompactStateReceiver for CurrentScopeItem {
+    fn receive(&mut self, other: Self) -> bool {
+        /*match other {
+            FrontendVarBase::Any => {
+                *self = other;
+                true
+            }
+            FrontendVarBase::Overloaded(oset) => match self {
+                FrontendVarBase::Any => {
+                    *self = other;
+                    true
+                }
+                FrontendVarBase::Overloaded(sset) => sset.merge_with(oset),
+            },
+        }*/
+        unimplemented!();
     }
 }
