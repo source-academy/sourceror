@@ -21,6 +21,7 @@ pub enum ParseProgramError {
     ESTreeError(&'static str), // ESTree semantic error (reason)
     SourceRestrictionError(&'static str),
     DuplicateDeclarationError(String), // duplicate declaration of the same name in the same scope (varname)
+    DuplicateExportError(String),      // duplicate export of the same name
     DanglingAttributeError, // multiple consecutive attributes, or last statement of block is an attribute
     AttributeNotStringLiteralError, // RHS of attribute assignment is not a string literal
     AttributeParseError,    // attribute string cannot be parsed into a hashmap
@@ -31,6 +32,7 @@ pub enum ParseProgramError {
     ConstraintParseError,   // constraint attribute value cannot be parsed into a hashmap*/
     DirectFunctionCaptureError, // direct function tried to capture a non-global variable // todo! store the variable name and declaration location?
     UndeclaredNameError(String), // undeclared variable name (both direct and target)
+    UndeclaredExportError(String), // the imported module did not export this name (both direct and target)
 }
 
 /**

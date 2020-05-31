@@ -14,11 +14,65 @@ use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::collections::HashSet;
 
+type ProgramExports = VarCtx<String, VarValue<VarLocId, Box<[ir::VarType]>>>;
+
+/**
+ * Pre-parse an ESTree program
+ * Decide where every ir local should be declared,
+ * and whether they need to be address-taken (i.e. put in the heap).
+ * Also detect duplicate variable detection in the same scope; if so, raises an error.
+ *
+ * Note: import_ctx contains x elements, where x is the number of imports detected in the dep_graph step, in order;
+ * and each element is a hash map from name to the imported prevar (which must be a global, i.e. prevar.depth == 0).
+ * start_idx is the number of existing globals already declared; new Target globals in this es_program should be assigned a VarLocId that starts from start_idx onwards.
+ *
+ * name_ctx contains all pre-declared Source names (effectively an auto-import of everything), but are considered to be pre-validated in a separate validation context,
+ * and so new variables of the same name will shadow them without any error.
+ * name_ctx may be modified, but must be returned to its original state before the function returns (this allows the frontend to have good time complexity guarantees).
+ *
+ * Returns the hash map of exported names.
+ * At the top-level, we don't care about the usage of variables (because they are all globals anyway)
+ */
+pub fn pre_parse_program(
+    es_program: &mut Program,
+    _loc: &Option<esSL>,
+    name_ctx: &mut HashMap<String, PreVar>, // pre-declared Source names
+    import_ctx: &[&ProgramExports], // all prevars here must be globals, i.e. have depth == 0
+    /* depth: usize */ // not needed, implied to be 0
+    start_idx: usize, // the number of (global) variables
+    filename: Option<&str>,
+) -> Result<ProgramExports, CompileMessage<ParseProgramError>> {
+    // Extracts both Targets and Directs.  Will return Err if any declaration (either Target or Direct) is considered to be duplicate.
+    // will also annotate any LHS identifiers with the target index
+    // an imported name does not get a new prevar; it retains the old one instead (so there is no overhead in IR to calling a function or using a variable across a module boundary)
+    let (curr_decls, exports): (Vec<(String, PreVar)>, ProgramExports) =
+        validate_and_extract_imports_and_decls(&es_program.body, import_ctx, start_idx, filename)?;
+
+    let undo_ctx = name_ctx.add_scope(curr_decls);
+
+    es_program
+        .body
+        .each_with_attributes_mut(filename, |es_node, attr| {
+            let usages = pre_parse_statement(es_node, attr, name_ctx, 0, filename)?;
+            assert!(
+                usages.is_empty(),
+                "Global variable got returned as a Usage, this is a bug"
+            );
+            Ok(())
+        })?;
+
+    name_ctx.remove_scope(undo_ctx);
+
+    Ok(exports)
+}
+
 /**
  * Pre-parse an ESTree node block content
  * Decide where every ir local should be declared,
  * and whether they need to be address-taken (i.e. put in the heap).
  * Also detect duplicate variable detection in the same scope; if so, raises an error.
+ *
+ * name_ctx may be modified, but must be returned to its original state before the function returns (this allows the frontend to have good time complexity guarantees).
  */
 fn pre_parse_block_statement(
     es_block: &mut BlockStatement,
@@ -94,6 +148,7 @@ fn pre_parse_function<F: Function + Scope>(
         // so we do things similar to pre_parse_block_statement, but not that the params are logically 'in the same block' as the params for depth and duplicate declaration purposes
 
         // add in the variables declared in this block
+        // todo! This is a bug, validating function-level decls should be done in the same validation context as the parameters, as mandated by JavaScript.
         curr_decls.append(&mut validate_and_extract_decls(
             &es_block.body,
             new_depth,
@@ -600,8 +655,14 @@ fn pre_parse_identifier_use(
             es_id.prevar = Some(*prevar); // save the variable location
             match *prevar {
                 PreVar::Target(varlocid) => {
-                    // say that we used this variable
-                    Ok(varusage::from_used(varlocid))
+                    if varlocid.depth == 0 {
+                        // it is a global variable, but don't do anything because it doesn't count as a usage
+                        Ok(BTreeMap::new())
+                    } else {
+                        // it's not a global variable
+                        // say that we used this variable
+                        Ok(varusage::from_used(varlocid))
+                    }
                 }
                 PreVar::Direct => {
                     // don't do anything, because direct names do not count as a usage
@@ -629,208 +690,512 @@ fn validate_and_extract_decls(
     mut start_idx: usize,
     filename: Option<&str>,
 ) -> Result<Vec<(String, PreVar)>, CompileMessage<ParseProgramError>> {
-    fn try_coalesce_id_target<'a>(
-        var_ctx: &mut VarCtx<String, VarValue<(), Box<[ir::VarType]>>>,
-        es_id_node: &'a Node,
-        depth: usize,
-        start_idx: &mut usize,
-        filename: Option<&str>,
-    ) -> Result<(&'a str, VarLocId), CompileMessage<ParseProgramError>> {
-        if let Node {
-            loc,
-            kind: NodeKind::Identifier(es_id),
-        } = es_id_node
-        {
-            if var_ctx.coalesce(es_id.name, VarValue::Target(())) {
-                // insertion(coalesce) succeeded
-                let ret = VarLocId {
-                    depth: depth,
-                    index: *start_idx,
-                };
-                *start_idx += 1;
-                Ok((es_id.name.as_str(), ret))
-            } else {
-                // insertion(coalesce) failed (i.e. it is a duplicate)
-                Err(CompileMessage::new_error(
-                    loc.into_sl(filename).to_owned(),
-                    ParseProgramError::DuplicateDeclarationError(es_id.name.clone()),
-                ))
-            }
-        } else {
-            panic!("Node must be an identifier!");
-        }
-    }
-    // returns true if it is a new variable
-    // or false if it is a new overload of an existing variable
-    fn try_coalesce_id_direct<'a>(
-        var_ctx: &mut VarCtx<String, VarValue<(), Box<[ir::VarType]>>>,
-        param_nodes: &[Node],
-        es_id_node: &'a Node,
-        constraint_str_opt: Option<&Option<String>>,
-        depth: usize,
-        start_idx: &mut usize,
-        filename: Option<&str>,
-    ) -> Result<Option<&'a str>, CompileMessage<ParseProgramError>> {
-        if let Node {
-            loc,
-            kind: NodeKind::Identifier(es_id),
-        } = es_id_node
-        {
-            let mut param_set: HashSet<&str> = HashSet::new();
-            let params: Box<[&str]> = param_nodes
-                .iter()
-                .map(|es_node| {
-                    if let Node {
-                        loc: loc2,
-                        kind: NodeKind::Identifier(es_id),
-                    } = es_node
-                    {
-                        if param_set.insert(&es_id.name) {
-                            Ok(es_id.name.as_str())
-                        } else {
-                            Err(CompileMessage::new_error(
-                                loc2.into_sl(filename).to_owned(),
-                                ParseProgramError::DuplicateDeclarationError(es_id.name.clone()),
-                            ))
-                        }
-                    } else {
-                        Err(CompileMessage::new_error(
-                            es_node.loc.into_sl(filename).to_owned(),
-                            ParseProgramError::ESTreeError("Expected identifier"),
-                        ))
-                    }
-                })
-                .collect::<Result<Box<[&str]>, CompileMessage<ParseProgramError>>>()?;
-            let constraints: HashMap<&str, ir::VarType> = match constraint_str_opt {
-                Some(cso) => match cso {
-                    Some(constraint_str) => constraint::parse_constraint(constraint_str).map_err(
-                        |(loc_str_, reason)| {
-                            CompileMessage::new_error(
-                                loc.into_sl(filename).to_owned(), // this is the wrong location, but it's hard to get the correct one
-                                ParseProgramError::AttributeContentError(reason),
-                            )
-                        },
-                    )?,
-                    None => {
-                        return Err(CompileMessage::new_error(
-                            loc.into_sl(filename).to_owned(),
-                            ParseProgramError::AttributeContentError(
-                                "'constraint' attribute must have a value",
-                            ),
-                        ));
-                    }
-                },
-                None => HashMap::new(),
-            };
-            for (key, _) in constraints {
-                if !param_set.contains(key) {
-                    return Err(CompileMessage::new_error(
-                        loc.into_sl(filename).to_owned(),
-                        ParseProgramError::AttributeContentError(
-                            "Parameter name specified in 'constraint' attribute does not exist",
-                        ),
-                    ));
-                }
-            }
-            let direct_type: Box<[ir::VarType]> = params
-                .into_iter()
-                .map(|name| constraints.get(name).copied().unwrap_or(ir::VarType::Any))
-                .collect();
-            let curr_len = var_ctx.len();
-            if var_ctx.coalesce(
-                es_id.name,
-                VarValue::Direct(OverloadSet::from_single(direct_type)),
-            ) {
-                // insertion(coalesce) succeeded
-                if var_ctx.len() > curr_len {
-                    *start_idx += 1;
-                    Ok(Some(es_id.name.as_str()))
-                } else {
-                    Ok(None)
-                }
-            } else {
-                // insertion(coalesce) failed (i.e. it is a duplicate)
-                Err(CompileMessage::new_error(
-                    loc.into_sl(filename).to_owned(),
-                    ParseProgramError::DuplicateDeclarationError(es_id.name.clone()),
-                ))
-            }
-        } else {
-            panic!("Node must be an identifier!");
-        }
-    }
-    let mut var_ctx: VarCtx<String, VarValue<(), Box<[ir::VarType]>>> = VarCtx::new();
+    let mut var_ctx: ProgramExports = VarCtx::new();
     let mut ret: Vec<(String, PreVar)> = Vec::new();
     es_block_body.each_with_attributes(filename, |es_node, attr| match es_node {
         Node {
             loc,
             kind: NodeKind::FunctionDeclaration(func_decl),
+        } => process_func_decl_validation(
+            &mut var_ctx,
+            &mut ret,
+            func_decl,
+            loc,
+            attr,
+            depth,
+            &mut start_idx,
+            filename,
+        ),
+        Node {
+            loc,
+            kind: NodeKind::VariableDeclaration(var_decl),
+        } => process_var_decl_validation(
+            &mut var_ctx,
+            &mut ret,
+            var_decl,
+            loc,
+            attr,
+            depth,
+            &mut start_idx,
+            filename,
+        ),
+        _ => Ok(()),
+    })?;
+    Ok(ret)
+}
+
+/**
+ * Extracts all the names in this scope, and create a new prevar for each of them
+ * with Target prevars starting from the given start_idx.
+ * Returns the extracted names as a vector, but also extracts and returns exported names.
+ * We only support the export list syntax currently (i.e. "export { a, b, c };").
+ *
+ * See validate_and_extract_decls().
+ *
+ * For imports and exports, we do not create a new prevar for each of them - we use the existing prevar that they refer to instead.
+ */
+fn validate_and_extract_imports_and_decls(
+    es_program_body: &[Node],
+    import_ctx: &[&ProgramExports],
+    mut start_idx: usize,
+    filename: Option<&str>,
+) -> Result<(Vec<(String, PreVar)>, ProgramExports), CompileMessage<ParseProgramError>> {
+    let mut var_ctx: ProgramExports = VarCtx::new();
+    let mut ret: Vec<(String, PreVar)> = Vec::new();
+    let mut exports: ProgramExports = ProgramExports::new();
+    let import_decl_idx = 0;
+    es_program_body.each_with_attributes(filename, |es_node, attr| match es_node {
+        Node {
+            loc,
+            kind: NodeKind::FunctionDeclaration(func_decl),
+        } => process_func_decl_validation(
+            &mut var_ctx,
+            &mut ret,
+            func_decl,
+            loc,
+            attr,
+            0,
+            &mut start_idx,
+            filename,
+        ),
+        Node {
+            loc,
+            kind: NodeKind::VariableDeclaration(var_decl),
+        } => process_var_decl_validation(
+            &mut var_ctx,
+            &mut ret,
+            var_decl,
+            loc,
+            attr,
+            0,
+            &mut start_idx,
+            filename,
+        ),
+        Node {
+            loc,
+            kind: NodeKind::ImportDeclaration(import_decl),
+        } => process_import_decl_validation(
+            &mut var_ctx,
+            &mut ret,
+            import_ctx[{
+                let tmp = import_decl_idx;
+                import_decl_idx += 1;
+                tmp
+            }],
+            import_decl,
+            loc,
+            attr,
+            filename,
+        ),
+        Node {
+            loc,
+            kind: NodeKind::ExportNamedDeclaration(export_decl),
         } => {
-            if attr.contains_key("direct") {
-                if let Some(name) = try_coalesce_id_direct(
-                    &mut var_ctx,
-                    &func_decl.params,
-                    &*func_decl.id,
-                    attr.get("constraint"),
-                    depth,
-                    &mut start_idx,
-                    filename,
-                )? {
-                    ret.push((name.to_owned(), PreVar::Direct));
-                }
-            } else {
+            process_export_decl_validation(&var_ctx, &mut exports, export_decl, loc, attr, filename)
+        }
+        _ => Ok(()),
+    })?;
+    Ok((ret, exports))
+}
+
+fn process_func_decl_validation(
+    var_ctx: &mut ProgramExports,
+    out: &mut Vec<(String, PreVar)>,
+    func_decl: &FunctionDeclaration,
+    _loc: &Option<esSL>,
+    attr: HashMap<String, Option<String>>,
+    depth: usize,
+    start_idx: &mut usize,
+    filename: Option<&str>,
+) -> Result<(), CompileMessage<ParseProgramError>> {
+    if attr.contains_key("direct") {
+        if let Some(name) = try_coalesce_id_direct(
+            &mut var_ctx,
+            &func_decl.params,
+            &*func_decl.id,
+            attr.get("constraint"),
+            depth,
+            &mut start_idx,
+            filename,
+        )? {
+            out.push((name.to_owned(), PreVar::Direct));
+        }
+    } else {
+        let (name, varlocid) = try_coalesce_id_target(
+            &mut var_ctx,
+            &*func_decl.id,
+            depth,
+            &mut start_idx,
+            filename,
+        )?;
+        out.push((name.to_owned(), PreVar::Target(varlocid)));
+    }
+    Ok(())
+}
+
+fn process_var_decl_validation(
+    var_ctx: &mut ProgramExports,
+    out: &mut Vec<(String, PreVar)>,
+    var_decl: &VariableDeclaration,
+    loc: &Option<esSL>,
+    attr: HashMap<String, Option<String>>,
+    depth: usize,
+    start_idx: &mut usize,
+    filename: Option<&str>,
+) -> Result<(), CompileMessage<ParseProgramError>> {
+    if attr.contains_key("direct") {
+        Err(CompileMessage::new_error(
+            loc.into_sl(filename).to_owned(),
+            ParseProgramError::AttributeContentError(
+                "The 'direct' attribute can only appear on FunctionDeclaration",
+            ),
+        ))
+    } else {
+        for var_decr_node in &var_decl.declarations {
+            if let Node {
+                loc: loc2,
+                kind: NodeKind::VariableDeclarator(var_decr),
+            } = var_decr_node
+            {
                 let (name, varlocid) = try_coalesce_id_target(
                     &mut var_ctx,
-                    &*func_decl.id,
+                    &*var_decr.id,
                     depth,
                     &mut start_idx,
                     filename,
                 )?;
-                ret.push((name.to_owned(), PreVar::Target(varlocid)));
+                out.push((name.to_owned(), PreVar::Target(varlocid)));
+            } else {
+                return Err(CompileMessage::new_error(
+                    loc.into_sl(filename).to_owned(),
+                    ParseProgramError::ESTreeError(
+                        "Expected VariableDeclarator inside VariableDeclaration only",
+                    ),
+                ));
             }
-            Ok(())
         }
-        Node {
-            loc,
-            kind: NodeKind::VariableDeclaration(var_decl),
-        } => {
-            if attr.contains_key("direct") {
-                Err(CompileMessage::new_error(
+        Ok(())
+    }
+}
+
+fn try_coalesce_id_target<'a>(
+    var_ctx: &mut ProgramExports,
+    es_id_node: &'a Node,
+    depth: usize,
+    start_idx: &mut usize,
+    filename: Option<&str>,
+) -> Result<(&'a str, VarLocId), CompileMessage<ParseProgramError>> {
+    if let Node {
+        loc,
+        kind: NodeKind::Identifier(es_id),
+    } = es_id_node
+    {
+        let ret = VarLocId {
+            depth: depth,
+            index: *start_idx,
+        };
+        if var_ctx.try_coalesce(es_id.name, VarValue::Target(ret)) {
+            // insertion(coalesce) succeeded
+            *start_idx += 1;
+            Ok((es_id.name.as_str(), ret))
+        } else {
+            // insertion(coalesce) failed (i.e. it is a duplicate)
+            Err(CompileMessage::new_error(
+                loc.into_sl(filename).to_owned(),
+                ParseProgramError::DuplicateDeclarationError(es_id.name.clone()),
+            ))
+        }
+    } else {
+        panic!("Node must be an identifier!");
+    }
+}
+// returns true if it is a new variable
+// or false if it is a new overload of an existing variable
+fn try_coalesce_id_direct<'a>(
+    var_ctx: &mut ProgramExports,
+    param_nodes: &[Node],
+    es_id_node: &'a Node,
+    constraint_str_opt: Option<&Option<String>>,
+    depth: usize,
+    start_idx: &mut usize,
+    filename: Option<&str>,
+) -> Result<Option<&'a str>, CompileMessage<ParseProgramError>> {
+    if let Node {
+        loc,
+        kind: NodeKind::Identifier(es_id),
+    } = es_id_node
+    {
+        let mut param_set: HashSet<&str> = HashSet::new();
+        let params: Box<[&str]> = param_nodes
+            .iter()
+            .map(|es_node| {
+                if let Node {
+                    loc: loc2,
+                    kind: NodeKind::Identifier(es_id),
+                } = es_node
+                {
+                    if param_set.insert(&es_id.name) {
+                        Ok(es_id.name.as_str())
+                    } else {
+                        Err(CompileMessage::new_error(
+                            loc2.into_sl(filename).to_owned(),
+                            ParseProgramError::DuplicateDeclarationError(es_id.name.clone()),
+                        ))
+                    }
+                } else {
+                    Err(CompileMessage::new_error(
+                        es_node.loc.into_sl(filename).to_owned(),
+                        ParseProgramError::ESTreeError("Expected identifier"),
+                    ))
+                }
+            })
+            .collect::<Result<Box<[&str]>, CompileMessage<ParseProgramError>>>()?;
+        let constraints: HashMap<&str, ir::VarType> = match constraint_str_opt {
+            Some(cso) => match cso {
+                Some(constraint_str) => {
+                    constraint::parse_constraint(constraint_str).map_err(|(loc_str_, reason)| {
+                        CompileMessage::new_error(
+                            loc.into_sl(filename).to_owned(), // this is the wrong location, but it's hard to get the correct one
+                            ParseProgramError::AttributeContentError(reason),
+                        )
+                    })?
+                }
+                None => {
+                    return Err(CompileMessage::new_error(
+                        loc.into_sl(filename).to_owned(),
+                        ParseProgramError::AttributeContentError(
+                            "'constraint' attribute must have a value",
+                        ),
+                    ));
+                }
+            },
+            None => HashMap::new(),
+        };
+        for (key, _) in constraints {
+            if !param_set.contains(key) {
+                return Err(CompileMessage::new_error(
                     loc.into_sl(filename).to_owned(),
                     ParseProgramError::AttributeContentError(
-                        "The 'direct' attribute can only appear on FunctionDeclaration",
+                        "Parameter name specified in 'constraint' attribute does not exist",
                     ),
-                ))
+                ));
+            }
+        }
+        let direct_type: Box<[ir::VarType]> = params
+            .into_iter()
+            .map(|name| constraints.get(name).copied().unwrap_or(ir::VarType::Any))
+            .collect();
+        let curr_len = var_ctx.len();
+        if var_ctx.try_coalesce(
+            es_id.name,
+            VarValue::Direct(OverloadSet::from_single(direct_type)),
+        ) {
+            // insertion(coalesce) succeeded
+            if var_ctx.len() > curr_len {
+                *start_idx += 1;
+                Ok(Some(es_id.name.as_str()))
             } else {
-                for var_decr_node in &var_decl.declarations {
+                Ok(None)
+            }
+        } else {
+            // insertion(coalesce) failed (i.e. it is a duplicate)
+            Err(CompileMessage::new_error(
+                loc.into_sl(filename).to_owned(),
+                ParseProgramError::DuplicateDeclarationError(es_id.name.clone()),
+            ))
+        }
+    } else {
+        panic!("Node must be an identifier!");
+    }
+}
+
+fn process_import_decl_validation(
+    var_ctx: &mut ProgramExports,
+    out: &mut Vec<(String, PreVar)>,
+    import_state: &ProgramExports,
+    import_decl: &ImportDeclaration,
+    loc: &Option<esSL>,
+    attr: HashMap<String, Option<String>>,
+    filename: Option<&str>,
+) -> Result<(), CompileMessage<ParseProgramError>> {
+    if !attr.is_empty() {
+        Err(CompileMessage::new_error(
+            loc.into_sl(filename).to_owned(),
+            ParseProgramError::AttributeContentError(
+                "Attributes are not allowed on import declaration",
+            ),
+        ))
+    } else {
+        for import_spec_node in &import_decl.specifiers {
+            if let Node {
+                loc: loc2,
+                kind: NodeKind::ImportSpecifier(import_spec),
+            } = import_spec_node
+            {
+                if let Node {
+                    loc: loc3,
+                    kind: NodeKind::Identifier(source_id),
+                } = &*import_spec.source
+                {
                     if let Node {
-                        loc: loc2,
-                        kind: NodeKind::VariableDeclarator(var_decr),
-                    } = var_decr_node
+                        loc: loc4,
+                        kind: NodeKind::Identifier(local_id),
+                    } = &*import_spec.local
                     {
-                        let (name, varlocid) = try_coalesce_id_target(
-                            &mut var_ctx,
-                            &*var_decr.id,
-                            depth,
-                            &mut start_idx,
-                            filename,
-                        )?;
-                        ret.push((name.to_owned(), PreVar::Target(varlocid)));
+                        let varvalue =
+                            import_state.get(source_id.name.as_str()).ok_or_else(|| {
+                                CompileMessage::new_error(
+                                    loc3.into_sl(filename).to_owned(),
+                                    ParseProgramError::UndeclaredExportError(
+                                        source_id.name.clone(),
+                                    ),
+                                )
+                            })?;
+                        match varvalue {
+                            VarValue::Target(varlocid) => {
+                                if !var_ctx.try_coalesce(
+                                    local_id.name.clone(),
+                                    VarValue::Target(*varlocid),
+                                ) {
+                                    return Err(CompileMessage::new_error(
+                                        loc4.into_sl(filename).to_owned(),
+                                        ParseProgramError::DuplicateDeclarationError(
+                                            local_id.name.clone(),
+                                        ),
+                                    ));
+                                } else {
+                                    out.push((local_id.name.to_owned(), PreVar::Target(*varlocid)));
+                                }
+                            }
+                            VarValue::Direct(signature) => {
+                                if !var_ctx.try_coalesce(
+                                    local_id.name.clone(),
+                                    VarValue::Direct(signature.clone()),
+                                ) {
+                                    return Err(CompileMessage::new_error(
+                                        loc4.into_sl(filename).to_owned(),
+                                        ParseProgramError::DuplicateDeclarationError(
+                                            local_id.name.clone(),
+                                        ),
+                                    ));
+                                } else {
+                                    out.push((local_id.name.to_owned(), PreVar::Direct));
+                                }
+                            }
+                        }
                     } else {
                         return Err(CompileMessage::new_error(
-                            loc.into_sl(filename).to_owned(),
+                            import_spec.local.loc.into_sl(filename).to_owned(),
                             ParseProgramError::ESTreeError(
-                                "Expected VariableDeclarator inside VariableDeclaration only",
+                                "ImportSpecifier local must be Identifier",
                             ),
                         ));
                     }
+                } else {
+                    return Err(CompileMessage::new_error(
+                        import_spec.source.loc.into_sl(filename).to_owned(),
+                        ParseProgramError::ESTreeError("ImportSpecifier source must be Identifier"),
+                    ));
                 }
-                Ok(())
+            } else {
+                return Err(CompileMessage::new_error(
+                    loc.into_sl(filename).to_owned(),
+                    ParseProgramError::ESTreeError(
+                        "Expected ImportSpecifier inside ImportDeclaration only",
+                    ),
+                ));
             }
         }
-        _ => Ok(()),
-    })?;
-    Ok(ret)
+        Ok(())
+    }
+}
+
+fn process_export_decl_validation(
+    var_ctx: &ProgramExports,
+    exports: &mut ProgramExports,
+    export_decl: &ExportNamedDeclaration,
+    loc: &Option<esSL>,
+    attr: HashMap<String, Option<String>>,
+    filename: Option<&str>,
+) -> Result<(), CompileMessage<ParseProgramError>> {
+    if !attr.is_empty() {
+        Err(CompileMessage::new_error(
+            loc.into_sl(filename).to_owned(),
+            ParseProgramError::AttributeContentError(
+                "Attributes are not allowed on import declaration",
+            ),
+        ))
+    } else if !export_decl.declaration.is_none() {
+        Err(CompileMessage::new_error(
+            loc.into_sl(filename).to_owned(),
+            ParseProgramError::SourceRestrictionError(
+                "Combined export and variable declaration is not allowed",
+            ),
+        ))
+    } else if !export_decl.source.is_none() {
+        Err(CompileMessage::new_error(
+            loc.into_sl(filename).to_owned(),
+            ParseProgramError::SourceRestrictionError(
+                "Combined export and import declaration is not allowed",
+            ),
+        ))
+    } else {
+        for export_spec_node in &export_decl.specifiers {
+            if let Node {
+                loc: loc2,
+                kind: NodeKind::ExportSpecifier(export_spec),
+            } = export_spec_node
+            {
+                if let Node {
+                    loc: loc3,
+                    kind: NodeKind::Identifier(exported_id),
+                } = &*export_spec.exported
+                {
+                    if let Node {
+                        loc: loc4,
+                        kind: NodeKind::Identifier(local_id),
+                    } = &*export_spec.local
+                    {
+                        let varvalue = var_ctx.get(local_id.name.as_str()).ok_or_else(|| {
+                            CompileMessage::new_error(
+                                loc4.into_sl(filename).to_owned(),
+                                ParseProgramError::UndeclaredNameError(local_id.name.clone()),
+                            )
+                        })?;
+                        // Note: this coalesce actually functions like a normal insertion, returning false if an item already exists.
+                        if !var_ctx.try_coalesce(exported_id.name.clone(), varvalue.clone()) {
+                            return Err(CompileMessage::new_error(
+                                loc3.into_sl(filename).to_owned(),
+                                ParseProgramError::DuplicateExportError(exported_id.name.clone()),
+                            ));
+                        }
+                    } else {
+                        return Err(CompileMessage::new_error(
+                            export_spec.local.loc.into_sl(filename).to_owned(),
+                            ParseProgramError::ESTreeError(
+                                "ExportSpecifier local must be Identifier",
+                            ),
+                        ));
+                    }
+                } else {
+                    return Err(CompileMessage::new_error(
+                        export_spec.exported.loc.into_sl(filename).to_owned(),
+                        ParseProgramError::ESTreeError(
+                            "ExportSpecifier exported must be Identifier",
+                        ),
+                    ));
+                }
+            } else {
+                return Err(CompileMessage::new_error(
+                    loc.into_sl(filename).to_owned(),
+                    ParseProgramError::ESTreeError(
+                        "Expected ExportSpecifier inside ExportNamedDeclaration only",
+                    ),
+                ));
+            }
+        }
+        Ok(())
+    }
 }
 
 fn validate_and_extract_params(

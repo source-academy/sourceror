@@ -54,6 +54,8 @@ pub enum NodeKind {
     ImportSpecifier(ImportSpecifier),
     ImportDefaultSpecifier(ImportDefaultSpecifier),
     ImportNamespaceSpecifier(ImportNamespaceSpecifier),
+    ExportNamedDeclaration(ExportNamedDeclaration),
+    ExportSpecifier(ExportSpecifier),
 }
 
 #[derive(Deserialize, Debug)]
@@ -264,6 +266,19 @@ pub struct ImportDefaultSpecifier {
 #[derive(Deserialize, Debug)]
 pub struct ImportNamespaceSpecifier {
     pub local: Box<Node>,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct ExportNamedDeclaration {
+    pub declaration: Option<Box<Node>>,
+    pub specifiers: Vec<Node>,
+    pub source: Option<Box<Node>>,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct ExportSpecifier {
+    pub local: Box<Node>,
+    pub exported: Box<Node>,
 }
 
 pub trait Function {

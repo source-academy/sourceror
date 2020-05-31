@@ -1,7 +1,9 @@
+use std::borrow::Borrow;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::hash::Hash;
 
+#[derive(Clone)]
 pub struct VarCtx<K, V> {
     map: HashMap<K, V>,
 }
@@ -44,6 +46,18 @@ impl<K: Hash + Eq, V: Append<V>> VarCtx<K, V> {
     }
 }
 
+impl<K: Hash + Eq, V: Append<V>> VarCtx<K, V> {
+    /**
+     * Gets the value with this key.
+     */
+    pub fn get<Q: Hash + Eq + ?Sized>(&mut self, k: &Q) -> Option<&V>
+    where
+        K: Borrow<Q>,
+    {
+        self.get(k)
+    }
+}
+
 pub trait Append<T> {
     /**
      * Returns false if some old thing would have been eliminated.
@@ -55,6 +69,7 @@ pub trait Append<T> {
     fn append(&mut self, t: T) -> bool;
 }
 
+#[derive(Clone)]
 pub enum VarValue<T, O> {
     Target(T),              // normal variables (you can get its type from the ir_program)
     Direct(OverloadSet<O>), // magic overloaded functions
@@ -102,6 +117,7 @@ impl<T, O: Superset> Append<VarValue<T, O>> for VarValue<T, O> {
  * Each signature must have a unique set of params, and they should be all 'useful'.
  * It is resolved in priority from back to front.
  */
+#[derive(Clone)]
 pub struct OverloadSet<O> {
     pub signatures: Vec<O>,
 }
