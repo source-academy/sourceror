@@ -2,7 +2,6 @@ mod dep_graph;
 // mod dep_extract;
 mod attributes;
 mod builtins;
-mod compact_state;
 mod error;
 mod estree;
 mod extensions;
@@ -14,6 +13,7 @@ mod typecheck;
 use async_trait::async_trait;
 use error::*;
 use extensions::IntoSourceLocation;
+use frontendvar::*;
 use ir;
 use projstd::log::CompileMessage;
 use projstd::log::LogErr;
@@ -423,6 +423,16 @@ impl IntoIdentifierName for Node {
     }
 }
 
+// START OF NEW THINGS
+
+pub type ProgramPreExports = VarCtx<String, VarValue<VarLocId, Box<[ir::VarType]>>>;
+pub type ParseState = (
+    HashMap<VarLocId, ir::TargetExpr>, // for the Targets
+    VarCtx<String, OverloadSet<(Box<[ir::VarType]>, ir::FuncIdx)>>, // for the Directs
+);
+// note: ProgramExports is kept in increasing order of VarLocId (in its natural ordering)
+// the ParseState.0 stores the Targets, and ParseState.1 stores the Directs.
+
 enum SourceItem {
     ESTree(estree::Node),
     ImportSpec(importer::ImportSpec),
@@ -562,33 +572,35 @@ pub async fn run_frontend<
     let mut ir_toplevel_sequence: Vec<ir::Expr> = Vec::new();
 
     // parse all the source files in topological order
-    let default_state: compact_state::CompactState<compact_state::FrontendVar> =
-        builtins::state_with_builtins();
-    dep_graph.topological_traverse_state_into(|i, deps, source_item, filename| {
-        let mut state = default_state.clone();
-        match source_item {
-            SourceItem::ESTree(es_program) => {
-                func::parse_program(
-                    &mut state,
-                    es_program,
-                    deps,
-                    filename,
-                    i,
-                    &logger,
-                    &mut ir_program,
-                    &mut ir_toplevel_sequence,
-                );
-            }
-            SourceItem::ImportSpec(import_spec) => {
-                assert!(deps.is_empty(), "Import spec should be empty");
-                importer::add_import_spec_to_state(&mut state, import_spec, i, &import_funcidx_map);
-            }
+    //let default_state: compact_state::CompactState<compact_state::FrontendVar> =
+    //    builtins::state_with_builtins();
+    // contains builtins, e.g. __string_to_number(), and __undefined.
+    let mut start_idx = 0;
+    let (name_ctx, parse_state): (HashMap<String, PreVar>, ParseState) =
+        builtin::state_with_builtins(&mut start_idx);
+    dep_graph.topological_traverse_state_into(|i, deps, source_item, filename| match source_item {
+        SourceItem::ESTree(es_program) => func::parse_program(
+            &name_ctx,
+            &parse_state,
+            es_program,
+            deps,
+            &mut start_idx,
+            filename,
+            i,
+            &logger,
+            &mut ir_program,
+            &mut ir_toplevel_sequence,
+        ),
+        SourceItem::ImportSpec(import_spec) => {
+            assert!(deps.is_empty(), "Import spec should be empty");
+            importer::add_import_spec_to_state(&mut state, import_spec, i, &import_funcidx_map)
         }
-        state
     });
 
     Ok(ir_program)
 }
+
+// END OF NEW THINGS
 
 /*
 Each parse_*() function should only ascertain the type of Node when needed.

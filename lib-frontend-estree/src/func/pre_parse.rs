@@ -3,6 +3,7 @@ use super::undoable_hash_map::UndoableHashMap;
 use super::varusage;
 use super::varusage::Usage;
 use super::ParseProgramError;
+use super::ProgramPreExports;
 use crate::attributes::NodeForEachWithAttributes;
 use crate::attributes::NodeForEachWithAttributesMut;
 use crate::estree::SourceLocation as esSL;
@@ -13,8 +14,6 @@ use projstd::log::CompileMessage;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::collections::HashSet;
-
-type ProgramExports = VarCtx<String, VarValue<VarLocId, Box<[ir::VarType]>>>;
 
 /**
  * Pre-parse an ESTree program
@@ -37,15 +36,15 @@ pub fn pre_parse_program(
     es_program: &mut Program,
     _loc: &Option<esSL>,
     name_ctx: &mut HashMap<String, PreVar>, // pre-declared Source names
-    import_ctx: &[&ProgramExports], // all prevars here must be globals, i.e. have depth == 0
+    import_ctx: &[&ProgramPreExports], // all prevars here must be globals, i.e. have depth == 0
     /* depth: usize */ // not needed, implied to be 0
-    start_idx: usize, // the number of (global) variables
+    start_idx: &mut usize, // the number of (global) variables
     filename: Option<&str>,
-) -> Result<ProgramExports, CompileMessage<ParseProgramError>> {
+) -> Result<ProgramPreExports, CompileMessage<ParseProgramError>> {
     // Extracts both Targets and Directs.  Will return Err if any declaration (either Target or Direct) is considered to be duplicate.
     // will also annotate any LHS identifiers with the target index
     // an imported name does not get a new prevar; it retains the old one instead (so there is no overhead in IR to calling a function or using a variable across a module boundary)
-    let (curr_decls, exports): (Vec<(String, PreVar)>, ProgramExports) =
+    let (curr_decls, exports): (Vec<(String, PreVar)>, ProgramPreExports) =
         validate_and_extract_imports_and_decls(&es_program.body, import_ctx, start_idx, filename)?;
 
     let undo_ctx = name_ctx.add_scope(curr_decls);
@@ -88,7 +87,7 @@ fn pre_parse_block_statement(
     // Extracts both Targets and Directs.  Will return Err if any declaration (either Target or Direct) is considered to be duplicate.
     // will also annotate any LHS identifiers with the target index
     let curr_decls: Vec<(String, PreVar)> =
-        validate_and_extract_decls(&es_block.body, new_depth, 0, filename)?;
+        validate_and_extract_decls(&es_block.body, new_depth, &mut 0, filename)?;
 
     let undo_ctx = name_ctx.add_scope(curr_decls);
 
@@ -152,7 +151,7 @@ fn pre_parse_function<F: Function + Scope>(
         curr_decls.append(&mut validate_and_extract_decls(
             &es_block.body,
             new_depth,
-            params.len(),
+            &mut params.len(),
             filename,
         )?);
 
@@ -687,10 +686,10 @@ fn pre_parse_identifier_use(
 fn validate_and_extract_decls(
     es_block_body: &[Node],
     depth: usize,
-    mut start_idx: usize,
+    start_idx: &mut usize,
     filename: Option<&str>,
 ) -> Result<Vec<(String, PreVar)>, CompileMessage<ParseProgramError>> {
-    let mut var_ctx: ProgramExports = VarCtx::new();
+    let mut var_ctx: ProgramPreExports = VarCtx::new();
     let mut ret: Vec<(String, PreVar)> = Vec::new();
     es_block_body.each_with_attributes(filename, |es_node, attr| match es_node {
         Node {
@@ -703,7 +702,7 @@ fn validate_and_extract_decls(
             loc,
             attr,
             depth,
-            &mut start_idx,
+            start_idx,
             filename,
         ),
         Node {
@@ -716,7 +715,7 @@ fn validate_and_extract_decls(
             loc,
             attr,
             depth,
-            &mut start_idx,
+            start_idx,
             filename,
         ),
         _ => Ok(()),
@@ -736,13 +735,13 @@ fn validate_and_extract_decls(
  */
 fn validate_and_extract_imports_and_decls(
     es_program_body: &[Node],
-    import_ctx: &[&ProgramExports],
-    mut start_idx: usize,
+    import_ctx: &[&ProgramPreExports],
+    start_idx: &mut usize,
     filename: Option<&str>,
-) -> Result<(Vec<(String, PreVar)>, ProgramExports), CompileMessage<ParseProgramError>> {
-    let mut var_ctx: ProgramExports = VarCtx::new();
+) -> Result<(Vec<(String, PreVar)>, ProgramPreExports), CompileMessage<ParseProgramError>> {
+    let mut var_ctx: ProgramPreExports = VarCtx::new();
     let mut ret: Vec<(String, PreVar)> = Vec::new();
-    let mut exports: ProgramExports = ProgramExports::new();
+    let mut exports: ProgramPreExports = ProgramPreExports::new();
     let import_decl_idx = 0;
     es_program_body.each_with_attributes(filename, |es_node, attr| match es_node {
         Node {
@@ -755,7 +754,7 @@ fn validate_and_extract_imports_and_decls(
             loc,
             attr,
             0,
-            &mut start_idx,
+            start_idx,
             filename,
         ),
         Node {
@@ -768,7 +767,7 @@ fn validate_and_extract_imports_and_decls(
             loc,
             attr,
             0,
-            &mut start_idx,
+            start_idx,
             filename,
         ),
         Node {
@@ -799,7 +798,7 @@ fn validate_and_extract_imports_and_decls(
 }
 
 fn process_func_decl_validation(
-    var_ctx: &mut ProgramExports,
+    var_ctx: &mut ProgramPreExports,
     out: &mut Vec<(String, PreVar)>,
     func_decl: &FunctionDeclaration,
     _loc: &Option<esSL>,
@@ -834,7 +833,7 @@ fn process_func_decl_validation(
 }
 
 fn process_var_decl_validation(
-    var_ctx: &mut ProgramExports,
+    var_ctx: &mut ProgramPreExports,
     out: &mut Vec<(String, PreVar)>,
     var_decl: &VariableDeclaration,
     loc: &Option<esSL>,
@@ -879,7 +878,7 @@ fn process_var_decl_validation(
 }
 
 fn try_coalesce_id_target<'a>(
-    var_ctx: &mut ProgramExports,
+    var_ctx: &mut ProgramPreExports,
     es_id_node: &'a Node,
     depth: usize,
     start_idx: &mut usize,
@@ -912,7 +911,7 @@ fn try_coalesce_id_target<'a>(
 // returns true if it is a new variable
 // or false if it is a new overload of an existing variable
 fn try_coalesce_id_direct<'a>(
-    var_ctx: &mut ProgramExports,
+    var_ctx: &mut ProgramPreExports,
     param_nodes: &[Node],
     es_id_node: &'a Node,
     constraint_str_opt: Option<&Option<String>>,
@@ -1010,9 +1009,9 @@ fn try_coalesce_id_direct<'a>(
 }
 
 fn process_import_decl_validation(
-    var_ctx: &mut ProgramExports,
+    var_ctx: &mut ProgramPreExports,
     out: &mut Vec<(String, PreVar)>,
-    import_state: &ProgramExports,
+    import_state: &ProgramPreExports,
     import_decl: &ImportDeclaration,
     loc: &Option<esSL>,
     attr: HashMap<String, Option<String>>,
@@ -1111,8 +1110,8 @@ fn process_import_decl_validation(
 }
 
 fn process_export_decl_validation(
-    var_ctx: &ProgramExports,
-    exports: &mut ProgramExports,
+    var_ctx: &ProgramPreExports,
+    exports: &mut ProgramPreExports,
     export_decl: &ExportNamedDeclaration,
     loc: &Option<esSL>,
     attr: HashMap<String, Option<String>>,
