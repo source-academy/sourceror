@@ -62,7 +62,7 @@ pub enum NodeKind {
 pub struct Identifier {
     pub name: String,
     #[serde(skip)]
-    pub prevar: Option<PreVar>,
+    pub prevar: Option<PreVar>, // all names will get a PreVar after pre_parse.
 }
 
 #[derive(Deserialize, Debug)]

@@ -1027,9 +1027,9 @@ fn encode_appl<H: HeapManager>(
     // net wasm stack: [] -> [<func_expr.vartype>]
     encode_expr(func_expr, ctx, mutctx, expr_builder);
 
-    // Emit the convertion to function if necessary, storing the tableidx in a i32 local variable
-    // net wasm stack: [<func_expr.vartype>] -> [i32(closure ptr)]
     mutctx.with_scratch_i32(|mutctx, localidx_tableidx| {
+        // Emit the convertion to function if necessary, storing the tableidx in a i32 local variable
+        // net wasm stack: [<func_expr.vartype>] -> [i32(closure ptr)]
         {
             match func_expr.vartype {
                 Some(ir::VarType::Func) => {
