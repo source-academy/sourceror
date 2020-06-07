@@ -1,5 +1,7 @@
+use super::constraint;
 use super::ParseProgramError;
 use super::ParseState;
+use crate::attributes::NodeForEachWithAttributesMut;
 use crate::estree::SourceLocation as esSL;
 use crate::estree::*;
 use crate::extensions::IntoSourceLocation;
@@ -36,27 +38,61 @@ pub fn post_parse_program(
 // Returns the ir::Expr representing the current block
 fn post_parse_block_statement(
     es_block: BlockStatement,
-    _loc: Option<esSL>,
+    loc: Option<esSL>,
     parse_ctx: &mut ParseState,
     depth: usize,
     num_locals: usize, // current number of IR locals
     filename: Option<&str>,
     ir_program: &mut ir::Program, // for adding new structs/functions if necessary
 ) -> Result<ir::Expr, CompileMessage<ParseProgramError>> {
+    post_parse_scope(
+        es_block,
+        loc,
+        parse_ctx,
+        |_, _, _, _, _, _| Ok(()),
+        depth,
+        num_locals,
+        filename,
+        ir_program,
+    )
+}
+
+// todo! don't generate a new struct if there are no address-taken vars
+fn post_parse_scope<
+    S: Scope,
+    PE: FnOnce(
+        &mut Vec<ir::Expr>, // the output vec to append to
+        &mut ParseState,
+        I: impl Iterator<Item = (Node, HashMap<String, Option<String>>)>,
+        usize, // new depth
+        usize, // new num locals
+        Option<&str>,
+        &mut ir::Program,
+    ) -> Result<(), CompileMessage<ParseProgramError>>,
+>(
+    es_scope: S,
+    _loc: Option<esSL>,
+    parse_ctx: &mut ParseState,
+    write_prefix_exprs: PE,
+    depth: usize,
+    num_locals: usize, // current number of IR locals
+    filename: Option<&str>,
+    ir_program: &mut ir::Program, // for adding new structs/functions if necessary
+) -> Result<ir::Expr, CompileMessage<ParseProgramError>> {
+    let (body, address_taken_vars, direct_funcs) = es_scope.destructure();
+
     let new_depth = depth + 1;
 
     // synthesise the struct for the address taken vars
     let struct_idx = ir_program.struct_types.len();
-    let struct_type: Box<[ir::VarType]> = es_block
-        .address_taken_vars
+    let struct_type: Box<[ir::VarType]> = address_taken_vars
         .iter()
         .map(|_| ir::VarType::Any)
         .collect();
     ir_program.struct_types.push(struct_type);
 
     // generate the TargetExprs for the address taken vars
-    let target_expr_entries: Box<[(VarLocId, ir::TargetExpr)]> = es_block
-        .address_taken_vars
+    let target_expr_entries: Box<[(VarLocId, ir::TargetExpr)]> = address_taken_vars
         .iter()
         .copied()
         .enumerate()
@@ -84,15 +120,33 @@ fn post_parse_block_statement(
     let target_undo_ctx = parse_ctx.add_targets(target_expr_entries);
 
     // reserve ir::FuncIdx and generate the overload sets for all the directs
-    let direct_entries: Box<[(String, OverloadSet<(Box<[ir::VarType]>, ir::FuncIdx)>)]> = es_block
-        .direct_funcs
+    let direct_entries: Box<[(String, (Box<[ir::VarType]>, ir::FuncIdx))]> = direct_funcs
         .into_iter()
-        .map(|(s, overload_set)| {
+        .map(|(s, signature)| {
             let tmp = ir_program.funcs.len();
             ir_program.funcs.push(ir::Func::new());
-            (s, overload_set.map(|sig| (sig, tmp)))
+            (s, (signature, tmp))
         })
         .collect();
+
+    // give the ir::FuncIdx to each direct FunctionDeclaration
+    {
+        let mut ct = 0;
+        body.each_with_attributes_mut(filename, |es_node, attr| {
+            if let Node {
+                loc: _,
+                kind: NodeKind::FunctionDeclaration(func_decl),
+            } = es_node
+            {
+                if attr.contains_key("direct") {
+                    func_decl.direct_props = Some((direct_entries[ct].1).clone());
+                    ct += 1;
+                }
+            }
+            Ok(())
+        })?;
+        assert!(ct == direct_entries.len());
+    }
 
     // add these direct entries to the parse_ctx
     let direct_undo_ctx = parse_ctx.add_directs(direct_entries);
@@ -117,19 +171,39 @@ fn post_parse_block_statement(
             }),
         },
     });
-    {
-        let stmt_nodes_attrs: Vec<(Node, HashMap<String, Option<String>>)> = Vec::new();
-        es_block
-            .body
-            .each_with_attributes_into(filename, |es_node, attr| {
-                stmt_nodes_attrs.push((es_node, attr));
-                Ok(())
-            })?;
 
-        let mut stmt_iter = stmt_nodes_attrs.into_iter();
+    // emit the body
+    {
+        let mut stmt_nodes_attrs: Vec<(Node, HashMap<String, Option<String>>)> = Vec::new();
+        body.each_with_attributes_into(filename, |es_node, attr| {
+            stmt_nodes_attrs.push((es_node, attr));
+            Ok(())
+        })?;
+
+        let mut stmt_iter = stmt_nodes_attrs.into_iter().fuse();
+
+        // emit pre-bits if any (usually this is used for function params if this scope is a function scope)
+        stmt_iter = write_prefix_exprs(
+            &mut sequence,
+            parse_ctx,
+            stmt_iter,
+            new_depth,
+            new_num_locals,
+            filename,
+            ir_program,
+        )?;
+
+        // process all the body statements
         while let Some((es_stmt, attr)) = stmt_iter.next() {
             let (ir_expr, new_stmt_iter) = post_parse_statement(
-                es_stmt, attr, parse_ctx, stmt_iter, depth, num_locals, filename, ir_program,
+                es_stmt,
+                attr,
+                parse_ctx,
+                stmt_iter,
+                new_depth,
+                new_num_locals,
+                filename,
+                ir_program,
             )?;
             sequence.push(ir_expr);
             stmt_iter = new_stmt_iter;
@@ -161,6 +235,55 @@ fn post_parse_block_statement(
     Ok(ret)
 }
 
+fn post_parse_direct_function(
+    es_func: FunctionDeclaration,
+    loc: Option<esSL>,
+    parse_ctx: &mut ParseState,
+    depth: usize,
+    num_locals: usize, // we don't care about the existing number of locals, because we start from zero when in a new function
+    filename: Option<&str>,
+    ir_program: &mut ir::Program,
+) -> Result<(), CompileMessage<ParseProgramError>> {
+    // Note: a direct function has no capture var, so the ir param list is exactly the list in es_func.direct_props.
+
+    // the current function that we are emitting (the entry was already created by the enclosing block)
+    let (ir_params, ir_funcidx) = es_func.direct_props.unwrap();
+
+    let ir_func_body: ir::Expr = {
+        // setup the function body:
+        // params are copied into position as if:
+        // let local#0 = param#0;
+        // let local#1 = param#1; ...
+        // where each param has the correct param type specified in the signature
+        // and each local has the type Any and is placed on the stack or heap as per usual address-takenness
+
+        post_parse_scope(
+            es_func, loc, parse_ctx, |out_vec, parse_ctx, depth, num_locals, filename, ir_program| {
+                // Processing assignment exprs here
+
+                unimplemented!();
+            }, depth, num_locals, filename, ir_program,
+        )?
+    };
+
+    let curr_func: &mut ir::Func = &mut ir_program.funcs[ir_funcidx];
+    curr_func.params = ir_params;
+    curr_func.result = Some(ir::VarType::Any);
+    curr_func.expr = ir_func_body;
+    Ok(())
+}
+
+fn post_parse_function<Func: Function>(
+    es_func: Func,
+    parse_ctx: &mut ParseState,
+    depth: usize,
+    num_locals: usize,
+    filename: Option<&str>,
+    ir_program: &mut ir::Program,
+) -> Result<ir::Expr, CompileMessage<ParseProgramError>> {
+    unimplemented!();
+}
+
 fn add_remaining_stmts<I: Iterator<Item = (Node, HashMap<String, Option<String>>)>>(
     mut stmt_iter: I,
     parse_ctx: &mut ParseState,
@@ -168,23 +291,16 @@ fn add_remaining_stmts<I: Iterator<Item = (Node, HashMap<String, Option<String>>
     num_locals: usize,
     filename: Option<&str>,
     ir_program: &mut ir::Program,
-) -> Result<(ir::Expr, I), CompileMessage<ParseProgramError>> {
-    let mut sequence: Vec<ir::Expr> = Vec::new();
+) -> Result<(Vec<ir::Expr>, I), CompileMessage<ParseProgramError>> {
+    let mut ret: Vec<ir::Expr> = Vec::new();
     while let Some((es_stmt, attr)) = stmt_iter.next() {
         let (ir_expr, new_stmt_iter) = post_parse_statement(
             es_stmt, attr, parse_ctx, stmt_iter, depth, num_locals, filename, ir_program,
         )?;
-        sequence.push(ir_expr);
+        ret.push(ir_expr);
         stmt_iter = new_stmt_iter;
     }
-    sequence.push(make_prim_undefined());
-    Ok((
-        ir::Expr {
-            vartype: Some(ir::VarType::Undefined),
-            kind: ir::ExprKind::Sequence { content: sequence },
-        },
-        stmt_iter,
-    ))
+    Ok((ret, stmt_iter))
 }
 
 fn post_parse_statement<I: Iterator<Item = (Node, HashMap<String, Option<String>>)>>(
@@ -249,19 +365,18 @@ fn post_parse_statement<I: Iterator<Item = (Node, HashMap<String, Option<String>
         )),
         NodeKind::FunctionDeclaration(func_decl) => {
             if attributes.get("direct").is_some() {
-                Ok((
-                    post_parse_direct_func_decl(
-                        func_decl,
-                        es_node.loc,
-                        parse_ctx,
-                        attributes.get("constraint"),
-                        depth,
-                        num_locals,
-                        filename,
-                        ir_program,
-                    )?,
-                    more_stmt_attr_iter,
-                ))
+                // direct func declarations do not generate any ir::Expr in the current context
+                // the current block is only used for scoping rules.
+                post_parse_direct_func_decl(
+                    func_decl,
+                    es_node.loc,
+                    parse_ctx,
+                    depth,
+                    num_locals,
+                    filename,
+                    ir_program,
+                )?;
+                Ok((make_prim_undefined(), more_stmt_attr_iter))
             } else {
                 post_parse_func_decl(
                     func_decl,
@@ -336,7 +451,7 @@ fn post_parse_return_statement(
         vartype: None, // return statements produce Void
         kind: ir::ExprKind::Return {
             expr: Box::new(post_parse_expr(
-                *es_return.expression,
+                *es_return.argument.unwrap(),
                 parse_ctx,
                 depth,
                 num_locals,
@@ -423,13 +538,25 @@ fn post_parse_direct_func_decl(
     es_func_decl: FunctionDeclaration,
     loc: Option<esSL>,
     parse_ctx: &mut ParseState,
-    opt_constraint: Option<&Option<String>>,
     depth: usize,
     num_locals: usize, // current number of IR locals
     filename: Option<&str>,
     ir_program: &mut ir::Program,
-) -> Result<ir::Expr, CompileMessage<ParseProgramError>> {
-    unimplemented!();
+) -> Result<(), CompileMessage<ParseProgramError>> {
+    // This emits a new ir::Func in the ir_program, with the correct signature specified in es_func_decl (without closure).
+    // This doesn't return any success value, because es_func_decl already contains the ir::FuncIdx to write to,
+    // and the signature to use.
+    post_parse_direct_function(
+        es_func_decl,
+        loc,
+        parse_ctx,
+        depth,
+        num_locals,
+        filename,
+        ir_program,
+    )
+
+    // Also, nothing to add to parse_ctx because everything necessary have already been added in the post_parse_block_statement()
 }
 
 fn post_parse_func_decl<I: Iterator<Item = (Node, HashMap<String, Option<String>>)>>(
@@ -454,8 +581,9 @@ fn post_parse_func_decl<I: Iterator<Item = (Node, HashMap<String, Option<String>
     post_parse_decl_helper(
         varlocid,
         rhs_expr,
+        more_stmt_attr_iter,
         parse_ctx,
-        |parse_ctx, depth, num_locals, filename, ir_program| {
+        |more_stmt_attr_iter, parse_ctx, depth, num_locals, filename, ir_program| {
             add_remaining_stmts(
                 more_stmt_attr_iter,
                 parse_ctx,
@@ -476,19 +604,120 @@ fn post_parse_var_decl<I: Iterator<Item = (Node, HashMap<String, Option<String>>
     es_var_decl: VariableDeclaration,
     loc: Option<esSL>,
     parse_ctx: &mut ParseState,
-    more_stmt_attr_iter: I,
+    mut more_stmt_attr_iter: I,
     depth: usize,
     num_locals: usize, // current number of IR locals
     filename: Option<&str>,
     ir_program: &mut ir::Program,
 ) -> Result<(ir::Expr, I), CompileMessage<ParseProgramError>> {
-    post_parse_var_decr_recurse(
-        es_var_decl
-            .declarations
-            .into_iter()
-            .map(|decr_node| as_var_decr(decr_node)),
-        parse_ctx,
+    // Since post_parse_statement only allows returning a single ir::Expr, we have to stuff these things into a sequence.
+    let ret: Vec<ir::Expr> = Vec::new();
+    let var_decr_iter = es_var_decl
+        .declarations
+        .into_iter()
+        .map(|decr_node| as_var_decr(decr_node))
+        .fuse();
+
+    // insert all the var declarators, consuming the rest of the stmt_attrs if necessary
+    while let Some(es_var_decr) = var_decr_iter.next() {
+        let (ir_expr, (new_var_decr_iter, new_stmt_attr_iter)) = post_parse_var_decr_recurse(
+            es_var_decr,
+            var_decr_iter,
+            parse_ctx,
+            more_stmt_attr_iter,
+            depth,
+            num_locals,
+            filename,
+            ir_program,
+        )?;
+        ret.push(ir_expr);
+        var_decr_iter = new_var_decr_iter;
+        more_stmt_attr_iter = new_stmt_attr_iter;
+    }
+
+    // This is an optimisation... most of the time we won't need a sequence because there is only one declaration.
+    assert!(!ret.is_empty());
+    Ok((
+        if ret.len() == 1 {
+            // if there is only one declaration, just return it
+            ret[0]
+        } else {
+            // if there are more than one declarations, pack it into a sequence and return the sequence
+
+            ret.push(make_prim_undefined());
+
+            let ir_seq_expr = ir::Expr {
+                vartype: Some(ir::VarType::Undefined),
+                kind: ir::ExprKind::Sequence { content: ret },
+            };
+
+            ir_seq_expr
+        },
         more_stmt_attr_iter,
+    ))
+}
+
+fn post_parse_var_decr_recurse<
+    I: Iterator<Item = (Node, HashMap<String, Option<String>>)>,
+    J: Iterator<Item = VariableDeclarator>,
+>(
+    es_var_decr: VariableDeclarator,
+    mut more_var_decr_iter: J,
+    parse_ctx: &mut ParseState,
+    mut more_stmt_attr_iter: I,
+    depth: usize,
+    num_locals: usize, // current number of IR locals
+    filename: Option<&str>,
+    ir_program: &mut ir::Program,
+) -> Result<(ir::Expr, (J, I)), CompileMessage<ParseProgramError>> {
+    let varlocid = as_varlocid(as_id(*es_var_decr.id).prevar.unwrap());
+    let rhs_expr: ir::Expr = post_parse_expr(
+        *es_var_decr.init.unwrap(),
+        parse_ctx,
+        depth,
+        num_locals,
+        filename,
+        ir_program,
+    )?;
+
+    post_parse_decl_helper(
+        varlocid,
+        rhs_expr,
+        (more_var_decr_iter, more_stmt_attr_iter),
+        parse_ctx,
+        |(mut more_var_decr_iter, mut more_stmt_attr_iter),
+         parse_ctx,
+         depth,
+         num_locals,
+         filename,
+         ir_program| {
+            let mut ret: Vec<ir::Expr> = Vec::new();
+            while let Some(es_var_decr) = more_var_decr_iter.next() {
+                let (ir_expr2, (var_2, stmt_2)) = post_parse_var_decr_recurse(
+                    es_var_decr,
+                    more_var_decr_iter,
+                    parse_ctx,
+                    more_stmt_attr_iter,
+                    depth,
+                    num_locals,
+                    filename,
+                    ir_program,
+                )?;
+                ret.push(ir_expr2);
+                more_var_decr_iter = var_2;
+                more_stmt_attr_iter = stmt_2;
+            }
+            let (mut ir_exprs, ret_more_stmt_attr_iter) = add_remaining_stmts(
+                more_stmt_attr_iter,
+                parse_ctx,
+                depth,
+                num_locals,
+                filename,
+                ir_program,
+            )?;
+            ret.append(&mut ir_exprs);
+            Ok((ret, (more_var_decr_iter, ret_more_stmt_attr_iter)))
+        },
         depth,
         num_locals,
         filename,
@@ -496,76 +725,25 @@ fn post_parse_var_decl<I: Iterator<Item = (Node, HashMap<String, Option<String>>
     )
 }
 
-fn post_parse_var_decr_recurse<
-    I: Iterator<Item = (Node, HashMap<String, Option<String>>)>,
-    J: Iterator<Item = VariableDeclarator>,
->(
-    es_var_decr_iter: J,
-    parse_ctx: &mut ParseState,
-    more_stmt_attr_iter: I,
-    depth: usize,
-    num_locals: usize, // current number of IR locals
-    filename: Option<&str>,
-    ir_program: &mut ir::Program,
-) -> Result<(ir::Expr, I), CompileMessage<ParseProgramError>> {
-    if let Some(es_var_decr) = es_var_decr_iter.next() {
-        let varlocid = as_varlocid(as_id(*es_var_decr.id).prevar.unwrap());
-        let rhs_expr: ir::Expr = post_parse_expr(
-            *es_var_decr.init.unwrap(),
-            parse_ctx,
-            depth,
-            num_locals,
-            filename,
-            ir_program,
-        )?;
-        post_parse_decl_helper(
-            varlocid,
-            rhs_expr,
-            parse_ctx,
-            |parse_ctx, depth, num_locals, filename, ir_program| {
-                post_parse_var_decr_recurse(
-                    es_var_decr_iter,
-                    parse_ctx,
-                    more_stmt_attr_iter,
-                    depth,
-                    num_locals,
-                    filename,
-                    ir_program,
-                )
-            },
-            depth,
-            num_locals,
-            filename,
-            ir_program,
-        )
-    } else {
-        add_remaining_stmts(
-            more_stmt_attr_iter,
-            parse_ctx,
-            depth,
-            num_locals,
-            filename,
-            ir_program,
-        )
-    }
-}
-
 /**
  * A helper function to emit a ExprKind::Declaration.
  * Used by VariableDeclaration and FunctionDeclaration (Target kind).
+ * `more` will only be called if we actually create a declaration (i.e. it was not previously already created due to address-takenness)
  */
 fn post_parse_decl_helper<
     R,
     F: FnOnce(
+        R,
         &mut ParseState,
         usize,
         usize,
         Option<&str>,
         &mut ir::Program,
-    ) -> Result<(ir::Expr, R), CompileMessage<ParseProgramError>>,
+    ) -> Result<(Vec<ir::Expr>, R), CompileMessage<ParseProgramError>>,
 >(
     varlocid: VarLocId,
     es_rhs_expr: ir::Expr,
+    forwarded: R,
     parse_ctx: &mut ParseState,
     more: F,
     depth: usize,
@@ -573,46 +751,68 @@ fn post_parse_decl_helper<
     filename: Option<&str>,
     ir_program: &mut ir::Program,
 ) -> Result<(ir::Expr, R), CompileMessage<ParseProgramError>> {
-    let mut sequence: Vec<ir::Expr> = Vec::new();
-    sequence.push(ir::Expr {
-        vartype: Some(ir::VarType::Undefined),
-        kind: ir::ExprKind::Assign {
-            target: ir::TargetExpr::Local {
+    if let Some(target_expr) = parse_ctx.get_target(varlocid) {
+        // target already exists... it must be address-taken
+        // so emit an assignment statement with that target_expr
+        let ret_expr = ir::Expr {
+            vartype: Some(ir::VarType::Undefined),
+            kind: ir::ExprKind::Assign {
+                target: target_expr,
+                expr: Box::new(es_rhs_expr),
+            },
+        };
+        Ok((ret_expr, forwarded))
+    } else {
+        // target does not exist... it is not address-taken
+        // so we create a new local variable
+        let mut sequence: Vec<ir::Expr> = Vec::new();
+        sequence.push(ir::Expr {
+            vartype: Some(ir::VarType::Undefined),
+            kind: ir::ExprKind::Assign {
+                target: ir::TargetExpr::Local {
+                    localidx: num_locals,
+                    next: None,
+                },
+                expr: Box::new(es_rhs_expr),
+            },
+        });
+
+        let undo_ctx = parse_ctx.add_target(
+            varlocid,
+            ir::TargetExpr::Local {
                 localidx: num_locals,
                 next: None,
             },
-            expr: Box::new(es_rhs_expr),
-        },
-    });
+        );
 
-    let undo_ctx = parse_ctx.add_target(
-        varlocid,
-        ir::TargetExpr::Local {
-            localidx: num_locals,
-            next: None,
-        },
-    );
+        let new_num_locals = num_locals + 1;
 
-    let new_num_locals = num_locals + 1;
+        let (mut ir_exprs, ret_fwd) = more(
+            forwarded,
+            parse_ctx,
+            depth,
+            new_num_locals,
+            filename,
+            ir_program,
+        )?;
+        sequence.append(&mut ir_exprs);
 
-    let (ir_expr, ret) = more(parse_ctx, depth, new_num_locals, filename, ir_program)?;
-    sequence.push(ir_expr);
+        parse_ctx.remove_target(undo_ctx);
 
-    parse_ctx.remove_target(undo_ctx);
-
-    Ok((
-        ir::Expr {
-            vartype: Some(ir::VarType::Undefined),
-            kind: ir::ExprKind::Declaration {
-                local: ir::VarType::Any,
-                expr: Box::new(ir::Expr {
-                    vartype: Some(ir::VarType::Undefined),
-                    kind: ir::ExprKind::Sequence { content: sequence },
-                }),
+        Ok((
+            ir::Expr {
+                vartype: Some(ir::VarType::Undefined),
+                kind: ir::ExprKind::Declaration {
+                    local: ir::VarType::Any,
+                    expr: Box::new(ir::Expr {
+                        vartype: Some(ir::VarType::Undefined),
+                        kind: ir::ExprKind::Sequence { content: sequence },
+                    }),
+                },
             },
-        },
-        ret,
-    ))
+            ret_fwd,
+        ))
+    }
 }
 
 fn post_parse_expr(

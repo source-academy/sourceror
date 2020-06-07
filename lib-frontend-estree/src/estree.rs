@@ -102,7 +102,9 @@ pub struct ExpressionStatement {
 pub struct BlockStatement {
     pub body: Vec<Node>,
     #[serde(skip)]
-    pub address_taken_vars: Vec<usize>,
+    pub address_taken_vars: Vec<usize>, // list of address-taken vars, populated by pre_parse()
+    #[serde(skip)]
+    pub direct_funcs: Vec<(String, Box<[ir::VarType]>)>, // list of direct functions, populated by pre_parse()
 }
 
 /*#[derive(Debug)]
@@ -164,9 +166,13 @@ pub struct FunctionDeclaration {
     pub params: Vec<Node>,
     pub body: Box<Node>,
     #[serde(skip)]
-    pub address_taken_vars: Vec<usize>,
+    pub address_taken_vars: Vec<usize>, // list of address-taken vars, populated by pre_parse()
+    #[serde(skip)]
+    pub direct_funcs: Vec<(String, Box<[ir::VarType]>)>, // list of direct functions, populated by pre_parse()
     #[serde(skip)]
     pub captured_vars: Vec<VarLocId>,
+    #[serde(skip)]
+    pub direct_props: Option<(Box<[ir::VarType]>, ir::FuncIdx)>, // only set if this is a direct function, and it is set by post_parse().
 }
 
 #[derive(Deserialize, Debug)]
@@ -193,7 +199,7 @@ pub struct ArrowFunctionExpression {
     pub body: Box<Node>,
     pub expression: bool,
     #[serde(skip)]
-    pub address_taken_vars: Vec<usize>,
+    pub address_taken_vars: Vec<usize>, // list of address-taken vars, populated by pre_parse()
     #[serde(skip)]
     pub captured_vars: Vec<VarLocId>,
 }
@@ -319,11 +325,15 @@ impl Function for ArrowFunctionExpression {
 
 pub trait Scope {
     fn address_taken_vars_mut(&mut self) -> &mut Vec<usize>;
+    fn destructure(self) -> (Vec<Node>, Vec<usize>, Vec<(String, Box<[ir::VarType]>)>);
 }
 
 impl Scope for BlockStatement {
     fn address_taken_vars_mut(&mut self) -> &mut Vec<usize> {
         &mut self.address_taken_vars
+    }
+    fn destructure(self) -> (Vec<Node>, Vec<usize>, Vec<(String, Box<[ir::VarType]>)>) {
+        (self.body, self.address_taken_vars, self.direct_funcs)
     }
 }
 
@@ -331,11 +341,34 @@ impl Scope for FunctionDeclaration {
     fn address_taken_vars_mut(&mut self) -> &mut Vec<usize> {
         &mut self.address_taken_vars
     }
+    fn destructure(self) -> (Vec<Node>, Vec<usize>, Vec<(String, Box<[ir::VarType]>)>) {
+        (
+            if let NodeKind::BlockStatement(block) = (*self.body).kind {
+                block.body
+            } else {
+                panic!();
+            },
+            self.address_taken_vars,
+            self.direct_funcs,
+        )
+    }
 }
 
 impl Scope for ArrowFunctionExpression {
     fn address_taken_vars_mut(&mut self) -> &mut Vec<usize> {
         &mut self.address_taken_vars
+    }
+    fn destructure(self) -> (Vec<Node>, Vec<usize>, Vec<(String, Box<[ir::VarType]>)>) {
+        // self.body can be either a Block or an expression
+        (
+            if let NodeKind::BlockStatement(block) = (*self.body).kind {
+                block.body
+            } else {
+                vec![*self.body]
+            },
+            self.address_taken_vars,
+            Vec::new(),
+        )
     }
 }
 
