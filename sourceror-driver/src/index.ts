@@ -1,4 +1,4 @@
-import * as Sourceror from "sourceror";
+import * as Sourceror from "./wrapper";
 import { Context } from "js-slang";
 import { ErrorType, ErrorSeverity } from "js-slang/dist/types";
 import { parse as slang_parse } from "js-slang/dist/parser/parser";
@@ -28,7 +28,7 @@ export async function compile(
   }
     let es_str: string = JSON.stringify(estree);
     let has_errors: boolean = false;
-    let wasm_context: number = Sourceror.create_context((severity_code: number, message: string, line: number, column: number) => {
+    let wasm_context: number = Sourceror.createContext((severity_code: number, message: string, line: number, column: number) => {
         if (severity_code >= 4) has_errors = true;
         context.errors.push({
             type: ErrorType.SYNTAX,
@@ -81,10 +81,10 @@ export async function compile(
             }
         })
         .then((x: WebAssembly.Module) => {
-            Sourceror.destroy_context(wasm_context);
+            Sourceror.destroyContext(wasm_context);
             return x;
         }, (e: any) => {
-            Sourceror.destroy_context(wasm_context);
+            Sourceror.destroyContext(wasm_context);
             return e;
         });
 }
