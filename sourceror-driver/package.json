@@ -1,0 +1,42 @@
+{
+  "name": "sourceror-driver",
+  "version": "1.0.5",
+  "description": "Thing that invokes the Sourceror compiler and supplies the standard library files from libsourceror",
+  "dependencies": {
+    "@btzy/libsourceror": "^0.0.1",
+    "@types/estree": "^0.0.39",
+    "@types/node": "^13.13.4",
+    "js-slang": "^0.4.45",
+    "node-getopt": "^0.3.2",
+    "sourceror": "^0.5.2"
+  },
+  "devDependencies": {
+    "prettier": "^2.0.5",
+    "typescript": "^3.8.3"
+  },
+  "main": "dist/index",
+  "types": "dist/index",
+  "files": [
+    "dist"
+  ],
+  "bin": {
+    "sourceror": "dist/cli.js"
+  },
+  "scripts": {
+    "ci": "yarn format:ci && yarn tslint && yarn test",
+    "build": "tsc",
+    "format": "prettier --write \"src/**/*.{ts,tsx}\"",
+    "format:ci": "prettier --list-different \"src/**/*.{ts,tsx}\"",
+    "prepublishOnly": "tsc"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/btzy/sourceror-driver.git"
+  },
+  "author": "Bernard Teo",
+  "license": "Apache-2.0",
+  "bugs": {
+    "url": "https://github.com/btzy/sourceror-driver/issues"
+  },
+  "homepage": "https://github.com/btzy/sourceror-driver#readme"
+}
