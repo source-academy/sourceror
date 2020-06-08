@@ -7,19 +7,56 @@ Note: If you just want to play with it and don't want to spend time building it 
 
 ## Usage
 
-Sourceror should be used with [Sourceror Driver](https://github.com/source-academy/sourceror-driver).  On its own, Sourceror only compiles a validated ESTree to WebAssembly.  Sourceror Driver invokes js-slang to convert Source to a validated ESTree, and then invokes Sourceror for the rest of the compilation process.  Sourceror Driver also includes functionality to run the compiled WebAssembly binary.
+Sourceror should be used with [Sourceror Driver](sourceror-driver). On its own, Sourceror only compiles a validated ESTree to WebAssembly.  Sourceror Driver invokes js-slang to convert Source to a validated ESTree, and then invokes Sourceror for the rest of the compilation process.  Sourceror Driver also includes functionality to run the compiled WebAssembly binary.
+
+Sourcerer Driver is packaged as an NPM package `sourcerer` that bundles the compiled WebAssembly module.
+
+```
+yarn add sourcerer
+```
+
+To use in a web project, you need a bundler that can handle loading WebAssembly modules, such as Webpack 4 or above.
+
+To use in a Node project, you will need a version of Node that supports loading WebAssembly as an ES module: `--experimental-wasm-modules`.
+
+```js
+import { compile, run } from "sourcerer";
+import { createContext } from "js-slang";
+
+function compileAndRun(chapter = 1, code: string) {
+  let context = createContext(chapter);
+  compile(code, context)
+    .then((wasm_module) => run(wasm_module, context))
+    .then((result) => console.log(result))
+    .catch((err) => console.error(err));
+}
+```
+
+## Building
 
 All the commands below assume that you have an up-to-date installation of the Rust compiler toolchain.
 
-To build, navigate to the root directory of this repository, and do
+To build, navigate to the `sourceror-driver` directory of this repository, and do
 
 ```
-npm run build
+yarn run build
 ```
 
-The `/dist` folder will be created and it will contain `package.json`, `index.js`, and a `sourceror` folder.  The `/dist` folder is the package root for modules that depend on Sourceror (such as Sourceror Driver).  The `sourceror` folder should be copied to the `externalLibs` folder of your web server.
+`dist/` and `wasm/` will be created in `sourceror-driver`.
 
-We are actually building a separate bundle that can be consumed by another bundler &mdash; this is because older bundlers (such as the one used in cadet-frontend) do not know how to bundle a WebAssembly binary.
+You can then use your locally-built `sourcerer-driver` in another project (such as `cadet-frontend`) by running
+
+```
+yarn link
+```
+
+in the `sourcerer-driver` directory, and then
+
+```
+yarn link sourcerer
+```
+
+in the root of the other project.
 
 ## Native binary
 
