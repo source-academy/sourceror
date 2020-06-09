@@ -135,7 +135,7 @@ pub struct StructField {
 
 #[derive(Debug)]
 pub struct OverloadEntry {
-    pub signature: Box<[VarType]>,
+    pub signature: Box<[VarType]>, // this does not include the closure param
     pub funcidx: FuncIdx,
     pub has_closure_param: bool, // true if the closure value shall be passed into this overload
                                  // (the first parameter of a function that has closure must be the static type of PrimFunc::closure)
@@ -157,7 +157,7 @@ pub enum ExprKind {
         typeidx: usize,
     }, // a struct (Any will be set to Unassigned variant; String, Func::closure, StructT will be set to something that the GC can recognise as a "null pointer" for that VarType)
     PrimFunc {
-        funcidx: Box<[OverloadEntry]>, // overload set, matched in priority from back to front.  Backend shall coalesce identical callstubs whenever possible.
+        funcidxs: Box<[OverloadEntry]>, // overload set, matched in priority from back to front.  Backend shall coalesce identical callstubs whenever possible.
         closure: Box<Expr>, // Closure, that must fit into an i32 and will be type-erased (note: Undefined also fits)
     }, // e.g. `() => {}`.  Only the given funcidx will know the type of the closure.
     TypeCast {
@@ -189,7 +189,7 @@ pub enum ExprKind {
     Appl {
         func: Box<Expr>,
         args: Box<[Expr]>,
-    }, // function application (operators are functions too).  Closure parameter is implicitly prepended to the argument list.  Called using Source indirect calling convention (closure and length as a param; others are Any and on unprotected stack).
+    }, // function application (operators are functions too).  Closure parameter is implicitly prepended to the argument list.  Called using Source indirect calling convention (closure and length as a param; others are Any and on unprotected stack). Static type of func must be func.
     DirectAppl {
         funcidx: FuncIdx,
         args: Box<[Expr]>,
@@ -198,7 +198,7 @@ pub enum ExprKind {
         cond: Box<Expr>,
         true_expr: Box<Expr>,
         false_expr: Box<Expr>,
-    }, // a ? b : c
+    }, // a ? b : c // Static type of cond must be bool.
     Declaration {
         local: VarType,  // local variable being declared
         expr: Box<Expr>, // expr in which the newly declared local is accessible

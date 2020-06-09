@@ -78,8 +78,8 @@ pub enum LiteralValue {
     Null,
     Number(f64),
     RegExp,
-    #[serde(skip)]
-    Undefined,
+    /*#[serde(skip)]
+    Undefined,*/
 }
 
 #[derive(Deserialize, Debug)]
@@ -105,6 +105,7 @@ pub struct BlockStatement {
     pub address_taken_vars: Vec<usize>, // list of address-taken vars, populated by pre_parse()
     #[serde(skip)]
     pub direct_funcs: Vec<(String, Box<[ir::VarType]>)>, // list of direct functions, populated by pre_parse()
+                                                         // todo! populate direct_funcs
 }
 
 /*#[derive(Debug)]
@@ -201,7 +202,7 @@ pub struct ArrowFunctionExpression {
     #[serde(skip)]
     pub address_taken_vars: Vec<usize>, // list of address-taken vars, populated by pre_parse()
     #[serde(skip)]
-    pub captured_vars: Vec<VarLocId>,
+    pub captured_vars: Vec<VarLocId>, // list of non-global variables captured by the function
 }
 
 #[derive(Deserialize, Debug)]
@@ -287,10 +288,11 @@ pub struct ExportSpecifier {
     pub exported: Box<Node>,
 }
 
-pub trait Function {
+pub trait Function: Scope {
     fn destructure_params_body(self) -> (Vec<Node>, Box<Node>);
     fn params_body_mut(&mut self) -> (&[Node], &mut Node);
     fn captured_vars_mut(&mut self) -> &mut Vec<VarLocId>; // captured variables, except globals
+    fn params_mut(&mut self) -> &mut Vec<Node>;
 }
 
 impl Function for FunctionDeclaration {
@@ -302,6 +304,9 @@ impl Function for FunctionDeclaration {
     }
     fn captured_vars_mut(&mut self) -> &mut Vec<VarLocId> {
         &mut self.captured_vars
+    }
+    fn params_mut(&mut self) -> &mut Vec<Node> {
+        &mut self.params
     }
 }
 
@@ -320,6 +325,9 @@ impl Function for ArrowFunctionExpression {
     }
     fn captured_vars_mut(&mut self) -> &mut Vec<VarLocId> {
         &mut self.captured_vars
+    }
+    fn params_mut(&mut self) -> &mut Vec<Node> {
+        &mut self.params
     }
 }
 
