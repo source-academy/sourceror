@@ -575,6 +575,9 @@ pub async fn run_frontend<
     //let default_state: compact_state::CompactState<compact_state::FrontendVar> =
     //    builtins::state_with_builtins();
     // contains builtins, e.g. __string_to_number(), and __undefined.
+    // The builtins are encoded as string, e.g. "+", "-", etc, and are all Direct
+    // the mapping is in builtins module, there is a special transformation for unary minus to avoid name clash
+    // todo: also add the automatic imports
     let mut start_idx = 0;
     let (name_ctx, parse_state): (HashMap<String, PreVar>, ParseState) =
         builtin::state_with_builtins(&mut start_idx);

@@ -35,6 +35,10 @@ pub enum ParseProgramError {
     DirectFunctionCaptureError, // direct function tried to capture a non-global variable // todo! store the variable name and declaration location?
     UndeclaredNameError(String), // undeclared variable name (both direct and target)
     UndeclaredExportError(String), // the imported module did not export this name (both direct and target)
+    SourceRestrictionUnaryOperatorError(String), // this unary operator is not allowed
+    SourceRestrictionBinaryOperatorError(String), // this binary operator is not allowed
+    SourceRestrictionLogicalOperatorError(String), // this logical operator is not allowed
+    SourceRestrictionAssignmentOperatorError(String), // this assignment operator is not allowed
 }
 
 /**

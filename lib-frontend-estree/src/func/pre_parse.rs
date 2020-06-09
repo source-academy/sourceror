@@ -185,6 +185,8 @@ fn pre_parse_function<F: Function + Scope>(
 
     name_ctx.remove_scope(undo_ctx);
 
+    *es_func.captured_vars_mut() = clone_varusages(&ret_usages);
+
     Ok(varusage::wrap_closure(ret_usages))
 }
 
@@ -206,6 +208,10 @@ fn split_off_address_taken_vars(
             }
         })
         .collect()
+}
+
+fn clone_varusages(ret_usages: &BTreeMap<VarLocId, Usage>) -> Vec<VarLocId> {
+    ret_usages.iter().map(|(varlocid, _)| *varlocid).collect()
 }
 
 fn pre_parse_statement(
@@ -477,14 +483,12 @@ fn pre_parse_direct_func_decl(
 ) -> Result<BTreeMap<VarLocId, Usage>, CompileMessage<ParseProgramError>> {
     let rhs_expr = pre_parse_function(es_func_decl, loc, name_ctx, depth, filename)?; // parse_function will parse the function body, and transform the result using the function usage transformer.
 
-    // check that there are no captured variables (except globals)
-    if let Some(key) = rhs_expr.keys().next_back() {
-        if key.depth > 0 {
-            return Err(CompileMessage::new_error(
-                loc.into_sl(filename).to_owned(),
-                ParseProgramError::DirectFunctionCaptureError,
-            ));
-        }
+    // check that there are no captured variables (globals are not in the rhs_expr)
+    if !rhs_expr.is_empty() {
+        return Err(CompileMessage::new_error(
+            loc.into_sl(filename).to_owned(),
+            ParseProgramError::DirectFunctionCaptureError,
+        ));
     }
 
     Ok(rhs_expr)
@@ -557,10 +561,9 @@ fn pre_parse_expr(
             pre_parse_identifier_use(identifier, &es_expr.loc, name_ctx, depth, filename)
         }
         NodeKind::Literal(literal) => match literal.value {
-            LiteralValue::String(_)
-            | LiteralValue::Boolean(_)
-            | LiteralValue::Number(_)
-            | LiteralValue::Undefined => Ok(BTreeMap::new()),
+            LiteralValue::String(_) | LiteralValue::Boolean(_) | LiteralValue::Number(_) => {
+                Ok(BTreeMap::new())
+            }
             LiteralValue::Null => Err(CompileMessage::new_error(
                 es_expr.loc.into_sl(filename).to_owned(),
                 ParseProgramError::SourceRestrictionError("Null literal not allowed"),
