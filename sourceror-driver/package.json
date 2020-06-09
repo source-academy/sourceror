@@ -1,6 +1,6 @@
 {
   "name": "sourceror",
-  "version": "1.0.5",
+  "version": "0.6.0",
   "description": "Thing that invokes the Sourceror compiler and supplies the standard library files from libsourceror",
   "dependencies": {
     "@btzy/libsourceror": "^0.0.1",

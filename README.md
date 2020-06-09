@@ -9,10 +9,10 @@ Note: If you just want to play with it and don't want to spend time building it 
 
 Sourceror should be used with [Sourceror Driver](sourceror-driver). On its own, Sourceror only compiles a validated ESTree to WebAssembly.  Sourceror Driver invokes js-slang to convert Source to a validated ESTree, and then invokes Sourceror for the rest of the compilation process.  Sourceror Driver also includes functionality to run the compiled WebAssembly binary.
 
-Sourcerer Driver is packaged as an NPM package `sourcerer` that bundles the compiled WebAssembly module.
+Sourceror Driver is packaged as an NPM package `sourceror` that bundles the compiled WebAssembly module.
 
 ```
-yarn add sourcerer
+yarn add sourceror
 ```
 
 To use in a web project, you need a bundler that can handle loading WebAssembly modules, such as Webpack 4 or above.
@@ -20,7 +20,7 @@ To use in a web project, you need a bundler that can handle loading WebAssembly 
 To use in a Node project, you will need a version of Node that supports loading WebAssembly as an ES module: `--experimental-wasm-modules`.
 
 ```js
-import { compile, run } from "sourcerer";
+import { compile, run } from "sourceror";
 import { createContext } from "js-slang";
 
 function compileAndRun(chapter = 1, code: string) {
@@ -44,16 +44,16 @@ yarn run build
 
 `dist/` and `wasm/` will be created in `sourceror-driver`.
 
-You can then use your locally-built `sourcerer-driver` in another project (such as `cadet-frontend`) by running
+You can then use your locally-built `sourceror-driver` in another project (such as `cadet-frontend`) by running
 
 ```
 yarn link
 ```
 
-in the `sourcerer-driver` directory, and then
+in the `sourceror-driver` directory, and then
 
 ```
-yarn link sourcerer
+yarn link sourceror
 ```
 
 in the root of the other project.
@@ -73,7 +73,3 @@ Note that this native binary will only accept ESTree input, and not Source sourc
 ## Contributing
 
 For minor bugs, you can make a pull request directly.  For larger things and debatable features, please file an issue before spending any substantial amount of time on your feature.
-
-Help is also wanted for various bundling and npm issues:
-- The fact that Sourceror and Sourceror Driver are in separate repositories (and separate npm packages) is weird.  It would be good if Sourceror Driver could be merged into Sourceror.
-- A CLI build of Sourceror Driver would be nice, so that we can have a Source to WebAssembly compiler runnable from the local machine (probably in Node.js).
