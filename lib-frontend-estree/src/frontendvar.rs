@@ -8,6 +8,14 @@ pub struct VarCtx<K, V> {
     map: HashMap<K, V>,
 }
 
+impl<K, V> Default for VarCtx<K, V> {
+    fn default() -> Self {
+        VarCtx {
+            map: Default::default(),
+        }
+    }
+}
+
 impl<K, V> VarCtx<K, V> {
     pub fn new() -> Self {
         VarCtx {

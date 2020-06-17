@@ -192,10 +192,7 @@ impl NodeForEachWithAttributesMut<Node> for [Node] {
 
 pub trait NodeForEachWithAttributesInto<E> {
     fn each_with_attributes_into<
-        F: FnMut(
-            E,
-            HashMap<String, Option<String>>,
-        ) -> Result<(), CompileMessage<ParseProgramError>>,
+        F: FnMut(E, HashMap<String, Option<String>>) -> Result<(), CompileMessage<ParseProgramError>>,
     >(
         self,
         filename: Option<&str>,
@@ -203,7 +200,7 @@ pub trait NodeForEachWithAttributesInto<E> {
     ) -> Result<(), CompileMessage<ParseProgramError>>;
 }
 
-impl<C: IntoIterator<Item=Node>> NodeForEachWithAttributesInto<Node> for C {
+impl<C: IntoIterator<Item = Node>> NodeForEachWithAttributesInto<Node> for C {
     fn each_with_attributes_into<
         F: FnMut(
             Node,
