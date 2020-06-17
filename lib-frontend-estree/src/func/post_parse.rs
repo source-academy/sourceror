@@ -1,11 +1,13 @@
 use super::ParseProgramError;
 use super::ParseState;
-use crate::attributes::NodeForEachWithAttributesMut;
+use crate::attributes::NodeForEachWithAttributes;
 use crate::attributes::NodeForEachWithAttributesInto;
+use crate::attributes::NodeForEachWithAttributesMut;
 use crate::builtins;
 use crate::estree::SourceLocation as esSL;
 use crate::estree::*;
 use crate::extensions::IntoSourceLocation;
+use crate::frontendvar::OverloadSet;
 use ir;
 use projstd::log::CompileMessage;
 use std::collections::HashMap;
@@ -17,6 +19,8 @@ use std::result::Result;
  * and scopes (block and function bodies) know their variables that are address-taken.
  *
  * So the parse_ctx is sufficient to translate the tagged es_program to the relevant additions to the ir_program and ir_toplevel_seq.
+ * Note: parse_ctx will be discarded after this function returns.  By convention,
+ * this function should put parse_ctx to its original state before returning.
  *
  * Note: we do not validate ESTree/SourceRestrictions here, because pre_parse() should have already done it.
  * Here, we forcefully unwrap optionals etc.
@@ -32,7 +36,166 @@ pub fn post_parse_program(
     ir_program: &mut ir::Program,
     ir_toplevel_seq: &mut Vec<ir::Expr>,
 ) -> Result<ParseState, CompileMessage<ParseProgramError>> {
-    unimplemented!();
+    let (body, direct_funcs) = es_program.destructure();
+
+    let mut dep_index = 0;
+
+    // generate the TargetExprs for the globals and imports
+    let target_expr_entries: Vec<(VarLocId, ir::TargetExpr)>;
+    body.each_with_attributes(filename, |es_node, _| {
+        if let Node {
+            loc: _,
+            kind: NodeKind::FunctionDeclaration(func_decl),
+        } = es_node
+        {
+            if let PreVar::Target(varlocid) = as_id_ref(&*func_decl.id).prevar.as_ref().unwrap() {
+                target_expr_entries.push((
+                    *varlocid,
+                    ir::TargetExpr::Global {
+                        globalidx: {
+                            let tmp = ir_program.globals.len();
+                            ir_program.globals.push(ir::VarType::Any);
+                            tmp
+                        },
+                        next: None,
+                    },
+                ))
+            }
+        } else if let Node {
+            loc: _,
+            kind: NodeKind::VariableDeclaration(var_decl),
+        } = es_node
+        {
+            for var_decr_node in var_decl.declarations {
+                let es_var_decr: VariableDeclarator = as_var_decr(var_decr_node);
+                let varlocid = as_varlocid(as_id_ref(&*es_var_decr.id).prevar.unwrap());
+                target_expr_entries.push((
+                    varlocid,
+                    ir::TargetExpr::Global {
+                        globalidx: {
+                            let tmp = ir_program.globals.len();
+                            ir_program.globals.push(ir::VarType::Any);
+                            tmp
+                        },
+                        next: None,
+                    },
+                ))
+            }
+        } else if let Node {
+            loc: _,
+            kind: NodeKind::ImportDeclaration(import_decl),
+        } = es_node
+        {
+            for import_spec_node in &import_decl.specifiers {
+                let import_spec = as_import_spec_ref(&import_spec_node);
+                let source_id = as_id_ref(&*import_spec.source);
+                let local_id = as_id_ref(&*import_spec.local);
+                match local_id.prevar.unwrap() {
+                    PreVar::Target(varlocid) => {
+                        target_expr_entries.push((varlocid, deps[dep_index].get_target(varlocid)))
+                    }
+                    _ => {}
+                }
+            }
+        }
+        Ok(())
+    })?;
+
+    // add these vars to the parse_ctx
+    let target_undo_ctx = parse_ctx.add_targets(target_expr_entries.into_boxed_slice());
+
+    // same as post_parse_scope() START
+
+    // reserve ir::FuncIdx and generate the overload sets for all the directs
+    let direct_entries: Box<[(String, (Box<[ir::VarType]>, ir::FuncIdx))]> = direct_funcs
+        .into_iter()
+        .map(|(s, signature)| {
+            let tmp = ir_program.funcs.len();
+            ir_program.funcs.push(ir::Func::new());
+            (s, (signature, tmp))
+        })
+        .collect();
+
+    // give the ir::FuncIdx to each direct FunctionDeclaration
+    {
+        let mut ct = 0;
+        body.each_with_attributes_mut(filename, |es_node, _| {
+            if let Node {
+                loc: _,
+                kind: NodeKind::FunctionDeclaration(func_decl),
+            } = es_node
+            {
+                if let PreVar::Direct = as_id_ref(&*func_decl.id).prevar.as_ref().unwrap() {
+                    func_decl.direct_props = Some((direct_entries[ct].1).clone());
+                    ct += 1;
+                }
+            }
+            Ok(())
+        })?;
+        assert!(ct == direct_entries.len());
+    }
+
+    // add these direct entries to the parse_ctx
+    let direct_undo_ctx = parse_ctx.add_directs(direct_entries);
+
+    // same as post_parse_scope() END
+
+    // direct functions that are imported
+    let direct_imports: Vec<(String, OverloadSet<(Box<[ir::VarType]>, ir::FuncIdx)>)> = Vec::new();
+    body.each_with_attributes(filename, |es_node, _| {
+        if let Node {
+            loc: _,
+            kind: NodeKind::ImportDeclaration(import_decl),
+        } = es_node
+        {
+            for import_spec_node in &import_decl.specifiers {
+                let import_spec = as_import_spec_ref(import_spec_node);
+                let source_id = as_id_ref(&*import_spec.source);
+                let local_id = as_id_ref(&*import_spec.local);
+                match local_id.prevar.unwrap() {
+                    PreVar::Direct => direct_imports.push((
+                        local_id.name,
+                        deps[dep_index].get_direct(local_id.name.as_str()).clone(),
+                    )),
+                    _ => {}
+                }
+            }
+        }
+        Ok(())
+    })?;
+
+    // add the direct functions imported
+    let direct_import_undo_ctx = parse_ctx.add_direct_overloadsets(direct_imports);
+
+    // for the exports
+    let mut exports: ParseState = Default::default();
+
+    // emit the body
+    body.each_with_attributes_into(filename, |es_node, attr| {
+        let ir_expr: ir::Expr = post_parse_toplevel_statement(
+            es_node,
+            attr,
+            parse_ctx,
+            deps,
+            &mut 0, // wow, this compiles!
+            filename,
+            ir_program,
+            &mut exports,
+        )?;
+        ir_toplevel_seq.push(ir_expr);
+        Ok(())
+    })?;
+
+    // remove the direct import overloadsets
+    parse_ctx.remove_direct_overloadsets(direct_import_undo_ctx);
+
+    // remove the direct entries from the parse_ctx
+    parse_ctx.remove_directs(direct_undo_ctx);
+
+    // remove the vars from the parse_ctx
+    parse_ctx.remove_targets(target_undo_ctx);
+
+    Ok(exports)
 }
 
 /**
@@ -102,6 +265,8 @@ fn post_parse_scope<S: Scope, PE: ScopePrefixEmitter>(
     // add these vars to the parse_ctx
     let target_undo_ctx = parse_ctx.add_targets(target_expr_entries);
 
+    // same as post_parse_program() START
+
     // reserve ir::FuncIdx and generate the overload sets for all the directs
     let direct_entries: Box<[(String, (Box<[ir::VarType]>, ir::FuncIdx))]> = direct_funcs
         .into_iter()
@@ -133,6 +298,8 @@ fn post_parse_scope<S: Scope, PE: ScopePrefixEmitter>(
 
     // add these direct entries to the parse_ctx
     let direct_undo_ctx = parse_ctx.add_directs(direct_entries);
+
+    // same as post_parse_program() END
 
     // make the actual ir:
     let mut sequence: Vec<ir::Expr> = Vec::new();
@@ -813,17 +980,147 @@ fn post_parse_statement<I: Iterator<Item = (Node, HashMap<String, Option<String>
             filename,
             ir_program,
         ),
-        NodeKind::EmptyStatement(_) => Ok((
-            ir::Expr {
-                vartype: Some(ir::VarType::Undefined),
-                kind: ir::ExprKind::Sequence {
-                    content: Vec::new(),
-                },
-            },
-            more_stmt_attr_iter,
-        )), // todo! IR optimisation should prune empty statments
+        NodeKind::EmptyStatement(_) => Ok((make_prim_undefined(), more_stmt_attr_iter)), // todo! IR optimisation should prune empty statments
         _ => pppanic(),
     }
+}
+
+fn post_parse_toplevel_statement(
+    es_node: Node,
+    attributes: HashMap<String, Option<String>>,
+    parse_ctx: &mut ParseState,
+    deps: &[&ParseState],
+    dep_curr_index: &mut usize,
+    filename: Option<&str>,
+    ir_program: &mut ir::Program,
+    exports: &mut ParseState,
+) -> Result<ir::Expr, CompileMessage<ParseProgramError>> {
+    // We do not validate constraints or anything else (pre_parse should have done it)
+    // This function should be like post_parse_statement(), but all declarations
+    // become global assignments (ir_program.globals should be modified by this function to add the new globals)
+    // Also import statments to add names into `parse_ctx`, while export statements to add names to `exports`.
+
+    // we do not validate constraints or anything else (pre_parse should have done it)
+    match es_node.kind {
+        NodeKind::ExpressionStatement(stmt) => {
+            post_parse_expr_statement(stmt, es_node.loc, parse_ctx, 0, 0, filename, ir_program)
+        }
+        NodeKind::BlockStatement(block) => {
+            post_parse_block_statement(block, es_node.loc, parse_ctx, 0, 0, filename, ir_program)
+        }
+        NodeKind::ReturnStatement(stmt) => {
+            post_parse_return_statement(stmt, es_node.loc, parse_ctx, 0, 0, filename, ir_program)
+        }
+        NodeKind::IfStatement(stmt) => {
+            post_parse_if_statement(stmt, es_node.loc, parse_ctx, 0, 0, filename, ir_program)
+        }
+        NodeKind::FunctionDeclaration(func_decl) => {
+            if attributes.get("direct").is_some() {
+                // direct func declarations do not generate any ir::Expr in the current context
+                // the current block is only used for scoping rules.
+                post_parse_direct_func_decl(
+                    func_decl,
+                    es_node.loc,
+                    parse_ctx,
+                    0,
+                    0,
+                    filename,
+                    ir_program,
+                )?;
+                Ok(make_prim_undefined())
+            } else {
+                let varlocid = as_varlocid(as_id(*func_decl.id).prevar.unwrap());
+                let rhs_expr: ir::Expr = post_parse_function(
+                    func_decl,
+                    es_node.loc,
+                    parse_ctx,
+                    0,
+                    0,
+                    filename,
+                    ir_program,
+                )?;
+
+                Ok(ir::Expr {
+                    vartype: Some(ir::VarType::Undefined),
+                    kind: ir::ExprKind::Assign {
+                        target: parse_ctx.get_target(varlocid).unwrap(),
+                        expr: Box::new(rhs_expr),
+                    },
+                })
+            }
+        }
+
+        NodeKind::VariableDeclaration(var_decl) => {
+            post_parse_toplevel_var_decl(var_decl, es_node.loc, parse_ctx, filename, ir_program)
+        }
+        NodeKind::ImportDeclaration(import_decl) => {
+            /*post_parse_toplevel_import_decl(
+                import_decl,
+                es_node.loc,
+                parse_ctx,
+                deps[{
+                    let tmp = *dep_curr_index;
+                    *dep_curr_index += 1;
+                    tmp
+                }],
+                filename,
+            )?;*/
+            Ok(make_prim_undefined())
+        }
+        NodeKind::ExportNamedDeclaration(export_decl) => {
+            post_parse_toplevel_export_decl(
+                export_decl,
+                es_node.loc,
+                parse_ctx,
+                filename,
+                exports,
+            )?;
+            Ok(make_prim_undefined())
+        }
+        NodeKind::EmptyStatement(_) => Ok(make_prim_undefined()), // todo! IR optimisation should prune empty statments
+        _ => pppanic(),
+    }
+}
+
+/*fn post_parse_toplevel_import_decl(
+    es_import_decl: ImportDeclaration,
+    loc: Option<esSL>,
+    parse_ctx: &mut ParseState,
+    dep: &ParseState,
+    filename: Option<&str>,
+) -> Result<(), CompileMessage<ParseProgramError>> {
+    for import_spec_node in es_import_decl.specifiers {
+        let import_spec = as_import_spec(import_spec_node);
+        let source_id = as_id(*import_spec.source);
+        let local_id = as_id(*import_spec.local);
+
+    }
+}*/
+
+fn post_parse_toplevel_export_decl(
+    es_export_decl: ExportNamedDeclaration,
+    loc: Option<esSL>,
+    parse_ctx: &ParseState,
+    filename: Option<&str>,
+    exports: &mut ParseState,
+) -> Result<(), CompileMessage<ParseProgramError>> {
+    for export_spec_node in es_export_decl.specifiers {
+        let export_spec = as_export_spec(export_spec_node);
+        let exported_id = as_id(*export_spec.exported);
+        let local_id = as_id(*export_spec.local);
+        match local_id.prevar.unwrap() {
+            PreVar::Target(varlocid) => {
+                exports.add_target(varlocid, parse_ctx.get_target(varlocid).clone());
+            }
+            PreVar::Direct => {
+                exports.add_direct(
+                    local_id.name,
+                    parse_ctx.get_direct(local_id.name.as_str()).clone(),
+                );
+            }
+        }
+    }
+    Ok(())
 }
 
 fn post_parse_expr_statement(
@@ -1226,6 +1523,57 @@ fn post_parse_decl_helper<
             ret_fwd,
         ))
     }
+}
+
+fn post_parse_toplevel_var_decl(
+    es_var_decl: VariableDeclaration,
+    loc: Option<esSL>,
+    parse_ctx: &mut ParseState,
+    filename: Option<&str>,
+    ir_program: &mut ir::Program,
+) -> Result<ir::Expr, CompileMessage<ParseProgramError>> {
+    // Since post_parse_statement only allows returning a single ir::Expr, we have to stuff these things into a sequence.
+    let ret: Vec<ir::Expr> = es_var_decl
+        .declarations
+        .into_iter()
+        .map(|decr_node| {
+            let es_var_decr: VariableDeclarator = as_var_decr(decr_node);
+            let varlocid = as_varlocid(as_id(*es_var_decr.id).prevar.unwrap());
+            let rhs_expr: ir::Expr = post_parse_expr(
+                *es_var_decr.init.unwrap(),
+                parse_ctx,
+                0,
+                0,
+                filename,
+                ir_program,
+            )?;
+            Ok(ir::Expr {
+                vartype: Some(ir::VarType::Undefined),
+                kind: ir::ExprKind::Assign {
+                    target: parse_ctx.get_target(varlocid).unwrap(),
+                    expr: Box::new(rhs_expr),
+                },
+            })
+        })
+        .collect::<Result<Vec<ir::Expr>, CompileMessage<ParseProgramError>>>()?;
+
+    // This is an optimisation... most of the time we won't need a sequence because there is only one declaration.
+    assert!(!ret.is_empty());
+    Ok(if ret.len() == 1 {
+        // if there is only one declaration, just return it
+        ret[0]
+    } else {
+        // if there are more than one declarations, pack it into a sequence and return the sequence
+
+        ret.push(make_prim_undefined());
+
+        let ir_seq_expr = ir::Expr {
+            vartype: Some(ir::VarType::Undefined),
+            kind: ir::ExprKind::Sequence { content: ret },
+        };
+
+        ir_seq_expr
+    })
 }
 
 fn post_parse_expr(
@@ -1709,8 +2057,40 @@ fn as_var_decr(es_node: Node) -> VariableDeclarator {
     }
 }
 
+fn as_import_spec(es_node: Node) -> ImportSpecifier {
+    if let NodeKind::ImportSpecifier(import_spec) = es_node.kind {
+        import_spec
+    } else {
+        pppanic();
+    }
+}
+
+fn as_import_spec_ref(es_node: &Node) -> &ImportSpecifier {
+    if let NodeKind::ImportSpecifier(import_spec) = es_node.kind {
+        import_spec
+    } else {
+        pppanic();
+    }
+}
+
+fn as_export_spec(es_node: Node) -> ExportSpecifier {
+    if let NodeKind::ExportSpecifier(export_spec) = es_node.kind {
+        export_spec
+    } else {
+        pppanic();
+    }
+}
+
 fn as_id(es_node: Node) -> Identifier {
-    if let NodeKind::Identifier(id) = es_node.kind {
+    if let NodeKind::Identifier(id) = &es_node.kind {
+        id
+    } else {
+        pppanic();
+    }
+}
+
+fn as_id_ref(es_node: &Node) -> &Identifier {
+    if let NodeKind::Identifier(id) = &es_node.kind {
         id
     } else {
         pppanic();

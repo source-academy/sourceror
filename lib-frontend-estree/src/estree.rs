@@ -85,6 +85,9 @@ pub enum LiteralValue {
 #[derive(Deserialize, Debug)]
 pub struct Program {
     pub body: Vec<Node>,
+    #[serde(skip)]
+    pub direct_funcs: Vec<(String, Box<[ir::VarType]>)>, // list of direct functions, populated by pre_parse()
+                                                         // todo! populate direct_funcs
 }
 
 #[derive(Deserialize, Debug)]
@@ -377,6 +380,12 @@ impl Scope for ArrowFunctionExpression {
             self.address_taken_vars,
             Vec::new(),
         )
+    }
+}
+
+impl Program {
+    pub fn destructure(self) -> (Vec<Node>, Vec<(String, Box<[ir::VarType]>)>) {
+        (self.body, self.direct_funcs)
     }
 }
 
