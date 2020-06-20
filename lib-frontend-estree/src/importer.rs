@@ -1,4 +1,6 @@
-use crate::compact_state;
+use super::frontendvar::*;
+use super::ParseState;
+use super::ProgramPreExports;
 use crate::error::ImportsParseError;
 use ir::Import;
 use ir::ImportValType;
@@ -144,7 +146,7 @@ fn make_vartype(type_name: &str) -> Option<ImportValType> {
     }
 }
 
-pub fn add_import_spec_to_state(
+/*pub fn add_import_spec_to_state(
     state: &mut compact_state::CompactState<compact_state::FrontendVar>,
     import_spec: ImportSpec,
     order: usize,
@@ -161,4 +163,29 @@ pub fn add_import_spec_to_state(
         };
         state.insert(name, compact_state::FrontendVar::new_overload(overload));
     }
+}*/
+
+pub fn make_export_state(
+    import_spec: ImportSpec,
+    order: usize,
+    import_funcidx_map: &HashMap<ir::Import, ir::FuncIdx>,
+) -> (ProgramPreExports, ParseState) {
+    let pre_exports: ProgramPreExports = VarCtx::new();
+    let parse_ctx: ParseState = ParseState::default();
+
+    for (name, import) in import_spec.content {
+        // note: we can safely unwrap because it is guaranteed to exist (because we added it in earlier)
+
+        let ir_params: Box<[ir::VarType]> =
+            import.params.into_iter().map(|p| (*p).into()).collect();
+
+        // pre_exports
+        pre_exports.coalesce(name.clone(), VarValue::new_direct(ir_params.clone()));
+
+        // parse_ctx
+        let funcidx = *import_funcidx_map.get(&import).unwrap();
+        parse_ctx.add_direct(name, OverloadSet::from_single((ir_params, funcidx)));
+    }
+
+    (pre_exports, parse_ctx)
 }
