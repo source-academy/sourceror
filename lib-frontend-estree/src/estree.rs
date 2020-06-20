@@ -389,13 +389,13 @@ impl Program {
     }
 }
 
-#[derive(PartialEq, Eq, Copy, Clone, PartialOrd, Ord, Debug)]
+#[derive(PartialEq, Eq, Copy, Clone, PartialOrd, Ord, Hash, Debug)]
 pub struct VarLocId {
     pub depth: usize, // depth of 0 means it is a global
     pub index: usize,
 }
 
-#[derive(PartialEq, Eq, Copy, Clone, PartialOrd, Ord, Debug)]
+#[derive(PartialEq, Eq, Copy, Clone, PartialOrd, Ord, Hash, Debug)]
 pub enum PreVar {
     Target(VarLocId),
     Direct,

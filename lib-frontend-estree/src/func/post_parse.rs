@@ -38,68 +38,116 @@ pub fn post_parse_program(
 ) -> Result<ParseState, CompileMessage<ParseProgramError>> {
     let (body, direct_funcs) = es_program.destructure();
 
-    let mut dep_index = 0;
+    // direct functions that are imported
+    let direct_imports: Vec<(String, OverloadSet<(Box<[ir::VarType]>, ir::FuncIdx)>)> = Vec::new();
+    {
+        let mut dep_index = 0;
+        body.each_with_attributes(filename, |es_node, _| {
+            if let Node {
+                loc: _,
+                kind: NodeKind::ImportDeclaration(import_decl),
+            } = es_node
+            {
+                for import_spec_node in &import_decl.specifiers {
+                    let import_spec = as_import_spec_ref(import_spec_node);
+                    let source_id = as_id_ref(&*import_spec.source);
+                    let local_id = as_id_ref(&*import_spec.local);
+                    match local_id.prevar.unwrap() {
+                        PreVar::Direct => direct_imports.push((
+                            local_id.name,
+                            deps[{
+                                let tmp = dep_index;
+                                dep_index += 1;
+                                tmp
+                            }]
+                            .get_direct(local_id.name.as_str())
+                            .unwrap()
+                            .clone(),
+                        )),
+                        _ => {}
+                    }
+                }
+            }
+            Ok(())
+        })?;
+    }
+
+    // add the direct functions imported
+    let direct_import_undo_ctx =
+        parse_ctx.add_direct_overloadsets(direct_imports.into_boxed_slice());
 
     // generate the TargetExprs for the globals and imports
     let target_expr_entries: Vec<(VarLocId, ir::TargetExpr)>;
-    body.each_with_attributes(filename, |es_node, _| {
-        if let Node {
-            loc: _,
-            kind: NodeKind::FunctionDeclaration(func_decl),
-        } = es_node
-        {
-            if let PreVar::Target(varlocid) = as_id_ref(&*func_decl.id).prevar.as_ref().unwrap() {
-                target_expr_entries.push((
-                    *varlocid,
-                    ir::TargetExpr::Global {
-                        globalidx: {
-                            let tmp = ir_program.globals.len();
-                            ir_program.globals.push(ir::VarType::Any);
-                            tmp
+    {
+        let mut dep_index = 0;
+        body.each_with_attributes(filename, |es_node, _| {
+            if let Node {
+                loc: _,
+                kind: NodeKind::FunctionDeclaration(func_decl),
+            } = es_node
+            {
+                if let PreVar::Target(varlocid) = as_id_ref(&*func_decl.id).prevar.as_ref().unwrap()
+                {
+                    target_expr_entries.push((
+                        *varlocid,
+                        ir::TargetExpr::Global {
+                            globalidx: {
+                                let tmp = ir_program.globals.len();
+                                ir_program.globals.push(ir::VarType::Any);
+                                tmp
+                            },
+                            next: None,
                         },
-                        next: None,
-                    },
-                ))
-            }
-        } else if let Node {
-            loc: _,
-            kind: NodeKind::VariableDeclaration(var_decl),
-        } = es_node
-        {
-            for var_decr_node in var_decl.declarations {
-                let es_var_decr: VariableDeclarator = as_var_decr(var_decr_node);
-                let varlocid = as_varlocid(as_id_ref(&*es_var_decr.id).prevar.unwrap());
-                target_expr_entries.push((
-                    varlocid,
-                    ir::TargetExpr::Global {
-                        globalidx: {
-                            let tmp = ir_program.globals.len();
-                            ir_program.globals.push(ir::VarType::Any);
-                            tmp
+                    ))
+                }
+            } else if let Node {
+                loc: _,
+                kind: NodeKind::VariableDeclaration(var_decl),
+            } = es_node
+            {
+                for var_decr_node in var_decl.declarations {
+                    let es_var_decr: VariableDeclarator = as_var_decr(var_decr_node);
+                    let varlocid = as_varlocid(as_id_ref(&*es_var_decr.id).prevar.unwrap());
+                    target_expr_entries.push((
+                        varlocid,
+                        ir::TargetExpr::Global {
+                            globalidx: {
+                                let tmp = ir_program.globals.len();
+                                ir_program.globals.push(ir::VarType::Any);
+                                tmp
+                            },
+                            next: None,
                         },
-                        next: None,
-                    },
-                ))
-            }
-        } else if let Node {
-            loc: _,
-            kind: NodeKind::ImportDeclaration(import_decl),
-        } = es_node
-        {
-            for import_spec_node in &import_decl.specifiers {
-                let import_spec = as_import_spec_ref(&import_spec_node);
-                let source_id = as_id_ref(&*import_spec.source);
-                let local_id = as_id_ref(&*import_spec.local);
-                match local_id.prevar.unwrap() {
-                    PreVar::Target(varlocid) => {
-                        target_expr_entries.push((varlocid, deps[dep_index].get_target(varlocid)))
+                    ))
+                }
+            } else if let Node {
+                loc: _,
+                kind: NodeKind::ImportDeclaration(import_decl),
+            } = es_node
+            {
+                for import_spec_node in &import_decl.specifiers {
+                    let import_spec = as_import_spec_ref(&import_spec_node);
+                    let source_id = as_id_ref(&*import_spec.source);
+                    let local_id = as_id_ref(&*import_spec.local);
+                    match local_id.prevar.as_ref().unwrap() {
+                        PreVar::Target(varlocid) => target_expr_entries.push((
+                            *varlocid,
+                            deps[{
+                                let tmp = dep_index;
+                                dep_index += 1;
+                                tmp
+                            }]
+                            .get_target(varlocid)
+                            .unwrap()
+                            .clone(),
+                        )),
+                        _ => {}
                     }
-                    _ => {}
                 }
             }
-        }
-        Ok(())
-    })?;
+            Ok(())
+        })?;
+    }
 
     // add these vars to the parse_ctx
     let target_undo_ctx = parse_ctx.add_targets(target_expr_entries.into_boxed_slice());
@@ -140,33 +188,6 @@ pub fn post_parse_program(
 
     // same as post_parse_scope() END
 
-    // direct functions that are imported
-    let direct_imports: Vec<(String, OverloadSet<(Box<[ir::VarType]>, ir::FuncIdx)>)> = Vec::new();
-    body.each_with_attributes(filename, |es_node, _| {
-        if let Node {
-            loc: _,
-            kind: NodeKind::ImportDeclaration(import_decl),
-        } = es_node
-        {
-            for import_spec_node in &import_decl.specifiers {
-                let import_spec = as_import_spec_ref(import_spec_node);
-                let source_id = as_id_ref(&*import_spec.source);
-                let local_id = as_id_ref(&*import_spec.local);
-                match local_id.prevar.unwrap() {
-                    PreVar::Direct => direct_imports.push((
-                        local_id.name,
-                        deps[dep_index].get_direct(local_id.name.as_str()).clone(),
-                    )),
-                    _ => {}
-                }
-            }
-        }
-        Ok(())
-    })?;
-
-    // add the direct functions imported
-    let direct_import_undo_ctx = parse_ctx.add_direct_overloadsets(direct_imports);
-
     // for the exports
     let mut exports: ParseState = Default::default();
 
@@ -177,7 +198,6 @@ pub fn post_parse_program(
             attr,
             parse_ctx,
             deps,
-            &mut 0, // wow, this compiles!
             filename,
             ir_program,
             &mut exports,
@@ -186,14 +206,14 @@ pub fn post_parse_program(
         Ok(())
     })?;
 
-    // remove the direct import overloadsets
-    parse_ctx.remove_direct_overloadsets(direct_import_undo_ctx);
-
     // remove the direct entries from the parse_ctx
     parse_ctx.remove_directs(direct_undo_ctx);
 
     // remove the vars from the parse_ctx
     parse_ctx.remove_targets(target_undo_ctx);
+
+    // remove the direct import overloadsets
+    parse_ctx.remove_direct_overloadsets(direct_import_undo_ctx);
 
     Ok(exports)
 }
@@ -613,7 +633,7 @@ fn post_parse_direct_function(
     assert!(num_params == ir_params.len());
     //let es_params = std::mem::take(&mut es_func.params);
 
-    let undo_ctx = parse_ctx.enter_closure(Vec::new()); // new closure with no non-global Target entries in the parse_ctx
+    let undo_ctx = parse_ctx.enter_closure(Box::new([])); // new closure with no non-global Target entries in the parse_ctx
 
     let ir_func_body: ir::Expr = make_function_body(
         es_func,
@@ -790,13 +810,12 @@ fn post_parse_function<Func: Function>(
 
     // generate the new ir::VarTypes for VarCtx
     // the TargetExprs for access from inside the new function
-    let new_targets_for_parse_ctx: Vec<(VarLocId, ir::TargetExpr)> = es_captured_vars
-        .iter()
-        .copied()
+    let new_targets_for_parse_ctx: Box<[(VarLocId, ir::TargetExpr)]> = es_captured_vars
+        .into_iter()
         .enumerate()
         .map(|(i, varlocid)| {
             if let ir::TargetExpr::Local { localidx: _, next } =
-                parse_ctx.get_target(varlocid).unwrap()
+                parse_ctx.get_target(&varlocid).unwrap()
             {
                 (
                     varlocid,
@@ -990,7 +1009,6 @@ fn post_parse_toplevel_statement(
     attributes: HashMap<String, Option<String>>,
     parse_ctx: &mut ParseState,
     deps: &[&ParseState],
-    dep_curr_index: &mut usize,
     filename: Option<&str>,
     ir_program: &mut ir::Program,
     exports: &mut ParseState,
@@ -1043,7 +1061,7 @@ fn post_parse_toplevel_statement(
                 Ok(ir::Expr {
                     vartype: Some(ir::VarType::Undefined),
                     kind: ir::ExprKind::Assign {
-                        target: parse_ctx.get_target(varlocid).unwrap(),
+                        target: parse_ctx.get_target(&varlocid).unwrap().clone(),
                         expr: Box::new(rhs_expr),
                     },
                 })
@@ -1053,20 +1071,7 @@ fn post_parse_toplevel_statement(
         NodeKind::VariableDeclaration(var_decl) => {
             post_parse_toplevel_var_decl(var_decl, es_node.loc, parse_ctx, filename, ir_program)
         }
-        NodeKind::ImportDeclaration(import_decl) => {
-            /*post_parse_toplevel_import_decl(
-                import_decl,
-                es_node.loc,
-                parse_ctx,
-                deps[{
-                    let tmp = *dep_curr_index;
-                    *dep_curr_index += 1;
-                    tmp
-                }],
-                filename,
-            )?;*/
-            Ok(make_prim_undefined())
-        }
+        NodeKind::ImportDeclaration(import_decl) => Ok(make_prim_undefined()),
         NodeKind::ExportNamedDeclaration(export_decl) => {
             post_parse_toplevel_export_decl(
                 export_decl,
@@ -1110,12 +1115,15 @@ fn post_parse_toplevel_export_decl(
         let local_id = as_id(*export_spec.local);
         match local_id.prevar.unwrap() {
             PreVar::Target(varlocid) => {
-                exports.add_target(varlocid, parse_ctx.get_target(varlocid).clone());
+                exports.add_target(varlocid, parse_ctx.get_target(&varlocid).unwrap().clone());
             }
             PreVar::Direct => {
                 exports.add_direct(
                     local_id.name,
-                    parse_ctx.get_direct(local_id.name.as_str()).clone(),
+                    parse_ctx
+                        .get_direct(local_id.name.as_str())
+                        .unwrap()
+                        .clone(),
                 );
             }
         }
@@ -1461,13 +1469,13 @@ fn post_parse_decl_helper<
     filename: Option<&str>,
     ir_program: &mut ir::Program,
 ) -> Result<(ir::Expr, R), CompileMessage<ParseProgramError>> {
-    if let Some(target_expr) = parse_ctx.get_target(varlocid) {
+    if let Some(target_expr) = parse_ctx.get_target(&varlocid) {
         // target already exists... it must be address-taken
         // so emit an assignment statement with that target_expr
         let ret_expr = ir::Expr {
             vartype: Some(ir::VarType::Undefined),
             kind: ir::ExprKind::Assign {
-                target: target_expr,
+                target: target_expr.clone(),
                 expr: Box::new(es_rhs_expr),
             },
         };
@@ -1550,7 +1558,7 @@ fn post_parse_toplevel_var_decl(
             Ok(ir::Expr {
                 vartype: Some(ir::VarType::Undefined),
                 kind: ir::ExprKind::Assign {
-                    target: parse_ctx.get_target(varlocid).unwrap(),
+                    target: parse_ctx.get_target(&varlocid).unwrap().clone(),
                     expr: Box::new(rhs_expr),
                 },
             })
@@ -1685,7 +1693,7 @@ fn post_parse_varname(
             Ok(ir::Expr {
                 vartype: Some(ir::VarType::Any),
                 kind: ir::ExprKind::VarName {
-                    source: parse_ctx.get_target(varlocid),
+                    source: parse_ctx.get_target(&varlocid).unwrap().clone(),
                 },
             })
         }
@@ -1715,12 +1723,13 @@ fn post_parse_direct_varname(
 ) -> Result<ir::Expr, CompileMessage<ParseProgramError>> {
     let funcidxs: Box<[ir::OverloadEntry]> = parse_ctx
         .get_direct(name)
+        .as_ref()
         .unwrap()
         .signatures
         .iter()
         .map(|(sig, funcidx)| ir::OverloadEntry {
             signature: sig.clone(),
-            funcidx: funcidx,
+            funcidx: *funcidx,
             has_closure_param: false,
         })
         .collect();
@@ -1867,7 +1876,7 @@ fn post_parse_assign_expr(
     Ok(ir::Expr {
         vartype: Some(ir::VarType::Undefined),
         kind: ir::ExprKind::Assign {
-            target: parse_ctx.get_target(varlocid),
+            target: parse_ctx.get_target(&varlocid).unwrap().clone(),
             expr: Box::new(post_parse_expr(
                 *es_assign_expr.right,
                 parse_ctx,
@@ -2066,7 +2075,7 @@ fn as_import_spec(es_node: Node) -> ImportSpecifier {
 }
 
 fn as_import_spec_ref(es_node: &Node) -> &ImportSpecifier {
-    if let NodeKind::ImportSpecifier(import_spec) = es_node.kind {
+    if let NodeKind::ImportSpecifier(import_spec) = &es_node.kind {
         import_spec
     } else {
         pppanic();
@@ -2082,7 +2091,7 @@ fn as_export_spec(es_node: Node) -> ExportSpecifier {
 }
 
 fn as_id(es_node: Node) -> Identifier {
-    if let NodeKind::Identifier(id) = &es_node.kind {
+    if let NodeKind::Identifier(id) = es_node.kind {
         id
     } else {
         pppanic();

@@ -8,7 +8,9 @@ mod extensions;
 mod frontendvar;
 mod func;
 mod importer;
+mod parse_state;
 mod typecheck;
+mod vartype_superset;
 
 use async_trait::async_trait;
 use error::*;
@@ -426,12 +428,8 @@ impl IntoIdentifierName for Node {
 // START OF NEW THINGS
 
 pub type ProgramPreExports = VarCtx<String, VarValue<VarLocId, Box<[ir::VarType]>>>;
-pub type ParseState = (
-    HashMap<VarLocId, ir::TargetExpr>, // for the Targets
-    VarCtx<String, OverloadSet<(Box<[ir::VarType]>, ir::FuncIdx)>>, // for the Directs
-);
+pub type ParseState = parse_state::ParseState;
 // note: ProgramExports is kept in increasing order of VarLocId (in its natural ordering)
-// the ParseState.0 stores the Targets, and ParseState.1 stores the Directs.
 
 enum SourceItem {
     ESTree(estree::Node),
