@@ -113,17 +113,19 @@ impl<T> Graph<T> {
     }
     pub fn topological_traverse_state_into<
         S,
-        F: FnMut(usize, Box<[&S]>, T, Option<String>) -> S,
+        E,
+        F: FnMut(usize, Box<[&S]>, T, Option<String>) -> Result<S, E>,
     >(
         self,
         f: F,
-    ) {
+    ) -> Result<(), E> {
         let mut states: Vec<S> = Vec::new();
         states.reserve(self.nodes.len());
         for (i, node) in self.nodes.into_iter().enumerate() {
             let depstates: Box<[&S]> = node.deps.into_iter().map(|x| &states[x]).collect();
-            states[i] = f(i, depstates, node.content, node.name);
+            states[i] = f(i, depstates, node.content, node.name)?;
         }
+        Ok(())
     }
 
     /*

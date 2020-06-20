@@ -1,15 +1,9 @@
 use super::ParseState;
 use super::ProgramPreExports;
-use crate::attributes::NodeForEachWithAttributes;
 use crate::estree::*;
 use crate::extensions::IntoSourceLocation;
 use ir;
 use projstd::log::CompileMessage;
-use projstd::log::LogErr;
-use projstd::log::Logger;
-use projstd::log::Severity;
-use projstd::log::SourceLocationRef as plSLRef;
-use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 
 mod constraint;
@@ -40,10 +34,75 @@ pub enum ParseProgramError {
     SourceRestrictionAssignmentOperatorError(String), // this assignment operator is not allowed
 }
 
+impl std::fmt::Display for ParseProgramError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ParseProgramError::ESTreeError(reason) => write!(f, "ESTree semantics: {}", reason),
+            ParseProgramError::SourceRestrictionError(reason) => {
+                write!(f, "Source restriction: {}", reason)
+            }
+            ParseProgramError::DuplicateDeclarationError(varname) => {
+                write!(f, "Duplicate declaration of `{}'", varname)
+            }
+            ParseProgramError::DuplicateExportError(varname) => {
+                write!(f, "Duplicate export of `{}'", varname)
+            }
+            ParseProgramError::DanglingAttributeError => {
+                write!(f, "This attribute is not associated with any statement")
+            }
+            ParseProgramError::AttributeNotStringLiteralError => {
+                write!(f, "RHS of attribute declaration must be a string literal")
+            }
+            ParseProgramError::AttributeParseError => write!(
+                f,
+                "Attribute declaration string is not in the correct format"
+            ),
+            ParseProgramError::AttributeContentError(reason) => {
+                write!(f, "Attribute content: {}", reason)
+            }
+            ParseProgramError::AttributeUnrecognizedError(key) => {
+                write!(f, "Unrecognized attribute `{}'", key)
+            }
+            ParseProgramError::DirectFunctionCaptureError => write!(
+                f,
+                "Direct function must not capture any non-global variables"
+            ),
+            ParseProgramError::UndeclaredNameError(varname) => {
+                write!(f, "Undeclared name `{}'", varname)
+            }
+            ParseProgramError::UndeclaredExportError(varname) => write!(
+                f,
+                "Could not find an export called `{}' in the imported module",
+                varname
+            ),
+            ParseProgramError::SourceRestrictionUnaryOperatorError(op) => write!(
+                f,
+                "Source restriction: Unary operator `{}' is not allowed",
+                op
+            ),
+            ParseProgramError::SourceRestrictionBinaryOperatorError(op) => write!(
+                f,
+                "Source restriction: Binary operator `{}' is not allowed",
+                op
+            ),
+            ParseProgramError::SourceRestrictionLogicalOperatorError(op) => write!(
+                f,
+                "Source restriction: Logical operator `{}' is not allowed",
+                op
+            ),
+            ParseProgramError::SourceRestrictionAssignmentOperatorError(op) => write!(
+                f,
+                "Source restriction: Compound assignment operator `{}' is not allowed",
+                op
+            ),
+        }
+    }
+}
+
 /**
  * Parse a estree::Node that represents a whole source file.
  */
-pub fn parse_program<L: Logger>(
+pub fn parse_program(
     default_name_ctx: &HashMap<String, PreVar>, // pre-declared Source names
     default_parse_state: &ParseState,           // already parsed automatic imports
     es_program_node: Node,
@@ -51,7 +110,6 @@ pub fn parse_program<L: Logger>(
     start_idx: &mut usize,
     filename: Option<String>,
     order: usize,
-    logger: &L,
     ir_program: &mut ir::Program,
     ir_toplevel_seq: &mut Vec<ir::Expr>,
 ) -> Result<(ProgramPreExports, ParseState), CompileMessage<ParseProgramError>> {
