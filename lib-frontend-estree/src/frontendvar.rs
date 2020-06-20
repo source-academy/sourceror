@@ -54,15 +54,43 @@ impl<K: Hash + Eq, V: Append<V>> VarCtx<K, V> {
     }
 }
 
-impl<K: Hash + Eq, V: Append<V>> VarCtx<K, V> {
+impl<K: Hash + Eq, V> VarCtx<K, V> {
     /**
      * Gets the value with this key.
      */
-    pub fn get<Q: Hash + Eq + ?Sized>(&mut self, k: &Q) -> Option<&V>
+    pub fn get<Q: Hash + Eq + ?Sized>(&self, k: &Q) -> Option<&V>
     where
         K: Borrow<Q>,
     {
-        self.get(k)
+        self.map.get(k)
+    }
+}
+
+impl<K: Hash + Eq, V: Clone> VarCtx<K, V> {
+    /**
+     * Returns a copy of the value that can be restored later.
+     */
+    pub fn save<Q: Hash + Eq + ?Sized>(&self, k: &Q) -> Option<V>
+    where
+        K: Borrow<Q>,
+    {
+        self.map.get(k).cloned()
+    }
+    /**
+     * Restore the value from the copy.
+     */
+    pub fn restore<Q: Hash + Eq + ?Sized>(&mut self, k: &Q, opt_v: Option<V>)
+    where
+        K: Borrow<Q>,
+    {
+        match opt_v {
+            Some(v) => {
+                *self.map.get_mut(k).unwrap() = v;
+            }
+            None => {
+                self.map.remove(k);
+            }
+        }
     }
 }
 

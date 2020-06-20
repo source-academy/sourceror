@@ -16,7 +16,6 @@ mod constraint;
 mod post_parse;
 mod pre_parse;
 mod undoable_hash_map;
-mod vartype_superset;
 mod varusage;
 
 pub enum ParseProgramError {
