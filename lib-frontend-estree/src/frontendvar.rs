@@ -153,12 +153,17 @@ impl<T, O: Superset> Append<VarValue<T, O>> for VarValue<T, O> {
  * Each signature must have a unique set of params, and they should be all 'useful'.
  * It is resolved in priority from back to front.
  */
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct OverloadSet<O> {
     pub signatures: Vec<O>,
 }
 
 impl<O> OverloadSet<O> {
+    pub fn new() -> Self {
+        Self {
+            signatures: Vec::new(),
+        }
+    }
     pub fn from_single(o: O) -> Self {
         let ret: Vec<O> = vec![o];
         Self { signatures: ret }
@@ -202,7 +207,11 @@ impl<O: Superset> Append<O> for OverloadSet<O> {
      * Returns false if some old thing got eliminated.
      */
     fn append(&mut self, other: O) -> bool {
-        unimplemented!();
+        let orig_len = self.signatures.len();
+        self.signatures.retain(|o| !other.superset(o));
+        let ret = orig_len == self.signatures.len();
+        self.signatures.push(other);
+        ret
     }
 }
 

@@ -183,7 +183,7 @@ pub async fn run_frontend<
     // todo: also add the automatic imports
     let mut start_idx = 0;
     let (name_ctx, parse_state): (HashMap<String, PreVar>, ParseState) =
-        builtins::state_with_builtins(&mut start_idx);
+        builtins::state_with_builtins(&mut start_idx, &mut ir_program);
     dep_graph.topological_traverse_state_into(
         |i, deps, source_item, filename| match source_item {
             SourceItem::ESTree(es_program) => func::parse_program(
