@@ -105,6 +105,8 @@ enum OpCode {
     Return,
     Call,
     CallIndirect,
+    ReturnCall,
+    ReturnCallIndirect,
 
     Drop,
     Select,
@@ -299,6 +301,8 @@ impl OpCode {
             OpCode::Return => &[0x0F],
             OpCode::Call => &[0x10],
             OpCode::CallIndirect => &[0x11],
+            OpCode::ReturnCall => &[0x12],
+            OpCode::ReturnCallIndirect => &[0x13],
 
             OpCode::Drop => &[0x1A],
             OpCode::Select => &[0x1B],
@@ -600,6 +604,16 @@ impl ExprBuilder {
     pub fn call_indirect(&mut self, typeidx: TypeIdx, tableidx: TableIdx) {
         assert!(tableidx.idx == 0, "Wasm 1.0 only allows one table");
         self.append_opcode(OpCode::CallIndirect);
+        typeidx.wasm_serialize(&mut self.bytecode);
+        tableidx.wasm_serialize(&mut self.bytecode);
+    }
+    pub fn return_call(&mut self, funcidx: FuncIdx) {
+        self.append_opcode(OpCode::ReturnCall);
+        funcidx.wasm_serialize(&mut self.bytecode);
+    }
+    pub fn return_call_indirect(&mut self, typeidx: TypeIdx, tableidx: TableIdx) {
+        assert!(tableidx.idx == 0, "Wasm 1.0 only allows one table");
+        self.append_opcode(OpCode::ReturnCallIndirect);
         typeidx.wasm_serialize(&mut self.bytecode);
         tableidx.wasm_serialize(&mut self.bytecode);
     }

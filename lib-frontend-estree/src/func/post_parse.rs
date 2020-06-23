@@ -1973,6 +1973,7 @@ fn post_parse_call_expr(
     // the IR knows how to do the optimisation.
     // TODO: should we detect direct calls anyway, because we have the post_parse_direct_call_helper()?
     // (since we wouldn't need to generate a lot of redundant things)
+    // todo! encode the typecast to func in the frontend
 
     let func: ir::Expr = post_parse_expr(
         *es_call_expr.callee,
