@@ -23,7 +23,10 @@ pub struct ShiftedStringPool {
 #[derive(Default)]
 pub struct TraverseResult {
     pub string_pool: StringPool,
-    pub addressed_funcs: SearchableVec<ir::FuncIdx>, // list of functions called by PrimFunc
+    //pub addressed_funcs: SearchableVec<ir::FuncIdx>, // list of functions called by PrimFunc
+    // map from [FuncIdx] to tableidx, since [FuncIdx] uniquely determines the thunk content
+    // (note: we can know the signature from the funcidx)
+    pub thunk_sv: SearchableVec<Box<[ir::OverloadEntry]>>,
 }
 
 /*
@@ -60,8 +63,8 @@ fn pre_traverse_expr_kind(expr_kind: &ir::ExprKind, res: &mut TraverseResult) {
         | ir::ExprKind::PrimBoolean { val: _ }
         | ir::ExprKind::PrimStructT { typeidx: _ } => {}
         ir::ExprKind::PrimString { val } => res.string_pool.insert(val),
-        ir::ExprKind::PrimFunc { funcidx, closure } => {
-            res.addressed_funcs.insert_copy(funcidx);
+        ir::ExprKind::PrimFunc { funcidxs, closure } => {
+            res.thunk_sv.insert_copy(funcidxs);
             pre_traverse_expr(closure, res);
         }
         ir::ExprKind::TypeCast {

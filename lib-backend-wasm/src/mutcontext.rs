@@ -70,14 +70,9 @@ impl<'a, 'b> MutContext<'a, 'b> {
     /**
      * Adds an uninitialized local to the context.  It is like with_local(), but caller must guarantee that something is assigned to it before doing any heap allocations.
      */
-    pub fn with_uninitialized_local<
-        H: HeapManager,
-        R,
-        F: FnOnce(&mut MutContext<'a, 'b>, usize) -> R,
-    >(
+    pub fn with_uninitialized_local<R, F: FnOnce(&mut MutContext<'a, 'b>, usize) -> R>(
         &mut self,
         ir_vartype: ir::VarType,
-        heap: &H,
         f: F,
     ) -> R {
         let idx = self.local_types.len();
@@ -113,6 +108,25 @@ impl<'a, 'b> MutContext<'a, 'b> {
             expr_builder,
         );
         let result = f(self, expr_builder, idx);
+        for ir_vartype in ir_vartypes.iter().rev() {
+            self.pop_local(*ir_vartype);
+        }
+        result
+    }
+    /**
+     * Like `with_uninitialized_local()` but with many locals.
+     * f(mutctx, expr_builder, idx), where `idx` is the starting index into `local_map` and `local_types` of the new locals.
+     */
+    pub fn with_uninitialized_locals<R, F: FnOnce(&mut MutContext<'a, 'b>, usize) -> R>(
+        &mut self,
+        ir_vartypes: &[ir::VarType],
+        f: F,
+    ) -> R {
+        let idx = self.local_types.len();
+        for ir_vartype in ir_vartypes {
+            self.push_local(*ir_vartype);
+        }
+        let result = f(self, idx);
         for ir_vartype in ir_vartypes.iter().rev() {
             self.pop_local(*ir_vartype);
         }

@@ -88,6 +88,7 @@ const MEM_STACK_SIZE: u32 = 1 << 4; // 1 MiB of stack space
 pub struct Options {
     wasm_multi_value: bool, // Whether we can generate code that uses the WebAssembly multi-valued returns proposal
     wasm_bulk_memory: bool, // Whether we can generate code that uses the WebAssembly bulk memory proposal
+    wasm_tail_call: bool, // Whether we can generate code that uses the WebAssembly tail call proposal
 }
 
 /**
@@ -168,7 +169,7 @@ fn encode_program(ir_program: &ir::Program, options: Options) -> wasmgen::WasmMo
     // and the list of addressable funcs and their funcidxs
     let pre_traverse::TraverseResult {
         string_pool,
-        addressed_funcs,
+        thunk_sv,
     } = pre_traverse::pre_traverse_funcs(&ir_program.funcs);
 
     let (shifted_string_pool, mut pool_data) =
@@ -231,7 +232,7 @@ fn encode_program(ir_program: &ir::Program, options: Options) -> wasmgen::WasmMo
         ir_program.entry_point,
         globalidx_stackptr,
         memidx,
-        addressed_funcs,
+        thunk_sv,
         &heap,
         &shifted_string_pool,
         error_func,

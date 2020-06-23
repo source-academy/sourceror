@@ -484,7 +484,7 @@ pub fn encode_narrowing_operation<F: FnOnce(&mut wasmgen::ExprBuilder)>(
     }
 }
 
-// A very very specific function that converts an i64 local (the data of an Any) to locals representing a specific type
+// A very very specific function that converts an i64 local (the data of an Any) to locals representing a specific type.
 // It is used in the TypeCast expression
 // net wasm stack: [] -> []
 pub fn encode_unchecked_local_conv_any_narrowing(

@@ -133,9 +133,9 @@ pub struct StructField {
     pub next: Option<Box<StructField>>, // if the field is a struct, then this can (but not necessarily) refer to a field inside the struct
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub struct OverloadEntry {
-    pub signature: Box<[VarType]>, // this does not include the closure param
+    // pub signature: Box<[VarType]>, // this does not include the closure param
     pub funcidx: FuncIdx,
     pub has_closure_param: bool, // true if the closure value shall be passed into this overload
                                  // (the first parameter of a function that has closure must be the static type of PrimFunc::closure)
@@ -158,7 +158,7 @@ pub enum ExprKind {
     }, // a struct (Any will be set to Unassigned variant; String, Func::closure, StructT will be set to something that the GC can recognise as a "null pointer" for that VarType)
     PrimFunc {
         funcidxs: Box<[OverloadEntry]>, // overload set, matched in priority from back to front.  Backend shall coalesce identical callstubs whenever possible.
-        closure: Box<Expr>, // Closure, that must fit into an i32 and will be type-erased (note: Undefined also fits)
+        closure: Box<Expr>, // Closure, that must be a pointer (that could be null) and will be type-erased (the pointer requirement allows the GC to understand it)
     }, // e.g. `() => {}`.  Only the given funcidx will know the type of the closure.
     TypeCast {
         /*
