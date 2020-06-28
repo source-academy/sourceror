@@ -10,6 +10,7 @@ use crate::multi_value_polyfill;
 use crate::pre_traverse::ShiftedStringPool;
 use crate::string_prim_inst;
 use crate::Options;
+use crate::global_var::*;
 
 use super::opt_var_conv::*;
 use super::var_conv::*;
@@ -20,30 +21,36 @@ use boolinator::*;
 
 use std::collections::HashMap;
 
-struct EncodeContext<'a, 'b, 'c, 'd, 'e, 'f, 'g, Heap: HeapManager> {
+struct EncodeContext<'a, 'b, 'c, 'd, 'e, 'f, 'g, 'h, Heap: HeapManager> {
     // Local to this function
     return_type: Option<ir::VarType>,
+    
     // Global for whole program
     struct_types: &'a [Box<[ir::VarType]>],
     struct_field_byte_offsets: &'b [Box<[u32]>], // has same sizes as `struct_types`, but instead stores the byte offset of each field from the beginning of the struct
     funcs: &'c [ir::Func], // ir functions, so that callers can check the param type of return type
     wasm_funcidxs: &'d [wasmgen::FuncIdx], // mapping from ir::FuncIdx to wasmgen::FuncIdx (used when we need to invoke a DirectAppl)
+    
+    // Global var management (does not include special globals like the stackptr)
+    globals: GlobalVarManagerRef<'e>,
+    
+    // Other things
     stackptr: wasmgen::GlobalIdx,
     memidx: wasmgen::MemIdx,
-    thunk_map: &'e HashMap<Box<[ir::OverloadEntry]>, u32>, // map from overloads to elemidx
-    heap: &'f Heap,
-    string_pool: &'g ShiftedStringPool,
+    thunk_map: &'f HashMap<Box<[ir::OverloadEntry]>, u32>, // map from overloads to elemidx
+    heap: &'g Heap,
+    string_pool: &'h ShiftedStringPool,
     error_func: wasmgen::FuncIdx, // imported function to call to error out (e.g. runtime type errors)
     options: Options,             // Compilation options (it implements Copy)
 }
 
 // Have to implement Copy and Clone manually, because #[derive(Copy, Clone)] doesn't work for generic types like Heap
-impl<'a, 'b, 'c, 'd, 'e, 'f, 'g, Heap: HeapManager> Copy
-    for EncodeContext<'a, 'b, 'c, 'd, 'e, 'f, 'g, Heap>
+impl<'a, 'b, 'c, 'd, 'e, 'f, 'g, 'h, Heap: HeapManager> Copy
+    for EncodeContext<'a, 'b, 'c, 'd, 'e, 'f, 'g, 'h, Heap>
 {
 }
-impl<'a, 'b, 'c, 'd, 'e, 'f, 'g, Heap: HeapManager> Clone
-    for EncodeContext<'a, 'b, 'c, 'd, 'e, 'f, 'g, Heap>
+impl<'a, 'b, 'c, 'd, 'e, 'f, 'g, 'h, Heap: HeapManager> Clone
+    for EncodeContext<'a, 'b, 'c, 'd, 'e, 'f, 'g, 'h, Heap>
 {
     fn clone(&self) -> Self {
         *self
@@ -89,6 +96,7 @@ pub fn encode_funcs<Heap: HeapManager>(
     ir_struct_field_byte_offsets: &[Box<[u32]>],
     imported_funcs: Box<[wasmgen::FuncIdx]>,
     ir_entry_point_funcidx: ir::FuncIdx,
+    global_var_manager: GlobalVarManager,
     globalidx_stackptr: wasmgen::GlobalIdx,
     memidx: wasmgen::MemIdx,
     thunk_sv: SearchableVec<Box<[ir::OverloadEntry]>>,
@@ -170,6 +178,7 @@ pub fn encode_funcs<Heap: HeapManager>(
                     struct_field_byte_offsets: ir_struct_field_byte_offsets,
                     funcs: ir_funcs,
                     wasm_funcidxs: &wasm_funcidxs,
+                    globals: global_var_manager.deref(),
                     stackptr: globalidx_stackptr,
                     memidx: memidx,
                     heap: heap,
@@ -215,6 +224,7 @@ pub fn encode_funcs<Heap: HeapManager>(
                     struct_field_byte_offsets: ir_struct_field_byte_offsets,
                     funcs: ir_funcs,
                     wasm_funcidxs: &wasm_funcidxs,
+                    globals: global_var_manager.deref(),
                     stackptr: globalidx_stackptr,
                     memidx: memidx,
                     heap: heap,
@@ -362,9 +372,49 @@ fn encode_target_addr_pre<H: HeapManager>(
     mutctx: &mut MutContext,
     expr_builder: &mut wasmgen::ExprBuilder,
 ) {
+    fn follow_nested_struct<H: HeapManager>(
+                        outer_struct_field: &ir::StructField,
+                        ctx: EncodeContext<H>,
+                        expr_builder: &mut wasmgen::ExprBuilder,
+                    ) {
+                        if let Some(inner_struct_field) = &outer_struct_field.next {
+                            // If there is an inner struct, it must be known at compilation time
+                            assert!(ctx.struct_types[outer_struct_field.typeidx][outer_struct_field.fieldidx] == ir::VarType::StructT{typeidx: inner_struct_field.typeidx}, "ICE: IR->Wasm: Struct type incorrect or not proved at compilation time");
+                            // net wasm stack: [struct_ptr] -> [struct_ptr]
+                            expr_builder.i32_load(wasmgen::MemArg::new4(
+                                ctx.struct_field_byte_offsets[outer_struct_field.typeidx]
+                                    [outer_struct_field.fieldidx],
+                            ));
+                            // recurse if there are even more inner structs
+                            follow_nested_struct(&inner_struct_field, ctx, expr_builder);
+                        }
+                    }
+
     match target {
         ir::TargetExpr::Global { globalidx, next } => {
-            unimplemented!("Targetting a global is not implemented yet");
+            match next {
+                None => {}
+                Some(struct_field) => {
+                    // we are actually writing to linear memory
+                    // so we place the address of the target struct on the stack
+                    // (note: the address is to the struct, not the variable within the struct,
+                    // the post fn encodes the offset using the memarg immediate)
+                    // net wasm stack: [] -> [ptr]
+
+                    // For Source1, structs can only arise from closures and local variables, so their types must already be known at compilation time.
+                    assert!(
+                        ctx.globals.global_types[*globalidx]
+                            == ir::VarType::StructT {
+                                typeidx: struct_field.typeidx
+                            },
+                        "ICE: IR->Wasm: Struct type incorrect or not proved at compilation time"
+                    );
+                    // net wasm stack: [] -> [struct_ptr]
+                    expr_builder.global_get(ctx.globals.wasm_global_slice(*globalidx)[0]);
+
+                    follow_nested_struct(struct_field, ctx, expr_builder);
+                }
+            }
         }
         ir::TargetExpr::Local { localidx, next } => {
             match next {
@@ -387,24 +437,6 @@ fn encode_target_addr_pre<H: HeapManager>(
                     // net wasm stack: [] -> [struct_ptr]
                     expr_builder.local_get(mutctx.wasm_local_slice(*localidx)[0]);
 
-                    fn follow_nested_struct<H: HeapManager>(
-                        outer_struct_field: &ir::StructField,
-                        ctx: EncodeContext<H>,
-                        expr_builder: &mut wasmgen::ExprBuilder,
-                    ) {
-                        if let Some(inner_struct_field) = &outer_struct_field.next {
-                            // If there is an inner struct, it must be known at compilation time
-                            assert!(ctx.struct_types[outer_struct_field.typeidx][outer_struct_field.fieldidx] == ir::VarType::StructT{typeidx: inner_struct_field.typeidx}, "ICE: IR->Wasm: Struct type incorrect or not proved at compilation time");
-                            // net wasm stack: [struct_ptr] -> [struct_ptr]
-                            expr_builder.i32_load(wasmgen::MemArg::new4(
-                                ctx.struct_field_byte_offsets[outer_struct_field.typeidx]
-                                    [outer_struct_field.fieldidx],
-                            ));
-                            // recurse if there are even more inner structs
-                            follow_nested_struct(&inner_struct_field, ctx, expr_builder);
-                        }
-                    }
-
                     follow_nested_struct(struct_field, ctx, expr_builder);
                 }
             }
@@ -418,9 +450,45 @@ fn encode_target_addr_post<H: HeapManager>(
     mutctx: &mut MutContext,
     expr_builder: &mut wasmgen::ExprBuilder,
 ) {
+    // returns the offset, as well as the static type of the variable in memory (so we know how to encode the value in memory)
+    fn get_innermost_offset<H: HeapManager>(
+        sf: &ir::StructField,
+        ctx: EncodeContext<H>,
+    ) -> (u32, ir::VarType) {
+        if let Some(inner_struct_field) = &sf.next {
+            return get_innermost_offset(inner_struct_field, ctx);
+        } else {
+            return (
+                ctx.struct_field_byte_offsets[sf.typeidx][sf.fieldidx],
+                ctx.struct_types[sf.typeidx][sf.fieldidx],
+            );
+        }
+    }
+
     match target {
         ir::TargetExpr::Global { globalidx, next } => {
-            unimplemented!("Targetting a global is not implemented yet");
+            match next {
+                None => {
+                    encode_store_global(
+                        ctx.globals.wasm_global_slice(*globalidx),
+                        ctx.globals.global_types[*globalidx],
+                        incoming_vartype,
+                        expr_builder,
+                    );
+                }
+                Some(struct_field) => {
+                    // net wasm stack: [ptr, <incoming_vartype>] -> []
+
+                    let (offset, ir_dest_vartype) = get_innermost_offset(struct_field, ctx);
+                    encode_store_memory(
+                        offset,
+                        ir_dest_vartype,
+                        incoming_vartype,
+                        mutctx.scratch_mut(),
+                        expr_builder,
+                    );
+                }
+            }
         }
         ir::TargetExpr::Local { localidx, next } => {
             match next {
@@ -434,21 +502,6 @@ fn encode_target_addr_post<H: HeapManager>(
                 }
                 Some(struct_field) => {
                     // net wasm stack: [ptr, <incoming_vartype>] -> []
-
-                    // returns the offset, as well as the static type of the variable in memory (so we know how to encode the value in memory)
-                    fn get_innermost_offset<H: HeapManager>(
-                        sf: &ir::StructField,
-                        ctx: EncodeContext<H>,
-                    ) -> (u32, ir::VarType) {
-                        if let Some(inner_struct_field) = &sf.next {
-                            return get_innermost_offset(inner_struct_field, ctx);
-                        } else {
-                            return (
-                                ctx.struct_field_byte_offsets[sf.typeidx][sf.fieldidx],
-                                ctx.struct_types[sf.typeidx][sf.fieldidx],
-                            );
-                        }
-                    }
 
                     let (offset, ir_dest_vartype) = get_innermost_offset(struct_field, ctx);
                     encode_store_memory(
@@ -763,6 +816,7 @@ fn encode_expr<H: HeapManager>(
             expr: rhs_expr,
         } => {
             if let Some(actual_vartype) = rhs_expr.vartype {
+                // Note: JavaScript uses left-to-right evaluation order, so following of pointers should be done in encode_target_addr_pre().
                 // encode stuff needed before expr (e.g. compute addresses):
                 encode_target_addr_pre(target, actual_vartype, ctx, mutctx, expr_builder);
                 // encode the expr (net wasm stack: [] -> [<actual_vartype>] where `<actual_vartype>` is a valid encoding of actual_vartype)
@@ -858,36 +912,7 @@ fn encode_target_value<H: HeapManager>(
     mutctx: &mut MutContext,
     expr_builder: &mut wasmgen::ExprBuilder,
 ) {
-    match source {
-        ir::TargetExpr::Global { globalidx, next } => {
-            unimplemented!("Globals are not supported... yet");
-        }
-        ir::TargetExpr::Local { localidx, next } => {
-            //expr_builder.local_get(ctx.var_map[*localidx]); // wrong!!!
-
-            match next {
-                None => {
-                    // `outgoing_vartype` is required to be equivalent or subtype of the source vartype
-                    encode_load_local(
-                        mutctx.wasm_local_slice(*localidx),
-                        mutctx.local_types_elem(*localidx),
-                        outgoing_vartype,
-                        expr_builder,
-                    );
-                }
-                Some(struct_field) => {
-                    // For Source1, structs can only arise from closures and local variables, so their types must already be known at compilation time.
-                    assert!(
-                        mutctx.local_types_elem(*localidx)
-                            == ir::VarType::StructT {
-                                typeidx: struct_field.typeidx
-                            },
-                        "ICE: IR->Wasm: Struct type incorrect or not proved at compilation time"
-                    );
-                    // net wasm stack: [] -> [struct_ptr]
-                    expr_builder.local_get(mutctx.wasm_local_slice(*localidx)[0]);
-
-                    // net wasm stack: [struct_ptr] -> [<outgoing_vartype>]
+    // net wasm stack: [struct_ptr] -> [<outgoing_vartype>]
                     fn load_inner_local<H: HeapManager>(
                         outer_struct_field: &ir::StructField,
                         outgoing_vartype: ir::VarType,
@@ -926,6 +951,61 @@ fn encode_target_value<H: HeapManager>(
                         }
                     }
 
+    match source {
+        ir::TargetExpr::Global { globalidx, next } => {
+            match next {
+                None => {
+                    // `outgoing_vartype` is required to be equivalent or subtype of the source vartype
+                    encode_load_global(
+                        ctx.globals.wasm_global_slice(*globalidx),
+                        ctx.globals.global_types[*globalidx],
+                        outgoing_vartype,
+                        expr_builder,
+                    );
+                }
+                Some(struct_field) => {
+                    // For Source1, structs can only arise from closures and local variables, so their types must already be known at compilation time.
+                    assert!(
+                        ctx.globals.global_types[*globalidx]
+                            == ir::VarType::StructT {
+                                typeidx: struct_field.typeidx
+                            },
+                        "ICE: IR->Wasm: Struct type incorrect or not proved at compilation time"
+                    );
+
+                    // net wasm stack: [] -> [struct_ptr]
+                    expr_builder.global_get(ctx.globals.wasm_global_slice(*globalidx)[0]);
+
+                    // net wasm stack: [struct_ptr] -> [<outgoing_vartype>]
+                    load_inner_local(struct_field, outgoing_vartype, ctx, mutctx, expr_builder);
+                }
+            }
+        }
+        ir::TargetExpr::Local { localidx, next } => {
+            match next {
+                None => {
+                    // `outgoing_vartype` is required to be equivalent or subtype of the source vartype
+                    encode_load_local(
+                        mutctx.wasm_local_slice(*localidx),
+                        mutctx.local_types_elem(*localidx),
+                        outgoing_vartype,
+                        expr_builder,
+                    );
+                }
+                Some(struct_field) => {
+                    // For Source1, structs can only arise from closures and local variables, so their types must already be known at compilation time.
+                    assert!(
+                        mutctx.local_types_elem(*localidx)
+                            == ir::VarType::StructT {
+                                typeidx: struct_field.typeidx
+                            },
+                        "ICE: IR->Wasm: Struct type incorrect or not proved at compilation time"
+                    );
+
+                    // net wasm stack: [] -> [struct_ptr]
+                    expr_builder.local_get(mutctx.wasm_local_slice(*localidx)[0]);
+
+                    // net wasm stack: [struct_ptr] -> [<outgoing_vartype>]
                     load_inner_local(struct_field, outgoing_vartype, ctx, mutctx, expr_builder);
                 }
             }
@@ -1104,6 +1184,7 @@ fn encode_appl<H: HeapManager>(
         // Encode all the arguments
         // net wasm stack: [] -> [args...]
         let anys: Box<[ir::VarType]> = args.iter().map(|_| ir::VarType::Any).collect();
+        // TODO this is wrong - for indirect functions we need to call using the uniform calling convention.
         encode_args_to_call_function(&anys, args, ctx, mutctx, expr_builder);
 
         // push the tableidx onto the stack
