@@ -115,7 +115,7 @@ pub fn parse_program(
 ) -> Result<(ProgramPreExports, ParseState), CompileMessage<ParseProgramError>> {
     if let Node {
         loc,
-        kind: NodeKind::Program(es_program),
+        kind: NodeKind::Program(mut es_program),
     } = es_program_node
     {
         let program_pre_exports: ProgramPreExports = pre_parse::pre_parse_program(
