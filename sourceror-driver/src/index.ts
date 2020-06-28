@@ -17,15 +17,15 @@ export class RuntimeError extends Error {
 }
 
 export async function compile(
-  code: string,
-  context: Context
+    code: string,
+    context: Context
 ): Promise<WebAssembly.Module> {
-  let estree: es.Program | undefined = slang_parse(code, context);
-  if (!estree) {
-    return Promise.reject(
-      new CompileError("js-slang cannot parse the program")
-    );
-  }
+    let estree: es.Program | undefined = slang_parse(code, context);
+    if (!estree) {
+        return Promise.reject(
+            new CompileError("js-slang cannot parse the program")
+        );
+    }
     let es_str: string = JSON.stringify(estree);
     let has_errors: boolean = false;
     let wasm_context: number = Sourceror.createContext((severity_code: number, message: string, line: number, column: number) => {
@@ -47,8 +47,10 @@ export async function compile(
             explain: (): string => message,
             elaborate: (): string => "",
         });
+    }, (name: string): Promise<string> => {
+        return new Promise(_ => name); // TODO
     });
-    return Sourceror.compile(wasm_context, es_str, "")
+    return Sourceror.compile(wasm_context, es_str)
         .then((wasm_binary: Uint8Array) => {
             if (!has_errors) {
                 return WebAssembly.compile(wasm_binary).catch((err: string) => {
