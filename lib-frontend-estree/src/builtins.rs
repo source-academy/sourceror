@@ -71,6 +71,7 @@ pub fn state_with_builtins(
     register_binary_op(MUL, ir::PrimInst::NumberMul, ir::VarType::Number, &mut name_ctx, &mut parse_ctx, ir_program);
     register_binary_op(DIV, ir::PrimInst::NumberDiv, ir::VarType::Number, &mut name_ctx, &mut parse_ctx, ir_program);
     register_binary_op(MOD, ir::PrimInst::NumberRem, ir::VarType::Number, &mut name_ctx, &mut parse_ctx, ir_program);
+    register_addition_op(ADD, ir::PrimInst::NumberAdd, ir::PrimInst::StringAdd, &mut name_ctx, &mut parse_ctx, ir_program);
     register_comparison_op(LT, ir::PrimInst::NumberLt, ir::PrimInst::StringLt, &mut name_ctx, &mut parse_ctx, ir_program);
     register_comparison_op(LE, ir::PrimInst::NumberLe, ir::PrimInst::StringLe, &mut name_ctx, &mut parse_ctx, ir_program);
     register_comparison_op(GT, ir::PrimInst::NumberGt, ir::PrimInst::StringGt, &mut name_ctx, &mut parse_ctx, ir_program);
@@ -201,6 +202,42 @@ pub fn register_binary_op(
         name.to_owned(),
         OverloadSet::from_single((Box::new([ir_vartype, ir_vartype]), funcidx)),
     );
+}
+
+// overloaded on number and string
+pub fn register_addition_op(
+    name: &str,
+    ir_priminst_number: ir::PrimInst,
+    ir_priminst_string: ir::PrimInst,
+    name_ctx: &mut HashMap<String, PreVar>,
+    parse_ctx: &mut ParseState,
+    ir_program: &mut ir::Program,
+) {
+    let funcidx_number = make_binary_op_impl(
+        ir_priminst_number,
+        ir::VarType::Number,
+        ir::VarType::Number,
+        ir_program,
+    );
+    let funcidx_string = make_binary_op_impl(
+        ir_priminst_string,
+        ir::VarType::String,
+        ir::VarType::String,
+        ir_program,
+    );
+
+    // insert the necessary things into name_ctx and parse_ctx
+    name_ctx.insert(name.to_owned(), PreVar::Direct);
+    let mut overload_set = OverloadSet::new();
+    overload_set.append((
+        Box::new([ir::VarType::Number, ir::VarType::Number]) as Box<[ir::VarType]>,
+        funcidx_number,
+    ));
+    overload_set.append((
+        Box::new([ir::VarType::String, ir::VarType::String]) as Box<[ir::VarType]>,
+        funcidx_string,
+    ));
+    parse_ctx.add_direct(name.to_owned(), overload_set);
 }
 
 // overloaded on number and string

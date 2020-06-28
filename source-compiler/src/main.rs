@@ -27,7 +27,6 @@ async fn fetch_dep_proxy(name: String) -> Option<String> {
     None
 }
 
-
 fn main() {
     {
         use std::io;
@@ -37,13 +36,12 @@ fn main() {
 
     let source_code: String = r#"{"type":"Program","start":0,"end":67,"loc":{"start":{"line":1,"column":0},"end":{"line":5,"column":0}},"body":[{"type":"VariableDeclaration","start":31,"end":43,"loc":{"start":{"line":3,"column":0},"end":{"line":3,"column":12}},"declarations":[{"type":"VariableDeclarator","start":37,"end":42,"loc":{"start":{"line":3,"column":6},"end":{"line":3,"column":11}},"id":{"type":"Identifier","start":37,"end":38,"loc":{"start":{"line":3,"column":6},"end":{"line":3,"column":7}},"name":"x"},"init":{"type":"Literal","start":41,"end":42,"loc":{"start":{"line":3,"column":10},"end":{"line":3,"column":11}},"value":2,"raw":"2"}}],"kind":"const"},{"type":"VariableDeclaration","start":44,"end":66,"loc":{"start":{"line":4,"column":0},"end":{"line":4,"column":22}},"declarations":[{"type":"VariableDeclarator","start":50,"end":65,"loc":{"start":{"line":4,"column":6},"end":{"line":4,"column":21}},"id":{"type":"Identifier","start":50,"end":51,"loc":{"start":{"line":4,"column":6},"end":{"line":4,"column":7}},"name":"y"},"init":{"type":"BinaryExpression","start":54,"end":65,"loc":{"start":{"line":4,"column":10},"end":{"line":4,"column":21}},"left":{"type":"Identifier","start":54,"end":55,"loc":{"start":{"line":4,"column":10},"end":{"line":4,"column":11}},"name":"x"},"operator":"*","right":{"type":"BinaryExpression","start":59,"end":64,"loc":{"start":{"line":4,"column":15},"end":{"line":4,"column":20}},"left":{"type":"Identifier","start":59,"end":60,"loc":{"start":{"line":4,"column":15},"end":{"line":4,"column":16}},"name":"x"},"operator":"+","right":{"type":"Literal","start":63,"end":64,"loc":{"start":{"line":4,"column":19},"end":{"line":4,"column":20}},"value":1,"raw":"1"}}}}],"kind":"const"}],"sourceType":"module"}"#.to_owned();
 
-    let _: Result<(), ()> = futures::executor::block_on((|| async {
-         use wasmgen::WasmSerialize;
+    let _: () = futures::executor::block_on((|| async {
+        use wasmgen::WasmSerialize;
 
         //let ir_imports = frontend_estree::parse_imports(import_spec, MainLogger::new(context))?;
         let ir_program =
-            frontend_estree::run_frontend(source_code, fetch_dep_proxy, MainLogger{})
-                .await?;
+            frontend_estree::run_frontend(source_code, fetch_dep_proxy, MainLogger {}).await?;
         let wasm_module = backend_wasm::run_backend(&ir_program, backend_wasm::Options::default());
         let mut receiver = std::vec::Vec::<u8>::new();
         wasm_module.wasm_serialize(&mut receiver);
@@ -53,5 +51,6 @@ fn main() {
             file.write_all(&receiver).unwrap();
         }
         Ok(())
-    })());
+    })())
+    .unwrap_or_else(|_: ()| panic!("Frontend errored out"));
 }

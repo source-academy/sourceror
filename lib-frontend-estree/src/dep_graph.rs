@@ -127,7 +127,7 @@ impl<T> Graph<T> {
         states.reserve(self.nodes.len());
         for (i, node) in self.nodes.into_iter().enumerate() {
             let depstates: Box<[&S]> = node.deps.into_iter().map(|x| &states[x]).collect();
-            states[i] = f(i, depstates, node.content, node.name)?;
+            states.push(f(i, depstates, node.content, node.name)?);
         }
         Ok(())
     }
