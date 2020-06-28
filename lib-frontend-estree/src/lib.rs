@@ -41,70 +41,70 @@ enum SourceItem {
     ImportSpec(importer::ImportSpec),
 }
 
+#[derive(Copy, Clone)]
 struct SourceFetcher<F> {
     raw_fetch: F,
 }
-#[async_trait]
-impl<
-        Fut: 'static + Future<Output = Option<String>> + Send + Sync,
-        F: Fn(&str) -> Fut + Send + Sync,
-    > dep_graph::Fetcher<SourceItem> for SourceFetcher<F>
+//#[async_trait(?Send)]
+impl<Fut: Future<Output = Option<String>>, F: 'static + Copy + FnOnce(String) -> Fut>
+    dep_graph::Fetcher<SourceItem> for SourceFetcher<F>
 {
-    async fn fetch(
-        &self,
-        name: &str,
-        sl: plSLRef<'_>,
-    ) -> Result<SourceItem, CompileMessage<FetcherError>> {
-        (self.raw_fetch)(name).await.map_or_else(
-            || {
-                Err(CompileMessage::new_error(
-                    sl.to_owned(),
-                    FetchError {
-                        name: name.to_owned(),
-                    },
-                )
-                .into_cm())
-            },
-            |estree_str: String| {
-                if importer::has_imports_header(estree_str.as_str()) {
-                    // this is an imports file
-                    importer::parse_imports(name, estree_str.as_str())
-                        .map(|import_spec| SourceItem::ImportSpec(import_spec))
-                        .map_err(|e| e.into_cm())
-                } else {
-                    serde_json::from_str(estree_str.as_str())
-                        .map(|estree_node| SourceItem::ESTree(estree_node))
-                        .map_err(|_| {
-                            CompileMessage::new_error(
-                                plSLRef::entire_file(Some(name)).to_owned(),
-                                ESTreeParseError {},
-                            )
-                            .into_cm()
-                        })
-                }
-            },
-        )
+    fn fetch<'a>(
+        self,
+        name: &'a str,
+        sl: plSLRef<'a>,
+    ) -> std::pin::Pin<
+        Box<dyn 'a + Future<Output = Result<SourceItem, CompileMessage<FetcherError>>>>,
+    > {
+        Box::pin((|| async move {
+            (self.raw_fetch)(name.to_owned()).await.map_or_else(
+                || {
+                    Err(
+                        CompileMessage::new_error(sl.to_owned(), FetchError::new(name.to_owned()))
+                            .into_cm(),
+                    )
+                },
+                |estree_str: String| {
+                    if importer::has_imports_header(estree_str.as_str()) {
+                        // this is an imports file
+                        importer::parse_imports(name, estree_str.as_str())
+                            .map(|import_spec| SourceItem::ImportSpec(import_spec))
+                            .map_err(|e| e.into_cm())
+                    } else {
+                        serde_json::from_str(estree_str.as_str())
+                            .map(|estree_node| SourceItem::ESTree(estree_node))
+                            .map_err(|_| {
+                                CompileMessage::new_error(
+                                    plSLRef::entire_file(Some(name)).to_owned(),
+                                    ESTreeParseError {},
+                                )
+                                .into_cm()
+                            })
+                    }
+                },
+            )
+        })())
     }
 }
 
 impl<'a> dep_graph::ExtractDeps<'a> for SourceItem {
     // todo! Change `dyn Iterator` to some compile-time thing when Rust gets impl Traits support for traits.
     type Iter = Box<dyn Iterator<Item = (&'a str, plSLRef<'a>)> + 'a>;
-    fn extract_deps(&self, filename: Option<&'a str>) -> Self::Iter {
+    fn extract_deps(&'a self, filename: Option<&'a str>) -> Self::Iter {
         match self {
             SourceItem::ESTree(es_node) => Box::new(
-                (match es_node.kind {
+                (match &es_node.kind {
                     NodeKind::Program(es_program) => es_program.body.as_slice(),
                     _ => &[],
                 })
                 .iter()
-                .filter_map(|es_node| {
+                .filter_map(move |es_node| {
                     if let NodeKind::ImportSpecifier(ImportSpecifier { local: _, source }) =
-                        es_node.kind
+                        &es_node.kind
                     {
                         if let NodeKind::Literal(Literal {
                             value: LiteralValue::String(s),
-                        }) = source.kind
+                        }) = &source.kind
                         {
                             return Some((s.as_str(), source.loc.into_sl(filename)));
                         }
@@ -119,15 +119,15 @@ impl<'a> dep_graph::ExtractDeps<'a> for SourceItem {
 
 pub async fn run_frontend<
     L: Logger,
-    Fut: 'static + Future<Output = Option<String>> + Send + Sync,
-    F: Fn(&str) -> Fut + Send + Sync,
+    F: 'static + Copy + FnOnce(String) -> Fut,
+    Fut: Future<Output = Option<String>>,
 >(
-    estree_str: &str,
+    estree_str: String,
     raw_fetch: F,
     logger: L,
 ) -> Result<ir::Program, ()> {
     // parse the given string as estree
-    let es_program: estree::Node = serde_json::from_str(estree_str)
+    let es_program: estree::Node = serde_json::from_str(estree_str.as_str())
         .map_err(|_| {
             CompileMessage::new_error(plSLRef::entire_file(None).to_owned(), ESTreeParseError {})
         })
@@ -136,7 +136,7 @@ pub async fn run_frontend<
     // fetch and parse all the import files
     let dep_graph = dep_graph::Graph::try_async_build_from_root(
         SourceItem::ESTree(es_program),
-        &SourceFetcher {
+        SourceFetcher::<F> {
             raw_fetch: raw_fetch,
         },
     )

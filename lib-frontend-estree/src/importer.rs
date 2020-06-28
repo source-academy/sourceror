@@ -22,8 +22,8 @@ pub fn parse_imports(
     filename: &str,
     import_spec: &str,
 ) -> Result<ImportSpec, CompileMessage<ImportsParseError>> {
-    let ret: Vec<(String, Import)> = Vec::new();
-    let iter = import_spec.lines().enumerate();
+    let mut ret: Vec<(String, Import)> = Vec::new();
+    let mut iter = import_spec.lines().enumerate();
     iter.next()
         .and_then(|(_, line)| {
             if line == "@SourceImports" {
@@ -170,8 +170,8 @@ pub fn make_export_state(
     order: usize,
     import_funcidx_map: &HashMap<ir::Import, ir::FuncIdx>,
 ) -> (ProgramPreExports, ParseState) {
-    let pre_exports: ProgramPreExports = VarCtx::new();
-    let parse_ctx: ParseState = ParseState::default();
+    let mut pre_exports: ProgramPreExports = VarCtx::new();
+    let mut parse_ctx: ParseState = ParseState::default();
 
     for (name, import) in import_spec.content {
         // note: we can safely unwrap because it is guaranteed to exist (because we added it in earlier)

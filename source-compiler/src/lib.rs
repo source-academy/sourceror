@@ -23,7 +23,14 @@ extern "C" {
     pub fn compiler_log(context: i32, message: String);
 
     #[wasm_bindgen(js_name = sourcerorFetchDepCallback)]
-    pub fn fetch_dep(name: &str) -> JsFuture;
+    pub fn fetch_dep(name: String) -> js_sys::Promise;
+}
+
+async fn fetch_dep_proxy(name: String) -> Option<String> {
+    JsFuture::from(fetch_dep(name))
+        .await
+        .ok()
+        .and_then(|x| x.as_string())
 }
 
 #[derive(Copy, Clone)]
@@ -50,40 +57,25 @@ impl projstd::log::Logger for MainLogger {
  * `import_spec`: list of imports following the import file format
  */
 #[wasm_bindgen]
-pub async fn compile(context: i32, source_code: &str) -> Box<[u8]> {
+pub async fn compile(context: i32, source_code: String) -> js_sys::Uint8Array {
     // nice console errors in debug mode
     #[cfg(all(debug_assertions, target_arch = "wasm32"))]
     console_error_panic_hook::set_once();
 
-    (|| {
+    (|| async {
         use wasmgen::WasmSerialize;
 
         //let ir_imports = frontend_estree::parse_imports(import_spec, MainLogger::new(context))?;
         let ir_program =
-            frontend_estree::run_frontend(source_code, fetch_dep, MainLogger::new(context)).await?;
+            frontend_estree::run_frontend(source_code, fetch_dep_proxy, MainLogger::new(context))
+                .await?;
         let wasm_module = backend_wasm::run_backend(&ir_program, backend_wasm::Options::default());
         let mut receiver = std::vec::Vec::<u8>::new();
         wasm_module.wasm_serialize(&mut receiver);
-        Ok(receiver.into_boxed_slice())
+        Ok(js_sys::Uint8Array::from(receiver.as_slice()))
     })()
-    .unwrap_or_else(|_: ()| Box::new([]))
-
-    // for now we just generate a dummy function that returns 42
-    /*use wasmgen::*;
-    let mut module = WasmModule::new_builder().build();
-    let functype = FuncType::new(Box::new([]), Box::new([ValType::I32]));
-    let (_type_idx, func_idx) = module.register_func(&functype);
-    let mut code_builder = CodeBuilder::new(functype);
-    {
-        let (_locals_builder, expr_builder) = code_builder.split();
-        expr_builder.i32_const(42); // put 42 onto the stack
-        expr_builder.end(); // return
-    }
-    module.commit_func(func_idx, code_builder);
-    module.export_func(func_idx, "main".to_string());
-    let mut receiver = std::vec::Vec::<u8>::new();
-    module.wasm_serialize(&mut receiver);
-    receiver.into_boxed_slice()*/
+    .await
+    .unwrap_or_else(|_: ()| js_sys::Uint8Array::new_with_length(0))
 }
 
 #[cfg(test)]

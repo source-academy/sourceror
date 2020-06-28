@@ -56,7 +56,7 @@ pub fn wrap_loop(m: BTreeMap<VarLocId, Usage>) -> BTreeMap<VarLocId, Usage> {
     transform_btreemap_values(m, Usage::repeat)
 }
 
-fn sized_merge_btreemap<K: Ord, V, F: Fn(V, V) -> V>(
+fn sized_merge_btreemap<K: Ord, V: Copy, F: Fn(V, V) -> V>(
     first: BTreeMap<K, V>,
     second: BTreeMap<K, V>,
     f: F,
@@ -68,7 +68,7 @@ fn sized_merge_btreemap<K: Ord, V, F: Fn(V, V) -> V>(
     }
 }
 
-fn sized_merge_btreemap_impl<K: Ord, V, F: Fn(V, V) -> V>(
+fn sized_merge_btreemap_impl<K: Ord, V: Copy, F: Fn(V, V) -> V>(
     big: BTreeMap<K, V>,
     small: BTreeMap<K, V>,
     f: F,
@@ -80,7 +80,7 @@ fn sized_merge_btreemap_impl<K: Ord, V, F: Fn(V, V) -> V>(
             Entry::Vacant(v) => {
                 v.insert(val);
             }
-            Entry::Occupied(o) => {
+            Entry::Occupied(mut o) => {
                 let prev: V = *o.get_mut();
                 *o.get_mut() = f(prev, val);
             }
@@ -88,7 +88,7 @@ fn sized_merge_btreemap_impl<K: Ord, V, F: Fn(V, V) -> V>(
     ret
 }
 
-fn transform_btreemap_values<K: Ord, V, F: Fn(V) -> V>(
+fn transform_btreemap_values<K: Ord, V: Copy, F: Fn(V) -> V>(
     mut m: BTreeMap<K, V>,
     f: F,
 ) -> BTreeMap<K, V> {

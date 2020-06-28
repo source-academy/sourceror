@@ -28,7 +28,7 @@ impl NodeForEachWithAttributes<Node> for [Node] {
     >(
         &self,
         filename: Option<&str>,
-        f: F,
+        mut f: F,
     ) -> Result<(), CompileMessage<ParseProgramError>> {
         let mut prev_attr: Option<(HashMap<String, Option<String>>, plSLRef)> = None;
         for node in self {
@@ -120,14 +120,15 @@ impl NodeForEachWithAttributesMut<Node> for [Node] {
     >(
         &mut self,
         filename: Option<&str>,
-        f: F,
+        mut f: F,
     ) -> Result<(), CompileMessage<ParseProgramError>> {
         let mut prev_attr: Option<(HashMap<String, Option<String>>, plSLRef)> = None;
         for node in self {
+            // note: '&*node' changes it to non-mut
             if let Node {
                 loc: stmtloc,
                 kind: NodeKind::ExpressionStatement(expr_stmt),
-            } = node
+            } = &*node
             {
                 if let Node {
                     loc: _,
@@ -209,14 +210,14 @@ impl<C: IntoIterator<Item = Node>> NodeForEachWithAttributesInto<Node> for C {
     >(
         self,
         filename: Option<&str>,
-        f: F,
+        mut f: F,
     ) -> Result<(), CompileMessage<ParseProgramError>> {
         let mut prev_attr: Option<(HashMap<String, Option<String>>, plSLRef)> = None;
         for node in self {
             if let Node {
                 loc: stmtloc,
                 kind: NodeKind::ExpressionStatement(expr_stmt),
-            } = node
+            } = &node
             {
                 if let Node {
                     loc: _,
@@ -226,12 +227,12 @@ impl<C: IntoIterator<Item = Node>> NodeForEachWithAttributesInto<Node> for C {
                             left,
                             right,
                         }),
-                } = *expr_stmt.expression
+                } = &*expr_stmt.expression
                 {
                     if let Node {
                         loc: _,
                         kind: NodeKind::Identifier(ident),
-                    } = *left
+                    } = &**left
                     {
                         let key: &str = &ident.name;
                         if let Node {
@@ -240,7 +241,7 @@ impl<C: IntoIterator<Item = Node>> NodeForEachWithAttributesInto<Node> for C {
                                 NodeKind::Literal(Literal {
                                     value: LiteralValue::String(strval),
                                 }),
-                        } = *right
+                        } = &**right
                         {
                             let val: HashMap<String, Option<String>> = parse_attributes(&strval)
                                 .map_err(|_| {

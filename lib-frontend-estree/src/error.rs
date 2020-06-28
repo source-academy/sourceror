@@ -5,6 +5,11 @@ use std::fmt;
 pub struct FetchError {
     name: String,
 }
+impl FetchError {
+    pub fn new(name: String) -> Self {
+        Self { name: name }
+    }
+}
 impl Error for FetchError {}
 impl fmt::Display for FetchError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

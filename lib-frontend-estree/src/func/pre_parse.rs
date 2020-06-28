@@ -97,7 +97,8 @@ fn pre_parse_block_statement(
         .body
         .each_with_attributes_mut(filename, |es_node, attr| {
             let usages = pre_parse_statement(es_node, attr, name_ctx, new_depth, filename)?;
-            ret_usages = varusage::merge_series(ret_usages, usages);
+            let tmp = std::mem::take(&mut ret_usages); // necessary because of weird borrow rules in Rust
+            ret_usages = varusage::merge_series(tmp, usages);
             Ok(())
         })?;
 
@@ -161,7 +162,8 @@ fn pre_parse_function<F: Function + Scope>(
             .body
             .each_with_attributes_mut(filename, |es_node, attr| {
                 let usages = pre_parse_statement(es_node, attr, name_ctx, new_depth, filename)?;
-                ret_usages = varusage::merge_series(ret_usages, usages);
+                let tmp = std::mem::take(&mut ret_usages); // necessary because of weird borrow rules in Rust
+                ret_usages = varusage::merge_series(tmp, usages);
                 Ok(())
             })?;
 
@@ -316,7 +318,7 @@ fn pre_parse_statement(
 }
 
 fn pre_parse_expr_statement(
-    es_expr_stmt: &ExpressionStatement,
+    es_expr_stmt: &mut ExpressionStatement,
     loc: &Option<esSL>,
     name_ctx: &mut HashMap<String, PreVar>, // contains all names referenceable from outside the current sequence
     depth: usize,
@@ -366,13 +368,13 @@ fn pre_parse_expr_statement(
 }
 
 fn pre_parse_return_statement(
-    es_return: &ReturnStatement,
+    es_return: &mut ReturnStatement,
     loc: &Option<esSL>,
     name_ctx: &mut HashMap<String, PreVar>, // contains all names referenceable from outside the current sequence
     depth: usize,
     filename: Option<&str>,
 ) -> Result<BTreeMap<VarLocId, Usage>, CompileMessage<ParseProgramError>> {
-    if let Some(box_node) = es_return.argument {
+    if let Some(box_node) = &mut es_return.argument {
         pre_parse_expr(&mut *box_node, name_ctx, depth, filename)
     } else {
         Err(CompileMessage::new_error(
@@ -672,12 +674,10 @@ fn pre_parse_identifier_use(
                 }
             }
         }
-        None => {
-            Err(CompileMessage::new_error(
-                loc.into_sl(filename).to_owned(),
-                ParseProgramError::UndeclaredNameError(es_id.name), // todo! need to clone?
-            ))
-        }
+        None => Err(CompileMessage::new_error(
+            loc.into_sl(filename).to_owned(),
+            ParseProgramError::UndeclaredNameError(es_id.name.clone()),
+        )),
     }
 }
 
@@ -745,7 +745,7 @@ fn validate_and_extract_imports_and_decls(
     let mut var_ctx: ProgramPreExports = VarCtx::new();
     let mut ret: Vec<(String, PreVar)> = Vec::new();
     let mut exports: ProgramPreExports = ProgramPreExports::new();
-    let import_decl_idx = 0;
+    let mut import_decl_idx = 0;
     es_program_body.each_with_attributes(filename, |es_node, attr| match es_node {
         Node {
             loc,
@@ -812,24 +812,19 @@ fn process_func_decl_validation(
 ) -> Result<(), CompileMessage<ParseProgramError>> {
     if attr.contains_key("direct") {
         if let Some(name) = try_coalesce_id_direct(
-            &mut var_ctx,
+            var_ctx,
             &func_decl.params,
             &*func_decl.id,
             attr.get("constraint"),
             depth,
-            &mut start_idx,
+            start_idx,
             filename,
         )? {
             out.push((name.to_owned(), PreVar::Direct));
         }
     } else {
-        let (name, varlocid) = try_coalesce_id_target(
-            &mut var_ctx,
-            &*func_decl.id,
-            depth,
-            &mut start_idx,
-            filename,
-        )?;
+        let (name, varlocid) =
+            try_coalesce_id_target(var_ctx, &*func_decl.id, depth, start_idx, filename)?;
         out.push((name.to_owned(), PreVar::Target(varlocid)));
     }
     Ok(())
@@ -859,13 +854,8 @@ fn process_var_decl_validation(
                 kind: NodeKind::VariableDeclarator(var_decr),
             } = var_decr_node
             {
-                let (name, varlocid) = try_coalesce_id_target(
-                    &mut var_ctx,
-                    &*var_decr.id,
-                    depth,
-                    &mut start_idx,
-                    filename,
-                )?;
+                let (name, varlocid) =
+                    try_coalesce_id_target(var_ctx, &*var_decr.id, depth, start_idx, filename)?;
                 out.push((name.to_owned(), PreVar::Target(varlocid)));
             } else {
                 return Err(CompileMessage::new_error(
@@ -896,7 +886,7 @@ fn try_coalesce_id_target<'a>(
             depth: depth,
             index: *start_idx,
         };
-        if var_ctx.try_coalesce(es_id.name, VarValue::Target(ret)) {
+        if var_ctx.try_coalesce(es_id.name.clone(), VarValue::Target(ret)) {
             // insertion(coalesce) succeeded
             *start_idx += 1;
             Ok((es_id.name.as_str(), ret))
@@ -973,7 +963,7 @@ fn try_coalesce_id_direct<'a>(
             },
             None => HashMap::new(),
         };
-        for (key, _) in constraints {
+        for (key, _) in &constraints {
             if !param_set.contains(key) {
                 return Err(CompileMessage::new_error(
                     loc.into_sl(filename).to_owned(),
@@ -989,7 +979,7 @@ fn try_coalesce_id_direct<'a>(
             .collect();
         let curr_len = var_ctx.len();
         if var_ctx.try_coalesce(
-            es_id.name,
+            es_id.name.clone(),
             VarValue::Direct(OverloadSet::from_single(direct_type)),
         ) {
             // insertion(coalesce) succeeded
@@ -1165,7 +1155,7 @@ fn process_export_decl_validation(
                             )
                         })?;
                         // Note: this coalesce actually functions like a normal insertion, returning false if an item already exists.
-                        if !var_ctx.try_coalesce(exported_id.name.clone(), varvalue.clone()) {
+                        if !exports.try_coalesce(exported_id.name.clone(), varvalue.clone()) {
                             return Err(CompileMessage::new_error(
                                 loc3.into_sl(filename).to_owned(),
                                 ParseProgramError::DuplicateExportError(exported_id.name.clone()),

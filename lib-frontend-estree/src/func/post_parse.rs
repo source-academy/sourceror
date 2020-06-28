@@ -36,10 +36,11 @@ pub fn post_parse_program(
     ir_program: &mut ir::Program,
     ir_toplevel_seq: &mut Vec<ir::Expr>,
 ) -> Result<ParseState, CompileMessage<ParseProgramError>> {
-    let (body, direct_funcs) = es_program.destructure();
+    let (mut body, direct_funcs) = es_program.destructure();
 
     // direct functions that are imported
-    let direct_imports: Vec<(String, OverloadSet<(Box<[ir::VarType]>, ir::FuncIdx)>)> = Vec::new();
+    let mut direct_imports: Vec<(String, OverloadSet<(Box<[ir::VarType]>, ir::FuncIdx)>)> =
+        Vec::new();
     {
         let mut dep_index = 0;
         body.each_with_attributes(filename, |es_node, _| {
@@ -54,7 +55,7 @@ pub fn post_parse_program(
                     let local_id = as_id_ref(&*import_spec.local);
                     match local_id.prevar.unwrap() {
                         PreVar::Direct => direct_imports.push((
-                            local_id.name,
+                            local_id.name.to_owned(),
                             deps[{
                                 let tmp = dep_index;
                                 dep_index += 1;
@@ -77,7 +78,7 @@ pub fn post_parse_program(
         parse_ctx.add_direct_overloadsets(direct_imports.into_boxed_slice());
 
     // generate the TargetExprs for the globals and imports
-    let target_expr_entries: Vec<(VarLocId, ir::TargetExpr)>;
+    let mut target_expr_entries: Vec<(VarLocId, ir::TargetExpr)> = Vec::new();
     {
         let mut dep_index = 0;
         body.each_with_attributes(filename, |es_node, _| {
@@ -105,8 +106,8 @@ pub fn post_parse_program(
                 kind: NodeKind::VariableDeclaration(var_decl),
             } = es_node
             {
-                for var_decr_node in var_decl.declarations {
-                    let es_var_decr: VariableDeclarator = as_var_decr(var_decr_node);
+                for var_decr_node in &var_decl.declarations {
+                    let es_var_decr: &VariableDeclarator = as_var_decr_ref(var_decr_node);
                     let varlocid = as_varlocid(as_id_ref(&*es_var_decr.id).prevar.unwrap());
                     target_expr_entries.push((
                         varlocid,
@@ -245,7 +246,7 @@ fn post_parse_scope<S: Scope, PE: ScopePrefixEmitter>(
     filename: Option<&str>,
     ir_program: &mut ir::Program, // for adding new structs/functions if necessary
 ) -> Result<ir::Expr, CompileMessage<ParseProgramError>> {
-    let (body, address_taken_vars, direct_funcs) = es_scope.destructure();
+    let (mut body, address_taken_vars, direct_funcs) = es_scope.destructure();
 
     let new_depth = depth + 1;
 
@@ -491,9 +492,9 @@ fn make_function_body<S: Scope>(
             j: usize,
             closure_count: usize,
             ir_vartype: ir::VarType,
-            mut more_ir_vartype_iter: J,
+            more_ir_vartype_iter: J,
             parse_ctx: &mut ParseState,
-            mut more_stmt_attr_iter: I,
+            more_stmt_attr_iter: I,
             depth: usize,
             num_locals: usize, // current number of IR locals
             filename: Option<&str>,
@@ -616,7 +617,7 @@ fn make_function_body<S: Scope>(
 }
 
 fn post_parse_direct_function(
-    es_func: FunctionDeclaration,
+    mut es_func: FunctionDeclaration,
     loc: Option<esSL>,
     parse_ctx: &mut ParseState,
     depth: usize,
@@ -628,7 +629,8 @@ fn post_parse_direct_function(
     assert!(es_func.captured_vars.is_empty());
 
     // the current function that we are emitting (the entry was already created by the enclosing block)
-    let (ir_params, ir_funcidx) = es_func.direct_props.unwrap();
+    // the std::mem::take is safe here because make_function_body() does not use direct_props.
+    let (ir_params, ir_funcidx) = std::mem::take(&mut es_func.direct_props).unwrap();
     let num_params = es_func.params.len();
     assert!(num_params == ir_params.len());
     //let es_params = std::mem::take(&mut es_func.params);
@@ -656,7 +658,7 @@ fn post_parse_direct_function(
 }
 
 fn post_parse_function<Func: Function>(
-    es_func: Func,
+    mut es_func: Func,
     loc: Option<esSL>,
     parse_ctx: &mut ParseState,
     depth: usize,
@@ -676,7 +678,7 @@ fn post_parse_function<Func: Function>(
         .collect();
 
     // the output sequence; this will go into a Declaration expression
-    let sequence: Vec<ir::Expr> = Vec::new();
+    let mut sequence: Vec<ir::Expr> = Vec::new();
 
     // declare a new struct type
     // note: for address-taken variables, we only store the enclosing struct in the closure
@@ -709,8 +711,8 @@ fn post_parse_function<Func: Function>(
     });
 
     // do a few things including calculating the struct def and emitting assignment statements for the captured vars
-    let struct_def: Vec<ir::VarType> = Vec::new();
-    let struct_field_map: Box<[usize]> = es_captured_vars.iter().map(|_| usize::MAX).collect();
+    let mut struct_def: Vec<ir::VarType> = Vec::new();
+    let mut struct_field_map: Box<[usize]> = es_captured_vars.iter().map(|_| usize::MAX).collect();
     for (i, varlocid) in es_captured_vars.iter().enumerate() {
         if let ir::TargetExpr::Local { localidx, next } = parse_ctx.get_target(varlocid).unwrap() {
             match next {
@@ -842,7 +844,7 @@ fn post_parse_function<Func: Function>(
         es_func,
         loc,
         parse_ctx,
-        ir_params_without_closure.clone(),
+        ir_params_without_closure,
         1,
         depth,
         filename,
@@ -866,7 +868,6 @@ fn post_parse_function<Func: Function>(
         vartype: Some(ir::VarType::Func),
         kind: ir::ExprKind::PrimFunc {
             funcidxs: Box::new([ir::OverloadEntry {
-                signature: ir_params_without_closure,
                 funcidx: ir_funcidx,
                 has_closure_param: true,
             }]),
@@ -1047,7 +1048,7 @@ fn post_parse_toplevel_statement(
                 )?;
                 Ok(make_prim_undefined())
             } else {
-                let varlocid = as_varlocid(as_id(*func_decl.id).prevar.unwrap());
+                let varlocid = as_varlocid(as_id_ref(&*func_decl.id).prevar.unwrap());
                 let rhs_expr: ir::Expr = post_parse_function(
                     func_decl,
                     es_node.loc,
@@ -1118,13 +1119,11 @@ fn post_parse_toplevel_export_decl(
                 exports.add_target(varlocid, parse_ctx.get_target(&varlocid).unwrap().clone());
             }
             PreVar::Direct => {
-                exports.add_direct(
-                    local_id.name,
-                    parse_ctx
-                        .get_direct(local_id.name.as_str())
-                        .unwrap()
-                        .clone(),
-                );
+                let os: OverloadSet<_> = parse_ctx
+                    .get_direct(local_id.name.as_str())
+                    .unwrap()
+                    .clone();
+                exports.add_direct(local_id.name, os);
             }
         }
     }
@@ -1193,7 +1192,7 @@ fn post_parse_if_statement(
     // Each branch is a BlockStatement, and hence returns Undefined.
     // also emits a type check to ensure that the conditional is boolean type
 
-    let cond_loc: ir::SourceLocation = as_ir_sl(es_if.test.loc, FILE);
+    let cond_loc: ir::SourceLocation = as_ir_sl(&es_if.test.loc, 0 /*FILE*/);
 
     // We synthesise the typecheck to ensure that the condition is a boolean
     // then add the true_expr and false_expr
@@ -1286,7 +1285,7 @@ fn post_parse_func_decl<I: Iterator<Item = (Node, HashMap<String, Option<String>
     filename: Option<&str>,
     ir_program: &mut ir::Program,
 ) -> Result<(ir::Expr, I), CompileMessage<ParseProgramError>> {
-    let varlocid = as_varlocid(as_id(*es_func_decl.id).prevar.unwrap());
+    let varlocid = as_varlocid(as_id_ref(&*es_func_decl.id).prevar.unwrap());
     let rhs_expr: ir::Expr = post_parse_function(
         es_func_decl,
         loc,
@@ -1329,8 +1328,8 @@ fn post_parse_var_decl<I: Iterator<Item = (Node, HashMap<String, Option<String>>
     ir_program: &mut ir::Program,
 ) -> Result<(ir::Expr, I), CompileMessage<ParseProgramError>> {
     // Since post_parse_statement only allows returning a single ir::Expr, we have to stuff these things into a sequence.
-    let ret: Vec<ir::Expr> = Vec::new();
-    let var_decr_iter = es_var_decl
+    let mut ret: Vec<ir::Expr> = Vec::new();
+    let mut var_decr_iter = es_var_decl
         .declarations
         .into_iter()
         .map(|decr_node| as_var_decr(decr_node))
@@ -1358,7 +1357,7 @@ fn post_parse_var_decl<I: Iterator<Item = (Node, HashMap<String, Option<String>>
     Ok((
         if ret.len() == 1 {
             // if there is only one declaration, just return it
-            ret[0]
+            ret.remove(0)
         } else {
             // if there are more than one declarations, pack it into a sequence and return the sequence
 
@@ -1380,9 +1379,9 @@ fn post_parse_var_decr_recurse<
     J: Iterator<Item = VariableDeclarator>,
 >(
     es_var_decr: VariableDeclarator,
-    mut more_var_decr_iter: J,
+    more_var_decr_iter: J,
     parse_ctx: &mut ParseState,
-    mut more_stmt_attr_iter: I,
+    more_stmt_attr_iter: I,
     depth: usize,
     num_locals: usize, // current number of IR locals
     filename: Option<&str>,
@@ -1541,7 +1540,7 @@ fn post_parse_toplevel_var_decl(
     ir_program: &mut ir::Program,
 ) -> Result<ir::Expr, CompileMessage<ParseProgramError>> {
     // Since post_parse_statement only allows returning a single ir::Expr, we have to stuff these things into a sequence.
-    let ret: Vec<ir::Expr> = es_var_decl
+    let mut ret: Vec<ir::Expr> = es_var_decl
         .declarations
         .into_iter()
         .map(|decr_node| {
@@ -1569,7 +1568,7 @@ fn post_parse_toplevel_var_decl(
     assert!(!ret.is_empty());
     Ok(if ret.len() == 1 {
         // if there is only one declaration, just return it
-        ret[0]
+        ret.remove(0)
     } else {
         // if there are more than one declarations, pack it into a sequence and return the sequence
 
@@ -1727,8 +1726,7 @@ fn post_parse_direct_varname(
         .unwrap()
         .signatures
         .iter()
-        .map(|(sig, funcidx)| ir::OverloadEntry {
-            signature: sig.clone(),
+        .map(|(_, funcidx)| ir::OverloadEntry {
             funcidx: *funcidx,
             has_closure_param: false,
         })
@@ -1778,13 +1776,15 @@ fn post_parse_unary_expr(
     ir_program: &mut ir::Program,
 ) -> Result<ir::Expr, CompileMessage<ParseProgramError>> {
     // operators are Direct functions
-    let func_name: &str = builtins::resolve_unary_operator(es_unary_expr.operator.as_str())
-        .ok_or_else(|| {
-            CompileMessage::new_error(
-                loc.into_sl(filename).to_owned(),
-                ParseProgramError::SourceRestrictionUnaryOperatorError(es_unary_expr.operator),
-            )
-        })?;
+    let opt_func_name: Option<&str> =
+        builtins::resolve_unary_operator(es_unary_expr.operator.as_str());
+    let op_str = es_unary_expr.operator;
+    let func_name = opt_func_name.ok_or_else(|| {
+        CompileMessage::new_error(
+            loc.into_sl(filename).to_owned(),
+            ParseProgramError::SourceRestrictionUnaryOperatorError(op_str),
+        )
+    })?;
     post_parse_direct_call_helper(
         func_name,
         Box::new([*es_unary_expr.argument]),
@@ -1807,13 +1807,15 @@ fn post_parse_binary_expr(
     ir_program: &mut ir::Program,
 ) -> Result<ir::Expr, CompileMessage<ParseProgramError>> {
     // operators are Direct functions
-    let func_name: &str = builtins::resolve_binary_operator(es_binary_expr.operator.as_str())
-        .ok_or_else(|| {
-            CompileMessage::new_error(
-                loc.into_sl(filename).to_owned(),
-                ParseProgramError::SourceRestrictionBinaryOperatorError(es_binary_expr.operator),
-            )
-        })?;
+    let opt_func_name: Option<&str> =
+        builtins::resolve_binary_operator(es_binary_expr.operator.as_str());
+    let op_str = es_binary_expr.operator;
+    let func_name = opt_func_name.ok_or_else(|| {
+        CompileMessage::new_error(
+            loc.into_sl(filename).to_owned(),
+            ParseProgramError::SourceRestrictionBinaryOperatorError(op_str),
+        )
+    })?;
     post_parse_direct_call_helper(
         func_name,
         Box::new([*es_binary_expr.left, *es_binary_expr.right]),
@@ -1836,13 +1838,15 @@ fn post_parse_logical_expr(
     ir_program: &mut ir::Program,
 ) -> Result<ir::Expr, CompileMessage<ParseProgramError>> {
     // operators are Direct functions
-    let func_name: &str = builtins::resolve_logical_operator(es_logical_expr.operator.as_str())
-        .ok_or_else(|| {
-            CompileMessage::new_error(
-                loc.into_sl(filename).to_owned(),
-                ParseProgramError::SourceRestrictionLogicalOperatorError(es_logical_expr.operator),
-            )
-        })?;
+    let opt_func_name: Option<&str> =
+        builtins::resolve_logical_operator(es_logical_expr.operator.as_str());
+    let op_str = es_logical_expr.operator;
+    let func_name = opt_func_name.ok_or_else(|| {
+        CompileMessage::new_error(
+            loc.into_sl(filename).to_owned(),
+            ParseProgramError::SourceRestrictionLogicalOperatorError(op_str),
+        )
+    })?;
     post_parse_direct_call_helper(
         func_name,
         Box::new([*es_logical_expr.left, *es_logical_expr.right]),
@@ -1902,7 +1906,7 @@ fn post_parse_cond_expr(
     // Emits the ExprKind::Conditional.
     // also emits a type check to ensure that the conditional is boolean type
 
-    let cond_loc: ir::SourceLocation = as_ir_sl(es_cond_expr.test.loc, FILE);
+    let cond_loc: ir::SourceLocation = as_ir_sl(&es_cond_expr.test.loc, 0 /*FILE*/);
 
     // We synthesise the typecheck to ensure that the condition is a boolean
     // then add the true_expr and false_expr
@@ -2035,7 +2039,7 @@ fn post_parse_direct_call_helper(
 
     post_parse_call_func_with_params_helper(
         primfunc_expr,
-        params.iter_mut().map(|param_ref| *param_ref),
+        Vec::from(params).into_iter(),
         parse_ctx,
         depth,
         num_locals,
@@ -2061,6 +2065,14 @@ fn as_varlocid(prevar: PreVar) -> VarLocId {
 
 fn as_var_decr(es_node: Node) -> VariableDeclarator {
     if let NodeKind::VariableDeclarator(var_decr) = es_node.kind {
+        var_decr
+    } else {
+        pppanic();
+    }
+}
+
+fn as_var_decr_ref(es_node: &Node) -> &VariableDeclarator {
+    if let NodeKind::VariableDeclarator(var_decr) = &es_node.kind {
         var_decr
     } else {
         pppanic();
@@ -2104,6 +2116,19 @@ fn as_id_ref(es_node: &Node) -> &Identifier {
         id
     } else {
         pppanic();
+    }
+}
+
+// TODO: store both line and column, and make fileidx work.
+fn as_ir_sl(opt_es_sl: &Option<SourceLocation>, fileidx: u32) -> ir::SourceLocation {
+    let (start, end) = match opt_es_sl {
+        Some(es_sl) => (es_sl.start.line as u32, es_sl.end.line as u32),
+        None => (0, 0),
+    };
+    ir::SourceLocation {
+        file: fileidx,
+        start: start,
+        end: end,
     }
 }
 

@@ -37,7 +37,7 @@ impl<K: Hash + Eq, V: Append<V>> VarCtx<K, V> {
                 v.insert(val);
                 true
             }
-            Entry::Occupied(o) => o.get_mut().try_append(val),
+            Entry::Occupied(mut o) => o.get_mut().try_append(val),
         }
     }
     /**
@@ -49,7 +49,7 @@ impl<K: Hash + Eq, V: Append<V>> VarCtx<K, V> {
                 v.insert(val);
                 true
             }
-            Entry::Occupied(o) => o.get_mut().append(val),
+            Entry::Occupied(mut o) => o.get_mut().append(val),
         }
     }
 }

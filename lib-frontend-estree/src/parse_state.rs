@@ -3,7 +3,7 @@ use crate::estree::*;
 use crate::vartype_superset::*;
 use std::collections::HashMap;
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct ParseState {
     targets: HashMap<VarLocId, ir::TargetExpr>, // for the Targets
     directs: VarCtx<String, OverloadSet<(Box<[ir::VarType]>, ir::FuncIdx)>>, // for the Directs
@@ -61,7 +61,7 @@ impl ParseState {
 
 // Get target
 impl ParseState {
-    pub fn get_target(&mut self, varlocid: &VarLocId) -> Option<&ir::TargetExpr> {
+    pub fn get_target(&self, varlocid: &VarLocId) -> Option<&ir::TargetExpr> {
         self.targets.get(varlocid)
     }
 }

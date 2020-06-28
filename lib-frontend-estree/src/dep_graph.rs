@@ -13,14 +13,18 @@ use std::iter::FusedIterator;
 use std::pin::Pin;
 use std::result::Result;
 
-#[async_trait]
-pub trait Fetcher<T> {
-    async fn fetch(&self, name: &str, sl: plSLRef<'_>) -> Result<T, CompileMessage<FetcherError>>;
+//#[async_trait(?Send)]
+pub trait Fetcher<T>: Copy {
+    fn fetch<'a>(
+        self,
+        name: &'a str,
+        sl: plSLRef<'a>,
+    ) -> std::pin::Pin<Box<dyn 'a + Future<Output = Result<T, CompileMessage<FetcherError>>>>>;
 }
 
 pub trait ExtractDeps<'a> {
     type Iter: Iterator<Item = (&'a str, plSLRef<'a>)>;
-    fn extract_deps(&self, filename: Option<&'a str>) -> Self::Iter;
+    fn extract_deps(&'a self, filename: Option<&'a str>) -> Self::Iter;
 }
 
 struct GraphNode<T> {
@@ -39,9 +43,9 @@ where
 {
     // Will ensure that nodes with larger index will only depend on nodes with smaller index
     // So the largest index will be the given `t` (root)
-    pub async fn try_async_build_from_root<F: Fetcher<T>>(
+    pub async fn try_async_build_from_root<'c, F: Fetcher<T>>(
         t: T,
-        f: &F,
+        f: F,
     ) -> Result<Self, CompileMessage<DepError>> {
         let mut graph = Graph::<T> { nodes: Vec::new() };
         // Note: for some reasons async functions are not allowed to be recursive,
@@ -63,12 +67,12 @@ where
         });
         Ok(graph)
     }
-    fn get_or_fetch_node_recursive<'b, F: Fetcher<T>>(
+    fn get_or_fetch_node_recursive<'b, F: 'b + Fetcher<T>>(
         &'b mut self,
         name: &'b str,
         sl: plSLRef<'b>,
         cache: &'b mut HashMap<String, Option<usize>>,
-        f: &'b F,
+        f: F,
     ) -> Pin<Box<dyn 'b + Future<Output = Result<usize, CompileMessage<DepError>>>>> {
         Box::pin(async move {
             if let Some(opt_idx) = cache.get(name) {
@@ -117,7 +121,7 @@ impl<T> Graph<T> {
         F: FnMut(usize, Box<[&S]>, T, Option<String>) -> Result<S, E>,
     >(
         self,
-        f: F,
+        mut f: F,
     ) -> Result<(), E> {
         let mut states: Vec<S> = Vec::new();
         states.reserve(self.nodes.len());
