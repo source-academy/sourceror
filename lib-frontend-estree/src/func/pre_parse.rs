@@ -345,8 +345,18 @@ fn pre_parse_expr_statement(
                         PreVar::Target(varlocid) => varlocid,
                         PreVar::Direct => panic!("ICE: Should be VarLocId"),
                     };
-                    let lhs_expr = varusage::from_modified(varlocid);
-                    Ok(varusage::merge_series(rhs_expr, lhs_expr)) // the RHS comes first because the RHS is evaluated first before doing the actual assignment
+                    if varlocid.depth == 0 {
+                        // it is a global variable, but don't do anything because it doesn't count as a usage
+                        Ok(rhs_expr)
+                    } else {
+                        // it's not a global variable
+                        // say that we used this variable
+                        // the RHS comes first because the RHS is evaluated first before doing the actual assignment
+                        Ok(varusage::merge_series(
+                            rhs_expr,
+                            varusage::from_modified(varlocid),
+                        ))
+                    }
                 }
                 Node { loc, kind: _ } => Err(CompileMessage::new_error(
                     loc.into_sl(filename).to_owned(),
@@ -472,8 +482,18 @@ fn pre_parse_func_decl(
         PreVar::Target(varlocid) => varlocid,
         PreVar::Direct => panic!("ICE: Should be VarLocId"),
     };
-    let lhs_expr = varusage::from_modified(varlocid);
-    Ok(varusage::merge_series(rhs_expr, lhs_expr)) // the RHS comes first because the RHS is evaluated first before doing the actual assignment
+    if varlocid.depth == 0 {
+        // it is a global variable, but don't do anything because it doesn't count as a usage
+        Ok(rhs_expr)
+    } else {
+        // it's not a global variable
+        // say that we used this variable
+        // the RHS comes first because the RHS is evaluated first before doing the actual assignment
+        Ok(varusage::merge_series(
+            rhs_expr,
+            varusage::from_modified(varlocid),
+        ))
+    }
 }
 
 fn pre_parse_direct_func_decl(
@@ -522,8 +542,18 @@ fn pre_parse_var_decl(
                                     PreVar::Target(varlocid) => varlocid,
                                     PreVar::Direct => panic!("ICE: Should be VarLocId"),
                                 };
-                                let lhs_expr = varusage::from_modified(varlocid);
-                                Ok(varusage::merge_series(rhs_expr, lhs_expr)) // the RHS comes first because the RHS is evaluated first before doing the actual assignment
+                                if varlocid.depth == 0 {
+                                    // it is a global variable, but don't do anything because it doesn't count as a usage
+                                    Ok(rhs_expr)
+                                } else {
+                                    // it's not a global variable
+                                    // say that we used this variable
+                                    // the RHS comes first because the RHS is evaluated first before doing the actual assignment
+                                    Ok(varusage::merge_series(
+                                        rhs_expr,
+                                        varusage::from_modified(varlocid),
+                                    ))
+                                }
                             } else {
                                 Err(CompileMessage::new_error(
                                     decl.loc.into_sl(filename).to_owned(),

@@ -211,6 +211,24 @@ pub async fn run_frontend<
         },
     )?;
 
+    // put the toplevel sequence into the program
+    // and set it as the entry_point function
+    let ir_toplevel_func = ir::Func {
+        params: Box::new([]),
+        result: Some(ir::VarType::Any),
+        expr: ir::Expr {
+            vartype: ir_toplevel_sequence
+                .last()
+                .map_or_else(|| Some(ir::VarType::Undefined), |ir_expr| ir_expr.vartype),
+            kind: ir::ExprKind::Sequence {
+                content: ir_toplevel_sequence,
+            },
+        },
+        signature_filter: Default::default(),
+    };
+    ir_program.entry_point = ir_program.funcs.len();
+    ir_program.funcs.push(ir_toplevel_func);
+
     Ok(ir_program)
 }
 
