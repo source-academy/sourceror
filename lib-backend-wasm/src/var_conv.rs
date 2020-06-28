@@ -94,6 +94,88 @@ pub fn encode_store_local(
     }
 }
 
+// stores a ir variable from the protected stack to global variable(s)
+// equivalent to encode_store_local() but for globals
+// net wasm stack: [<ir_source_vartype>] -> []
+pub fn encode_store_global(
+    wasm_globalidx: &[wasmgen::GlobalIdx],
+    ir_dest_vartype: ir::VarType,
+    ir_source_vartype: ir::VarType,
+    expr_builder: &mut wasmgen::ExprBuilder,
+) {
+    if ir_dest_vartype == ir_source_vartype {
+        match ir_dest_vartype {
+            ir::VarType::Any | ir::VarType::Func => {
+                assert!(wasm_globalidx.len() == 2);
+                expr_builder.global_set(wasm_globalidx[0]);
+                expr_builder.global_set(wasm_globalidx[1]);
+            }
+            ir::VarType::Number | ir::VarType::Boolean | ir::VarType::String => {
+                assert!(wasm_globalidx.len() == 1);
+                expr_builder.global_set(wasm_globalidx[0]);
+            }
+            ir::VarType::StructT { typeidx: _ } => {
+                assert!(wasm_globalidx.len() == 1);
+                expr_builder.global_set(wasm_globalidx[0]);
+            }
+            ir::VarType::Undefined => {
+                assert!(wasm_globalidx.len() == 0);
+            }
+            ir::VarType::Unassigned => {
+                panic!("ICE: IR->Wasm: Local static vartype cannot be unassigned");
+            }
+        }
+    } else if ir_dest_vartype == ir::VarType::Any {
+        // writing from a specific type to the Any type
+        assert!(wasm_globalidx.len() == 2);
+        match ir_source_vartype {
+            ir::VarType::Any => {
+                panic!("ICE");
+            }
+            ir::VarType::Undefined => {
+                expr_builder.i32_const(ir_source_vartype.tag());
+                expr_builder.global_set(wasm_globalidx[0]);
+            }
+            ir::VarType::Unassigned => {
+                panic!("ICE: IR->Wasm: Cannot assign to global from unassigned value");
+            }
+            ir::VarType::Number => {
+                expr_builder.i32_const(ir_source_vartype.tag());
+                expr_builder.global_set(wasm_globalidx[0]);
+                expr_builder.i64_reinterpret_f64(); // convert f64 to i64
+                expr_builder.global_set(wasm_globalidx[1]);
+            }
+            ir::VarType::Boolean | ir::VarType::String => {
+                expr_builder.i32_const(ir_source_vartype.tag());
+                expr_builder.global_set(wasm_globalidx[0]);
+                expr_builder.i64_extend_i32_u(); // convert i32 to i64
+                expr_builder.global_set(wasm_globalidx[1]);
+            }
+            ir::VarType::StructT { typeidx: _ } => {
+                expr_builder.i32_const(ir_source_vartype.tag());
+                expr_builder.global_set(wasm_globalidx[0]);
+                expr_builder.i64_extend_i32_u(); // convert i32 to i64
+                expr_builder.global_set(wasm_globalidx[1]);
+            }
+            ir::VarType::Func => {
+                expr_builder.i32_const(ir_source_vartype.tag());
+                expr_builder.global_set(wasm_globalidx[0]);
+                // the rest of the instructions concats the two i32s from the stack into the i64 global
+                expr_builder.i64_extend_i32_u(); // convert i32 to i64 (index in table)
+                expr_builder.global_set(wasm_globalidx[1]);
+                expr_builder.i64_extend_i32_u(); // convert i32 to i64 (ptr to closure)
+                expr_builder.i64_const(32);
+                expr_builder.i64_shl();
+                expr_builder.global_get(wasm_globalidx[1]);
+                expr_builder.i64_or();
+                expr_builder.global_set(wasm_globalidx[1]);
+            }
+        }
+    } else {
+        panic!("ICE: IR->Wasm: Assignment to global is not equivalent or widening conversion");
+    }
+}
+
 // stores a ir variable from the protected stack to a location in memory
 // net wasm stack: [struct_ptr, <irvartype>] -> []
 pub fn encode_store_memory(
@@ -292,6 +374,76 @@ pub fn encode_load_local(
                 expr_builder.i32_wrap_i64();
                 // get low bits into i32
                 expr_builder.local_get(wasm_localidx[1]);
+                expr_builder.i32_wrap_i64();
+            }
+        }
+    } else {
+        panic!("ICE: IR->Wasm: Load from local is not equivalent or narrowing conversion");
+    }
+}
+
+// loads a ir variable into the protected stack from global variable(s)
+// equivalent to encode_load_local() but for globals
+// net wasm stack: [] -> [<outgoing_vartype>]
+pub fn encode_load_global(
+    wasm_globalidx: &[wasmgen::GlobalIdx],
+    ir_global_vartype: ir::VarType,
+    ir_outgoing_vartype: ir::VarType,
+    expr_builder: &mut wasmgen::ExprBuilder,
+) {
+    if ir_global_vartype == ir_outgoing_vartype {
+        match ir_global_vartype {
+            ir::VarType::Any | ir::VarType::Func => {
+                assert!(wasm_globalidx.len() == 2);
+                expr_builder.global_get(wasm_globalidx[1]);
+                expr_builder.global_get(wasm_globalidx[0]);
+            }
+            ir::VarType::Number | ir::VarType::Boolean | ir::VarType::String => {
+                assert!(wasm_globalidx.len() == 1);
+                expr_builder.global_get(wasm_globalidx[0]);
+            }
+            ir::VarType::StructT { typeidx: _ } => {
+                assert!(wasm_globalidx.len() == 1);
+                expr_builder.global_get(wasm_globalidx[0]);
+            }
+            ir::VarType::Undefined => {
+                assert!(wasm_globalidx.len() == 0);
+            }
+            ir::VarType::Unassigned => {
+                panic!("ICE: IR->Wasm: Local static vartype cannot be unassigned");
+            }
+        }
+    } else if ir_global_vartype == ir::VarType::Any {
+        // loading from Any type to a specific type
+        assert!(wasm_globalidx.len() == 2);
+        match ir_outgoing_vartype {
+            ir::VarType::Any => {
+                panic!("ICE");
+            }
+            ir::VarType::Undefined => {}
+            ir::VarType::Unassigned => {
+                panic!("ICE: IR->Wasm: Cannot load from unassigned global");
+            }
+            ir::VarType::Number => {
+                expr_builder.global_get(wasm_globalidx[1]);
+                expr_builder.f64_reinterpret_i64(); // convert i64 to f64
+            }
+            ir::VarType::Boolean | ir::VarType::String => {
+                expr_builder.global_get(wasm_globalidx[1]);
+                expr_builder.i32_wrap_i64(); // convert i64 to i32
+            }
+            ir::VarType::StructT { typeidx: _ } => {
+                expr_builder.global_get(wasm_globalidx[1]);
+                expr_builder.i32_wrap_i64(); // convert i64 to i32
+            }
+            ir::VarType::Func => {
+                // get high bits into i32
+                expr_builder.global_get(wasm_globalidx[1]);
+                expr_builder.i64_const(32);
+                expr_builder.i64_shr_u();
+                expr_builder.i32_wrap_i64();
+                // get low bits into i32
+                expr_builder.global_get(wasm_globalidx[1]);
                 expr_builder.i32_wrap_i64();
             }
         }

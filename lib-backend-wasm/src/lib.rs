@@ -65,6 +65,7 @@ mod opt_var_conv;
 mod pre_traverse;
 mod string_prim_inst;
 mod var_conv;
+mod global_var;
 
 use gc::cheney::Cheney;
 use gc::leaky::Leaky;
@@ -100,8 +101,6 @@ pub fn run_backend(ir_program: &ir::Program, options: Options) -> wasmgen::WasmM
 }
 
 fn encode_program(ir_program: &ir::Program, options: Options) -> wasmgen::WasmModule {
-    // todo! Emit struct_types
-    // todo! Emit globals
     // (note: not the same was the wasm entry point!)
     // By convention, this is a normal function exported as "main")
 
@@ -144,6 +143,10 @@ fn encode_program(ir_program: &ir::Program, options: Options) -> wasmgen::WasmMo
     let globalidx_stackptr =
         wasm_module.add_i32_global(wasmgen::Mut::Var, (MEM_STACK_SIZE * WASM_PAGE_SIZE) as i32);
 
+    // add ir global vars
+    let global_var_manager = global_var::GlobalVarManager::make_from_ir_globals(&ir_program.globals, &mut wasm_module);
+
+    // structs
     let (struct_field_byte_offsets, struct_sizes): (Box<[Box<[u32]>]>, Box<[u32]>) = ir_program
         .struct_types
         .iter()
@@ -230,6 +233,7 @@ fn encode_program(ir_program: &ir::Program, options: Options) -> wasmgen::WasmMo
         &struct_field_byte_offsets,
         imported_funcs,
         ir_program.entry_point,
+        global_var_manager,
         globalidx_stackptr,
         memidx,
         thunk_sv,
