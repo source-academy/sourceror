@@ -137,6 +137,15 @@ pub trait HeapManager {
         expr_builder: &mut wasmgen::ExprBuilder,
     );
 
+    // Encodes the the conversion of a expr representing a closure to the actual closure i32 value.
+    // Typically GCs will want to be able to assume that this is a pointer (or null).
+    // net wasm stack: [] -> [i32]
+    fn encode_closure_conversion(
+        &self,
+        vartype: ir::VarType,
+        expr_builder: &mut wasmgen::ExprBuilder,
+    );
+
     // Encodes instructions to initialize locals that could potentially go onto the gc_roots stack.
     // For Cheney, this would set all pointers to -1.  Anys are set to unassigned (Note: although wasm zero-initializes things, the local variable might be reused (due to the way Scratch works), so make any assumptions on the existing value.).
     // This is necessary because the first memory allocation might happen before these locals are initialized.

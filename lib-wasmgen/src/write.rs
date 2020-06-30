@@ -59,12 +59,16 @@ impl WasmModule {
         self.mem_section.add_unbounded(initial_num_pages)
     }
     pub fn add_zeroed_global(&mut self, valtype: ValType, mutability: Mut) -> GlobalIdx {
-        self.global_section.add(valtype, mutability, match valtype {
-            ValType::I32 => make_init_expr_from_i32(0),
-            ValType::I64 => make_init_expr_from_i64(0),
-            ValType::F32 => make_init_expr_from_f32(0.0),
-            ValType::F64 => make_init_expr_from_f64(0.0),
-        })
+        self.global_section.add(
+            valtype,
+            mutability,
+            match valtype {
+                ValType::I32 => make_init_expr_from_i32(0),
+                ValType::I64 => make_init_expr_from_i64(0),
+                ValType::F32 => make_init_expr_from_f32(0.0),
+                ValType::F64 => make_init_expr_from_f64(0.0),
+            },
+        )
     }
     pub fn add_global(&mut self, valtype: ValType, mutability: Mut, init_expr: Expr) -> GlobalIdx {
         self.global_section.add(valtype, mutability, init_expr)

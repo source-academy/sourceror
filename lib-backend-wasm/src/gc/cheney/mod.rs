@@ -675,6 +675,21 @@ impl<'a, 'b, 'c> HeapManager for Cheney<'a, 'b, 'c> {
         todo!();
     }
 
+    // We allow Undefined (which is encoded as the nullptr value),
+    // and any reference type (i.e. strings and structs)
+    // net wasm stack: [<closure_irvartype>] -> [i32(closure)]
+    fn encode_closure_conversion(
+        &self,
+        vartype: ir::VarType,
+        expr_builder: &mut wasmgen::ExprBuilder,
+    ) {
+        match vartype {
+            ir::VarType::Undefined => expr_builder.i32_const(-1),
+            ir::VarType::String | ir::VarType::StructT { typeidx: _ } => {}
+            _ => panic!("VarType is not undefined and also not a reference type"),
+        }
+    }
+
     // Encodes instructions to initialize locals that could potentially go onto the gc_roots stack.
     // `local_types` and `local_map` should have equal length, containing just those locals that should be initialized.
     // `wasm_local_map` should not be sliced by the caller, because we need to preserve the indexing so that `local_map` will refer to the correct indices in `wasm_local_map`.

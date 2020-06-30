@@ -42,6 +42,7 @@ fn main() {
         //let ir_imports = frontend_estree::parse_imports(import_spec, MainLogger::new(context))?;
         let ir_program =
             frontend_estree::run_frontend(source_code, fetch_dep_proxy, MainLogger {}).await?;
+        println!("{:#?}", &ir_program);
         let wasm_module = backend_wasm::run_backend(&ir_program, backend_wasm::Options::default());
         let mut receiver = std::vec::Vec::<u8>::new();
         wasm_module.wasm_serialize(&mut receiver);

@@ -6,11 +6,11 @@ use super::gc::HeapManager;
  */
 use wasmgen::Scratch;
 
+use crate::global_var::*;
 use crate::multi_value_polyfill;
 use crate::pre_traverse::ShiftedStringPool;
 use crate::string_prim_inst;
 use crate::Options;
-use crate::global_var::*;
 
 use super::opt_var_conv::*;
 use super::var_conv::*;
@@ -24,16 +24,16 @@ use std::collections::HashMap;
 struct EncodeContext<'a, 'b, 'c, 'd, 'e, 'f, 'g, 'h, Heap: HeapManager> {
     // Local to this function
     return_type: Option<ir::VarType>,
-    
+
     // Global for whole program
     struct_types: &'a [Box<[ir::VarType]>],
     struct_field_byte_offsets: &'b [Box<[u32]>], // has same sizes as `struct_types`, but instead stores the byte offset of each field from the beginning of the struct
     funcs: &'c [ir::Func], // ir functions, so that callers can check the param type of return type
     wasm_funcidxs: &'d [wasmgen::FuncIdx], // mapping from ir::FuncIdx to wasmgen::FuncIdx (used when we need to invoke a DirectAppl)
-    
+
     // Global var management (does not include special globals like the stackptr)
     globals: GlobalVarManagerRef<'e>,
-    
+
     // Other things
     stackptr: wasmgen::GlobalIdx,
     memidx: wasmgen::MemIdx,
@@ -164,7 +164,12 @@ pub fn encode_funcs<Heap: HeapManager>(
         .into_iter()
         .map(|overload_entries| {
             let wasm_functype = wasmgen::FuncType::new(
-                Box::new([wasmgen::ValType::I32, wasmgen::ValType::I32]),
+                // closure, num_params, callerid
+                Box::new([
+                    wasmgen::ValType::I32,
+                    wasmgen::ValType::I32,
+                    wasmgen::ValType::I32,
+                ]),
                 encode_result(Some(ir::VarType::Any), options.wasm_multi_value),
             );
             let (_, wasm_funcidx) = wasm_module.register_func(&wasm_functype);
@@ -373,22 +378,28 @@ fn encode_target_addr_pre<H: HeapManager>(
     expr_builder: &mut wasmgen::ExprBuilder,
 ) {
     fn follow_nested_struct<H: HeapManager>(
-                        outer_struct_field: &ir::StructField,
-                        ctx: EncodeContext<H>,
-                        expr_builder: &mut wasmgen::ExprBuilder,
-                    ) {
-                        if let Some(inner_struct_field) = &outer_struct_field.next {
-                            // If there is an inner struct, it must be known at compilation time
-                            assert!(ctx.struct_types[outer_struct_field.typeidx][outer_struct_field.fieldidx] == ir::VarType::StructT{typeidx: inner_struct_field.typeidx}, "ICE: IR->Wasm: Struct type incorrect or not proved at compilation time");
-                            // net wasm stack: [struct_ptr] -> [struct_ptr]
-                            expr_builder.i32_load(wasmgen::MemArg::new4(
-                                ctx.struct_field_byte_offsets[outer_struct_field.typeidx]
-                                    [outer_struct_field.fieldidx],
-                            ));
-                            // recurse if there are even more inner structs
-                            follow_nested_struct(&inner_struct_field, ctx, expr_builder);
-                        }
-                    }
+        outer_struct_field: &ir::StructField,
+        ctx: EncodeContext<H>,
+        expr_builder: &mut wasmgen::ExprBuilder,
+    ) {
+        if let Some(inner_struct_field) = &outer_struct_field.next {
+            // If there is an inner struct, it must be known at compilation time
+            assert!(
+                ctx.struct_types[outer_struct_field.typeidx][outer_struct_field.fieldidx]
+                    == ir::VarType::StructT {
+                        typeidx: inner_struct_field.typeidx
+                    },
+                "ICE: IR->Wasm: Struct type incorrect or not proved at compilation time"
+            );
+            // net wasm stack: [struct_ptr] -> [struct_ptr]
+            expr_builder.i32_load(wasmgen::MemArg::new4(
+                ctx.struct_field_byte_offsets[outer_struct_field.typeidx]
+                    [outer_struct_field.fieldidx],
+            ));
+            // recurse if there are even more inner structs
+            follow_nested_struct(&inner_struct_field, ctx, expr_builder);
+        }
+    }
 
     match target {
         ir::TargetExpr::Global { globalidx, next } => {
@@ -579,10 +590,18 @@ fn encode_expr<H: HeapManager>(
                 expr.vartype == Some(ir::VarType::Func),
                 "ICE: IR->Wasm: PrimFunc does not have type func"
             );
+            assert!(
+                closure.vartype.is_some(),
+                "ICE: IR->Wasm: Closure is not allowed to be noreturn"
+            );
 
             // encode the closure expr (might contain sub-exprs in general)
             // net wasm stack: [] -> [<closure_irvartype>] (note: this might not be i32, if there is an empty closure)
             encode_expr(&closure, ctx, mutctx, expr_builder);
+
+            // [<closure_irvartype>] -> [i32(closure)]
+            ctx.heap
+                .encode_closure_conversion(closure.vartype.unwrap(), expr_builder);
 
             // get the target tableidx of this thunk
             let tableidx: u32 = *ctx.thunk_map.get(funcidxs).unwrap();
@@ -913,43 +932,49 @@ fn encode_target_value<H: HeapManager>(
     expr_builder: &mut wasmgen::ExprBuilder,
 ) {
     // net wasm stack: [struct_ptr] -> [<outgoing_vartype>]
-                    fn load_inner_local<H: HeapManager>(
-                        outer_struct_field: &ir::StructField,
-                        outgoing_vartype: ir::VarType,
-                        ctx: EncodeContext<H>,
-                        mutctx: &mut MutContext,
-                        expr_builder: &mut wasmgen::ExprBuilder,
-                    ) {
-                        if let Some(inner_struct_field) = &outer_struct_field.next {
-                            // If there is an inner struct, it must be known at compilation time
-                            assert!(ctx.struct_types[outer_struct_field.typeidx][outer_struct_field.fieldidx] == ir::VarType::StructT{typeidx: inner_struct_field.typeidx}, "ICE: IR->Wasm: Struct type incorrect or not proved at compilation time");
-                            // net wasm stack: [struct_ptr] -> [struct_ptr]
-                            expr_builder.i32_load(wasmgen::MemArg::new4(
-                                ctx.struct_field_byte_offsets[outer_struct_field.typeidx]
-                                    [outer_struct_field.fieldidx],
-                            ));
-                            // recurse if there are even more inner structs
-                            load_inner_local(
-                                &inner_struct_field,
-                                outgoing_vartype,
-                                ctx,
-                                mutctx,
-                                expr_builder,
-                            );
-                        } else {
-                            let offset: u32 = ctx.struct_field_byte_offsets
-                                [outer_struct_field.typeidx][outer_struct_field.fieldidx];
-                            let ir_source_vartype: ir::VarType = ctx.struct_types
-                                [outer_struct_field.typeidx][outer_struct_field.fieldidx];
-                            encode_load_memory(
-                                offset,
-                                ir_source_vartype,
-                                outgoing_vartype,
-                                mutctx.scratch_mut(),
-                                expr_builder,
-                            );
-                        }
-                    }
+    fn load_inner_local<H: HeapManager>(
+        outer_struct_field: &ir::StructField,
+        outgoing_vartype: ir::VarType,
+        ctx: EncodeContext<H>,
+        mutctx: &mut MutContext,
+        expr_builder: &mut wasmgen::ExprBuilder,
+    ) {
+        if let Some(inner_struct_field) = &outer_struct_field.next {
+            // If there is an inner struct, it must be known at compilation time
+            assert!(
+                ctx.struct_types[outer_struct_field.typeidx][outer_struct_field.fieldidx]
+                    == ir::VarType::StructT {
+                        typeidx: inner_struct_field.typeidx
+                    },
+                "ICE: IR->Wasm: Struct type incorrect or not proved at compilation time"
+            );
+            // net wasm stack: [struct_ptr] -> [struct_ptr]
+            expr_builder.i32_load(wasmgen::MemArg::new4(
+                ctx.struct_field_byte_offsets[outer_struct_field.typeidx]
+                    [outer_struct_field.fieldidx],
+            ));
+            // recurse if there are even more inner structs
+            load_inner_local(
+                &inner_struct_field,
+                outgoing_vartype,
+                ctx,
+                mutctx,
+                expr_builder,
+            );
+        } else {
+            let offset: u32 = ctx.struct_field_byte_offsets[outer_struct_field.typeidx]
+                [outer_struct_field.fieldidx];
+            let ir_source_vartype: ir::VarType =
+                ctx.struct_types[outer_struct_field.typeidx][outer_struct_field.fieldidx];
+            encode_load_memory(
+                offset,
+                ir_source_vartype,
+                outgoing_vartype,
+                mutctx.scratch_mut(),
+                expr_builder,
+            );
+        }
+    }
 
     match source {
         ir::TargetExpr::Global { globalidx, next } => {
@@ -1131,78 +1156,52 @@ fn encode_appl<H: HeapManager>(
     // Assert that the return type is Any (calling a function indirectly should return Any)
     assert!(return_type == Some(ir::VarType::Any));
 
+    // Assert that the func_expr has static type Func (ir should have used a TypeCast expr otherwise)
+    assert!(func_expr.vartype == Some(ir::VarType::Func));
+
     // Evaluate the `func_expr`:
-    // net wasm stack: [] -> [<func_expr.vartype>]
+    // net wasm stack: [] -> [i32(closure ptr), i32(func ptr)]
     encode_expr(func_expr, ctx, mutctx, expr_builder);
 
     mutctx.with_scratch_i32(|mutctx, localidx_tableidx| {
-        // Emit the convertion to function if necessary, storing the tableidx in a i32 local variable
-        // net wasm stack: [<func_expr.vartype>] -> [i32(closure ptr)]
-        {
-            match func_expr.vartype {
-                Some(ir::VarType::Func) => {
-                    // already a function, just pop out the tableidx from the stack
-                    expr_builder.local_set(localidx_tableidx);
-                }
-                Some(ir::VarType::Any) => {
-                    // emit the check if it is a function type
-                    expr_builder.i32_const(ir::VarType::Func.tag());
-                    expr_builder.i32_ne();
-                    expr_builder.if_(&[]);
-                    {
-                        // not a function type... so we will raise a runtime error
-                        expr_builder.i32_const(
-                            ir::error::ERROR_CODE_FUNCTION_APPLICATION_NOT_CALLABLE_TYPE as i32,
-                        );
-                        expr_builder.i32_const(0);
-                        expr_builder.i32_const(0); // todo!(add actual source location)
-                        expr_builder.i32_const(0);
-                        expr_builder.i32_const(0);
-                        expr_builder.call(ctx.error_func);
-                        expr_builder.unreachable();
-                    }
-                    expr_builder.end();
-                    // now it is a function type, we have to reinterpret the i64 as two i32s
-                    {
-                        mutctx.with_scratch_i64(|_mutctx, localidx_data| {
-                            expr_builder.local_tee(localidx_data);
-                            expr_builder.local_get(localidx_data);
-                        });
-                        expr_builder.i32_wrap_i64();
-                        expr_builder.local_set(localidx_tableidx);
-                        expr_builder.i64_const(32);
-                        expr_builder.i64_shr_u();
-                        expr_builder.i32_wrap_i64();
-                    }
-                }
-                _ => {
-                    panic!("Cannot call function with static VarType that is not Func or Any");
-                }
-            };
-        }
+        // net wasm stack: [i32(closure ptr), i32(func ptr)] -> [i32(closure ptr)]
+        expr_builder.local_set(localidx_tableidx);
 
         // Encode all the arguments
-        // net wasm stack: [] -> [args...]
-        let anys: Box<[ir::VarType]> = args.iter().map(|_| ir::VarType::Any).collect();
-        // TODO this is wrong - for indirect functions we need to call using the uniform calling convention.
-        encode_args_to_call_function(&anys, args, ctx, mutctx, expr_builder);
+        // net wasm stack: [] -> [i32(num_args)]
+        encode_args_to_call_indirect_function(args, ctx, mutctx, expr_builder);
+
+        // TODO: encode the proper caller id
+        // for now just use zero
+        // net wasm stack: [] -> [i32(callerid)]
+        expr_builder.i32_const(0);
 
         // push the tableidx onto the stack
         // net wasm stack: [] -> [tableidx]
         expr_builder.local_get(localidx_tableidx);
+
+        // TODO: this is currently wrong, because we should only move values onto the unprotected stack just before calling the function.
+        // (Since the evaluation of params may call other functions, the data on the unprotected stack may get corrupted)
+        // When temporarily storing in locals, remember that we don't need to store them as Any type.
+        // We should only do the conversion while copying the locals onto the unprotected stack.
 
         if true {
             // This function might allocate memory, so we need to store the locals in the gc_roots stack first.
 
             // call the function with gc prologue and epilogue
             mutctx.heap_encode_prologue_epilogue(ctx.heap, expr_builder, |mutctx, expr_builder| {
-                // call the function (indirectly)
+                // call the function (indirectly, using uniform calling convention)
                 expr_builder.call_indirect(
-                    mutctx.module_wrapper().add_ir_type_with_closure(
-                        &anys,
-                        Some(ir::VarType::Any),
-                        ctx.options.wasm_multi_value,
-                    ),
+                    mutctx
+                        .module_wrapper()
+                        .add_wasm_type(wasmgen::FuncType::new(
+                            Box::new([
+                                wasmgen::ValType::I32,
+                                wasmgen::ValType::I32,
+                                wasmgen::ValType::I32,
+                            ]),
+                            encode_result(Some(ir::VarType::Any), ctx.options.wasm_multi_value),
+                        )),
                     wasmgen::TableIdx { idx: 0 },
                 );
             });
@@ -1211,11 +1210,16 @@ fn encode_appl<H: HeapManager>(
 
             // call the function (indirectly)
             expr_builder.call_indirect(
-                mutctx.module_wrapper().add_ir_type_with_closure(
-                    &anys,
-                    Some(ir::VarType::Any),
-                    ctx.options.wasm_multi_value,
-                ),
+                mutctx
+                    .module_wrapper()
+                    .add_wasm_type(wasmgen::FuncType::new(
+                        Box::new([
+                            wasmgen::ValType::I32,
+                            wasmgen::ValType::I32,
+                            wasmgen::ValType::I32,
+                        ]),
+                        encode_result(Some(ir::VarType::Any), ctx.options.wasm_multi_value),
+                    )),
                 wasmgen::TableIdx { idx: 0 },
             );
         }
@@ -1312,6 +1316,81 @@ fn encode_args_to_call_function<H: HeapManager>(
             panic!("argument type cannot be Void");
         }
     }
+}
+
+// This function prepares subexpressions when calling an indirect function.
+// It is like encode_args_to_call_function(), but instead it calls a function indirectly,
+// and uses the uniform calling convention for it.
+// As such, all the parameters are implicitly encoded as Any.
+// net wasm stack: [] -> [i32(num_params)]
+fn encode_args_to_call_indirect_function<H: HeapManager>(
+    args: &[ir::Expr],
+    ctx: EncodeContext<H>,
+    mutctx: &mut MutContext,
+    expr_builder: &mut wasmgen::ExprBuilder,
+) {
+    // encode the args
+    // (we do some things that only work when there is at least one arg)
+    if !args.is_empty() {
+        // load the adjusted stackptr
+        // net wasm stack: [] -> [i32(stackptr)]
+        expr_builder.global_get(ctx.stackptr);
+        expr_builder.i32_const((args.len() as u32 * size_in_memory(ir::VarType::Any)) as i32);
+        expr_builder.i32_sub();
+
+        // net wasm stack: [stackptr] -> []
+        if args.len() > 1 {
+            mutctx.with_scratch_i32(|mutctx, stackptr_localidx| {
+                // note: we only write the args to memory after evaluating all of them
+                // because calling a function may overwrite the parameter area on the unprotected stack.
+
+                // net wasm stack: [stackptr] -> [stackptr]
+                expr_builder.local_tee(stackptr_localidx);
+
+                // net wasm stack: [stackptr] -> [(i32(stackptr), <arg.vartype>)...]
+                {
+                    let (first_arg, remaining_args) = args.split_first().unwrap();
+
+                    // net wasm stack: [] -> [<arg.vartype>]
+                    encode_expr(first_arg, ctx, mutctx, expr_builder);
+
+                    for arg in remaining_args.iter() {
+                        // net wasm stack: [] -> [stackptr]
+                        expr_builder.local_get(stackptr_localidx);
+
+                        // net wasm stack: [] -> [<arg.vartype>]
+                        encode_expr(arg, ctx, mutctx, expr_builder);
+                    }
+                }
+            });
+
+            // net wasm stack: [(i32(stackptr), <arg.vartype>)...] -> []
+            for (i, arg) in args.iter().rev().enumerate() {
+                // net wasm stack: [i32(stackptr), <arg.vartype>] -> []
+                encode_store_memory(
+                    i as u32 * size_in_memory(ir::VarType::Any),
+                    ir::VarType::Any,
+                    arg.vartype.unwrap(),
+                    mutctx.scratch_mut(),
+                    expr_builder,
+                );
+            }
+        } else {
+            // net wasm stack: [] -> [<arg.vartype>]
+            encode_expr(&args[0], ctx, mutctx, expr_builder);
+            // net wasm stack: [i32(stackptr), <arg.vartype>] -> []
+            encode_store_memory(
+                0,
+                ir::VarType::Any,
+                args[0].vartype.unwrap(),
+                mutctx.scratch_mut(),
+                expr_builder,
+            );
+        }
+    }
+
+    // net wasm stack: [] -> [i32(num_params)]
+    expr_builder.i32_const(args.len() as i32);
 }
 
 // Encodes a small function that uses uniform calling convention and
@@ -1448,19 +1527,60 @@ fn encode_thunk<H: HeapManager>(
         mutctx.with_uninitialized_locals(&param_types, |mutctx, localidx_params_begin| {
             // load all the params from the unprotected stack into locals
             if num_params > 0 {
-                // copy of the stackptr
-                mutctx.with_scratch_i32(|mutctx, localidx_stackptr| {
-                    // adjust the stackptr to the end of the param list
-                    // net wasm stack: [] -> [i32(localidx_stackptr)]
-                    expr_builder.global_get(ctx.stackptr);
-                    expr_builder.i32_const((size_in_memory(ir::VarType::Any) * num_params) as i32);
-                    expr_builder.i32_sub();
-                    expr_builder.local_tee(localidx_stackptr);
+                // net wasm stack: [] -> [i32(localidx_stackptr)]
+                expr_builder.global_get(ctx.stackptr);
+                expr_builder.i32_const((size_in_memory(ir::VarType::Any) * num_params) as i32);
+                expr_builder.i32_sub();
 
-                    // first param
+                if num_params > 1 {
+                    // copy of the stackptr
+                    // net wasm stack: [i32(localidx_stackptr)] -> []
+                    mutctx.with_scratch_i32(|mutctx, localidx_stackptr| {
+                        // adjust the stackptr to the end of the param list
+                        expr_builder.local_tee(localidx_stackptr);
+
+                        // first param
+                        // net wasm stack: [i32(localidx_stackptr)] -> []
+                        encode_load_memory(
+                            size_in_memory(ir::VarType::Any) * (num_params - 1),
+                            ir::VarType::Any,
+                            ir::VarType::Any,
+                            mutctx.scratch_mut(),
+                            expr_builder,
+                        );
+                        encode_store_local(
+                            mutctx.wasm_local_slice(localidx_params_begin),
+                            ir::VarType::Any,
+                            ir::VarType::Any,
+                            expr_builder,
+                        );
+
+                        // remaining params
+                        // net wasm stack: [] -> []
+                        for i in 1..num_params {
+                            // net wasm stack: [] -> []
+                            expr_builder.local_get(localidx_stackptr);
+                            encode_load_memory(
+                                size_in_memory(ir::VarType::Any) * (num_params - i - 1),
+                                ir::VarType::Any,
+                                ir::VarType::Any,
+                                mutctx.scratch_mut(),
+                                expr_builder,
+                            );
+                            encode_store_local(
+                                mutctx.wasm_local_slice(localidx_params_begin + i as usize),
+                                ir::VarType::Any,
+                                ir::VarType::Any,
+                                expr_builder,
+                            );
+                        }
+                    });
+                } else {
+                    // 1 param only
+                    // no need the extra local
                     // net wasm stack: [i32(localidx_stackptr)] -> []
                     encode_load_memory(
-                        size_in_memory(ir::VarType::Any) * (num_params - 1),
+                        0,
                         ir::VarType::Any,
                         ir::VarType::Any,
                         mutctx.scratch_mut(),
@@ -1472,27 +1592,7 @@ fn encode_thunk<H: HeapManager>(
                         ir::VarType::Any,
                         expr_builder,
                     );
-
-                    // remaining params
-                    // net wasm stack: [] -> []
-                    for i in 1..num_params {
-                        // net wasm stack: [] -> []
-                        expr_builder.local_get(localidx_stackptr);
-                        encode_load_memory(
-                            size_in_memory(ir::VarType::Any) * (num_params - i - 1),
-                            ir::VarType::Any,
-                            ir::VarType::Any,
-                            mutctx.scratch_mut(),
-                            expr_builder,
-                        );
-                        encode_store_local(
-                            mutctx.wasm_local_slice(localidx_params_begin + i as usize),
-                            ir::VarType::Any,
-                            ir::VarType::Any,
-                            expr_builder,
-                        );
-                    }
-                });
+                }
             }
 
             // now we do a match param-by-param
@@ -1513,7 +1613,7 @@ fn encode_thunk<H: HeapManager>(
                 .iter()
                 .rev() // according to ir spec we match from back to front
                 .filter_map(|oe| {
-                    let params: &[ir::VarType] = if oe.has_closure_param {
+                    let params: &[ir::VarType] = if !oe.has_closure_param {
                         &ctx.funcs[oe.funcidx].params
                     } else {
                         assert!(!ctx.funcs[oe.funcidx].params.is_empty());
@@ -1661,6 +1761,8 @@ fn encode_thunk<H: HeapManager>(
                         mutctx.scratch_mut(),
                         expr_builder,
                     );
+                    // return it
+                    expr_builder.return_();
                 } else {
                     expr_builder.unreachable();
                 }

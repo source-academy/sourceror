@@ -189,7 +189,7 @@ pub enum ExprKind {
     Appl {
         func: Box<Expr>,
         args: Box<[Expr]>,
-    }, // function application (operators are functions too).  Closure parameter is implicitly prepended to the argument list.  Called using Source indirect calling convention (closure and length as a param; others are Any and on unprotected stack). Static type of func must be func.
+    }, // function application (operators are functions too).  Closure parameter is implicitly prepended to the argument list.  Called using Source indirect calling convention (closure, length, and callerid as i32 params; others are Any and on unprotected stack). Static type of func must be func.
     DirectAppl {
         funcidx: FuncIdx,
         args: Box<[Expr]>,
