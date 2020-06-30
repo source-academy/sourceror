@@ -5,7 +5,7 @@ use std::ops::Deref;
 // Does not include non-ir globals (e.g. stackptr)
 #[derive(Default)]
 pub struct GlobalVarManager {
-	wasm_global_map: Vec<wasmgen::GlobalIdx>,
+    wasm_global_map: Vec<wasmgen::GlobalIdx>,
     global_map: Vec<usize>, // map from ir global index to wasm_global_map index
     global_types: Vec<ir::VarType>, // map from ir global index to ir param type
 }
@@ -23,10 +23,13 @@ impl GlobalVarManager {
             wasm_global_map: &self.wasm_global_map,
             global_map: &self.global_map,
             global_types: &self.global_types,
-		}
-	}
+        }
+    }
 
-    pub fn make_from_ir_globals(ir_globals: &[ir::VarType], wasm_module: &mut wasmgen::WasmModule) -> Self {
+    pub fn make_from_ir_globals(
+        ir_globals: &[ir::VarType],
+        wasm_module: &mut wasmgen::WasmModule,
+    ) -> Self {
         let mut ret = Self::default();
         for &ir_vartype in ir_globals {
             ret.global_types.push(ir_vartype);
@@ -39,7 +42,7 @@ impl GlobalVarManager {
             }
         }
         ret
-	}
+    }
 }
 
 impl<'a> GlobalVarManagerRef<'a> {

@@ -131,6 +131,8 @@ function stringifySourcerorRuntimeErrorCode(code: number): [string, string] {
       ];
     case 0x10:
       return ["General runtime type error", ""];
+    case 0x11:
+      return ["Function called with incorrect parameter type", ""];
     case 0x12:
       return ["Unary operator called with incorrect parameter type", ""];
     case 0x13:

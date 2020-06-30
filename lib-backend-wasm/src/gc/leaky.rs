@@ -335,6 +335,19 @@ impl<'a, 'b, 'c> super::HeapManager for Leaky<'a, 'b, 'c> {
         // Do nothing - because our memory manager will never collect garbage.  The garbage will leak.
     }
 
+    // Since there is no GC, we allow any type that fits into an i32.
+    fn encode_closure_conversion(
+        &self,
+        vartype: ir::VarType,
+        expr_builder: &mut wasmgen::ExprBuilder,
+    ) {
+        match vartype {
+            ir::VarType::Undefined => expr_builder.i32_const(0),
+            ir::VarType::Boolean | ir::VarType::String | ir::VarType::StructT { typeidx: _ } => {}
+            _ => panic!("VarType does not fit into i32!"),
+        }
+    }
+
     fn encode_local_roots_init(
         &self,
         _local_types: &[ir::VarType],

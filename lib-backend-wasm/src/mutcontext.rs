@@ -115,7 +115,7 @@ impl<'a, 'b> MutContext<'a, 'b> {
     }
     /**
      * Like `with_uninitialized_local()` but with many locals.
-     * f(mutctx, expr_builder, idx), where `idx` is the starting index into `local_map` and `local_types` of the new locals.
+     * f(mutctx, idx), where `idx` is the starting index into `local_map` and `local_types` of the new locals.
      */
     pub fn with_uninitialized_locals<R, F: FnOnce(&mut MutContext<'a, 'b>, usize) -> R>(
         &mut self,
