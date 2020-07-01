@@ -1977,9 +1977,12 @@ fn post_parse_call_expr(
     // the IR knows how to do the optimisation.
     // TODO: should we detect direct calls anyway, because we have the post_parse_direct_call_helper()?
     // (since we wouldn't need to generate a lot of redundant things)
-    // todo! encode the typecast to func in the frontend
 
-    let func: ir::Expr = post_parse_expr(
+    let callee_loc: ir::SourceLocation = as_ir_sl(&es_call_expr.callee.loc, 0 /*FILE*/);
+
+    // We synthesise the typecheck to ensure that the func is a Func.
+
+    let func_any: ir::Expr = post_parse_expr(
         *es_call_expr.callee,
         parse_ctx,
         depth,
@@ -1987,6 +1990,30 @@ fn post_parse_call_expr(
         filename,
         ir_program,
     )?;
+    let func = ir::Expr {
+        vartype: Some(ir::VarType::Func),
+        kind: ir::ExprKind::TypeCast {
+            test: Box::new(func_any),
+            expected: ir::VarType::Func,
+            create_narrow_local: true,
+            true_expr: Box::new(ir::Expr {
+                vartype: Some(ir::VarType::Func),
+                kind: ir::ExprKind::VarName {
+                    source: ir::TargetExpr::Local {
+                        localidx: num_locals,
+                        next: None,
+                    },
+                },
+            }),
+            false_expr: Box::new(ir::Expr {
+                vartype: None,
+                kind: ir::ExprKind::Trap {
+                    code: ir::error::ERROR_CODE_FUNCTION_APPLICATION_NOT_CALLABLE_TYPE,
+                    location: callee_loc,
+                },
+            }),
+        },
+    };
     post_parse_call_func_with_params_helper(
         func,
         es_call_expr.arguments.into_iter(),
