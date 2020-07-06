@@ -26,6 +26,7 @@ use std::vec::Vec;
  * * todo!: Also, functions should be annotated with a flag whether they might do heap allocations.
  */
 pub mod error;
+pub mod opt;
 // mod primfunc;
 
 // If it stores value `func_idx`, then it refers to imports[func_idx] if (func_idx < imports.len())

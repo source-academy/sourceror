@@ -439,14 +439,14 @@ fn encode_target_addr_pre<H: HeapManager>(
 
                     // For Source1, structs can only arise from closures and local variables, so their types must already be known at compilation time.
                     assert!(
-                        mutctx.local_types_elem(*localidx)
+                        mutctx.named_local_types_elem(*localidx)
                             == ir::VarType::StructT {
                                 typeidx: struct_field.typeidx
                             },
                         "ICE: IR->Wasm: Struct type incorrect or not proved at compilation time"
                     );
                     // net wasm stack: [] -> [struct_ptr]
-                    expr_builder.local_get(mutctx.wasm_local_slice(*localidx)[0]);
+                    expr_builder.local_get(mutctx.named_wasm_local_slice(*localidx)[0]);
 
                     follow_nested_struct(struct_field, ctx, expr_builder);
                 }
@@ -505,8 +505,8 @@ fn encode_target_addr_post<H: HeapManager>(
             match next {
                 None => {
                     encode_store_local(
-                        mutctx.wasm_local_slice(*localidx),
-                        mutctx.local_types_elem(*localidx),
+                        mutctx.named_wasm_local_slice(*localidx),
+                        mutctx.named_local_types_elem(*localidx),
                         incoming_vartype,
                         expr_builder,
                     );
@@ -653,14 +653,14 @@ fn encode_expr<H: HeapManager>(
                         mutctx,
                         expr_builder,
                         |mutctx, expr_builder| {
-                            mutctx.with_uninitialized_local(*expected, |mutctx, ir_localidx| {
+                            mutctx.with_uninitialized_named_local(*expected, |mutctx, ir_localidx| {
                                 // net wasm stack: [] -> []
                                 {
-                                    let (wasm_local_slice, scratch) =
-                                        mutctx.wasm_local_slice_and_scratch(ir_localidx);
+                                    let (named_wasm_local_slice, scratch) =
+                                        mutctx.named_wasm_local_slice_and_scratch(ir_localidx);
                                     encode_unchecked_local_conv_any_narrowing(
                                         tmp_i64_data,
-                                        wasm_local_slice,
+                                        named_wasm_local_slice,
                                         *expected,
                                         scratch,
                                         expr_builder,
@@ -825,7 +825,7 @@ fn encode_expr<H: HeapManager>(
             expr: inner_expr,
         } => {
             assert!(expr.vartype == inner_expr.vartype, "ICE: IR->Wasm: the expression in a Declaration must have the same type as the Declaration itself");
-            mutctx.with_local(*local, ctx.heap, expr_builder, |mutctx, expr_builder, _| {
+            mutctx.with_named_local(*local, ctx.heap, expr_builder, |mutctx, expr_builder, _| {
                 encode_expr(inner_expr, ctx, mutctx, expr_builder)
             })
             // note: we automatically propagate the WebAssembly-Voidness from the inner expr by returning it
@@ -1011,8 +1011,8 @@ fn encode_target_value<H: HeapManager>(
                 None => {
                     // `outgoing_vartype` is required to be equivalent or subtype of the source vartype
                     encode_load_local(
-                        mutctx.wasm_local_slice(*localidx),
-                        mutctx.local_types_elem(*localidx),
+                        mutctx.named_wasm_local_slice(*localidx),
+                        mutctx.named_local_types_elem(*localidx),
                         outgoing_vartype,
                         expr_builder,
                     );
@@ -1020,7 +1020,7 @@ fn encode_target_value<H: HeapManager>(
                 Some(struct_field) => {
                     // For Source1, structs can only arise from closures and local variables, so their types must already be known at compilation time.
                     assert!(
-                        mutctx.local_types_elem(*localidx)
+                        mutctx.named_local_types_elem(*localidx)
                             == ir::VarType::StructT {
                                 typeidx: struct_field.typeidx
                             },
@@ -1028,7 +1028,7 @@ fn encode_target_value<H: HeapManager>(
                     );
 
                     // net wasm stack: [] -> [struct_ptr]
-                    expr_builder.local_get(mutctx.wasm_local_slice(*localidx)[0]);
+                    expr_builder.local_get(mutctx.named_wasm_local_slice(*localidx)[0]);
 
                     // net wasm stack: [struct_ptr] -> [<outgoing_vartype>]
                     load_inner_local(struct_field, outgoing_vartype, ctx, mutctx, expr_builder);
@@ -1163,13 +1163,29 @@ fn encode_appl<H: HeapManager>(
     // net wasm stack: [] -> [i32(closure ptr), i32(func ptr)]
     encode_expr(func_expr, ctx, mutctx, expr_builder);
 
-    mutctx.with_scratch_i32(|mutctx, localidx_tableidx| {
-        // net wasm stack: [i32(closure ptr), i32(func ptr)] -> [i32(closure ptr)]
-        expr_builder.local_set(localidx_tableidx);
+    // todo!: this is currently bad codegen, we should only stuff things into locals if
+    // there is a later param whose allocation is may_allocate
+
+    // todo!: this should be just the closure, but mutctx doesn't support that yet
+    // (it wouldn't put it on the gc roots stack if it's just the closure)
+    mutctx.with_uninitialized_shadow_local(ir::VarType::Func, |mutctx, localidx_func| {
+        // net wasm stack: [<Func>] -> []
+        encode_store_local(
+            mutctx.wasm_local_slice(localidx_func),
+            ir::VarType::Func,
+            ir::VarType::Func,
+            expr_builder,
+        );
 
         // Encode all the arguments
-        // net wasm stack: [] -> [i32(num_args)]
-        encode_args_to_call_indirect_function(args, ctx, mutctx, expr_builder);
+        // net wasm stack: [] -> [i32(closure), i32(num_args)]
+        encode_args_to_call_indirect_function(
+            args,
+            mutctx.wasm_local_slice(localidx_func)[1],
+            ctx,
+            mutctx,
+            expr_builder,
+        );
 
         // TODO: encode the proper caller id
         // for now just use zero
@@ -1178,7 +1194,7 @@ fn encode_appl<H: HeapManager>(
 
         // push the tableidx onto the stack
         // net wasm stack: [] -> [tableidx]
-        expr_builder.local_get(localidx_tableidx);
+        expr_builder.local_get(mutctx.wasm_local_slice(localidx_func)[0]);
 
         // TODO: this is currently wrong, because we should only move values onto the unprotected stack just before calling the function.
         // (Since the evaluation of params may call other functions, the data on the unprotected stack may get corrupted)
@@ -1297,6 +1313,8 @@ fn encode_args_to_call_function<H: HeapManager>(
     mutctx: &mut MutContext,
     expr_builder: &mut wasmgen::ExprBuilder,
 ) {
+    // todo! there might be a bug here - if a GC event happens midway encoding args, the old args that are references will break.
+    //
     assert!(
         expected_param_types.len() == args.len(),
         "expected_param_types and args must be same length when encoding args to call function"
@@ -1322,9 +1340,11 @@ fn encode_args_to_call_function<H: HeapManager>(
 // It is like encode_args_to_call_function(), but instead it calls a function indirectly,
 // and uses the uniform calling convention for it.
 // As such, all the parameters are implicitly encoded as Any.
+// The closure is an i32.  It should be written *after* evaluating all the may_allocate params.
 // net wasm stack: [] -> [i32(num_params)]
 fn encode_args_to_call_indirect_function<H: HeapManager>(
     args: &[ir::Expr],
+    closure_local: wasmgen::LocalIdx,
     ctx: EncodeContext<H>,
     mutctx: &mut MutContext,
     expr_builder: &mut wasmgen::ExprBuilder,
@@ -1344,37 +1364,79 @@ fn encode_args_to_call_indirect_function<H: HeapManager>(
                 // note: we only write the args to memory after evaluating all of them
                 // because calling a function may overwrite the parameter area on the unprotected stack.
 
+                // todo! encode the args as ir locals
+                // note: have to manually push/pop locals from mutctx
+                // so that we don't need to arbitrary nest the closures
+
                 // net wasm stack: [stackptr] -> [stackptr]
                 expr_builder.local_tee(stackptr_localidx);
 
-                // net wasm stack: [stackptr] -> [(i32(stackptr), <arg.vartype>)...]
+                let (last_arg, other_args) = args.split_last().unwrap();
+
+                let mut localidxs = Vec::new();
+
+                // net wasm stack: [stackptr] -> [stackptr]
+                for arg in other_args {
+                    // net wasm stack: [] -> [<arg.vartype>]
+                    encode_expr(arg, ctx, mutctx, expr_builder);
+
+                    let localidx = mutctx.add_uninitialized_shadow_local(arg.vartype.unwrap());
+                    localidxs.push(localidx);
+
+                    // net wasm stack: [<arg.vartype>] -> []
+                    encode_store_local(
+                        mutctx.wasm_local_slice(localidx),
+                        arg.vartype.unwrap(),
+                        arg.vartype.unwrap(),
+                        expr_builder,
+                    );
+                }
+
+                // net wasm stack: [stackptr] -> []
                 {
-                    let (first_arg, remaining_args) = args.split_first().unwrap();
+                    // net wasm stack: [] -> [<last_arg.vartype>]
+                    encode_expr(last_arg, ctx, mutctx, expr_builder);
+
+                    // net wasm stack: [stackptr, <arg.vartype>] -> []
+                    encode_store_memory(
+                        0,
+                        ir::VarType::Any,
+                        last_arg.vartype.unwrap(),
+                        mutctx.scratch_mut(),
+                        expr_builder,
+                    );
+                }
+
+                // net wasm stack: [] -> []
+                for ((i, arg), localidx) in other_args
+                    .iter()
+                    .enumerate()
+                    .zip(localidxs.into_iter())
+                    .rev()
+                {
+                    // net wasm stack: [] -> [stackptr]
+                    expr_builder.local_get(stackptr_localidx);
 
                     // net wasm stack: [] -> [<arg.vartype>]
-                    encode_expr(first_arg, ctx, mutctx, expr_builder);
+                    encode_load_local(
+                        mutctx.wasm_local_slice(localidx),
+                        arg.vartype.unwrap(),
+                        arg.vartype.unwrap(),
+                        expr_builder,
+                    );
 
-                    for arg in remaining_args.iter() {
-                        // net wasm stack: [] -> [stackptr]
-                        expr_builder.local_get(stackptr_localidx);
+                    mutctx.remove_shadow_local(arg.vartype.unwrap());
 
-                        // net wasm stack: [] -> [<arg.vartype>]
-                        encode_expr(arg, ctx, mutctx, expr_builder);
-                    }
+                    // net wasm stack: [stackptr, <arg.vartype>] -> []
+                    encode_store_memory(
+                        (other_args.len() - i) as u32 * size_in_memory(ir::VarType::Any),
+                        ir::VarType::Any,
+                        arg.vartype.unwrap(),
+                        mutctx.scratch_mut(),
+                        expr_builder,
+                    );
                 }
             });
-
-            // net wasm stack: [(i32(stackptr), <arg.vartype>)...] -> []
-            for (i, arg) in args.iter().rev().enumerate() {
-                // net wasm stack: [i32(stackptr), <arg.vartype>] -> []
-                encode_store_memory(
-                    i as u32 * size_in_memory(ir::VarType::Any),
-                    ir::VarType::Any,
-                    arg.vartype.unwrap(),
-                    mutctx.scratch_mut(),
-                    expr_builder,
-                );
-            }
         } else {
             // net wasm stack: [] -> [<arg.vartype>]
             encode_expr(&args[0], ctx, mutctx, expr_builder);
@@ -1388,6 +1450,9 @@ fn encode_args_to_call_indirect_function<H: HeapManager>(
             );
         }
     }
+
+    // net wasm stack: [] -> [i32(closure)]
+    expr_builder.local_get(closure_local);
 
     // net wasm stack: [] -> [i32(num_params)]
     expr_builder.i32_const(args.len() as i32);
@@ -1524,7 +1589,7 @@ fn encode_thunk<H: HeapManager>(
 
         // load the params into locals
         let param_types: Box<[ir::VarType]> = (0..num_params).map(|_| ir::VarType::Any).collect();
-        mutctx.with_uninitialized_locals(&param_types, |mutctx, localidx_params_begin| {
+        mutctx.with_uninitialized_shadow_locals(&param_types, |mutctx, localidx_params_begin| {
             // load all the params from the unprotected stack into locals
             if num_params > 0 {
                 // net wasm stack: [] -> [i32(localidx_stackptr)]

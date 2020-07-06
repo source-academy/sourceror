@@ -14,9 +14,18 @@ use std::vec::Vec;
 pub struct MutContext<'a, 'b> {
     // Local to this function
     scratch: Scratch<'a>,
+    // note: "shadow locals" are temporary ir locals that are generated as part of codegen
+    // (such as when evaluating a complicated expression that might allocate memory so temporary values need to be
+    // registered in the mutctx so that the gc will know about them)
+    // scratch - contains all wasm locals, and know their types
+    // So if you have a named local i, to get the actual wasm locals,
+    // you should do wasm_local_map[local_map[names_local_map[i]]..(local_map[names_local_map[i]+1)]]
+    // wasm locals that are not in the wasm_local_map are auxiliary scratch space (e.g. for type conversion procedures)
+    // locals that are not in the named local map are auxiliary ir locals (e.g. temporary unnamed variables in complex ir expressions)
     wasm_local_map: Vec<wasmgen::LocalIdx>,
-    local_map: Vec<usize>, // map from ir param/local index to wasm_local_map index
-    local_types: Vec<ir::VarType>, // map from ir param/local index to ir param type
+    local_map: Vec<usize>, // map from ir param/local index (including shadow locals) to wasm_local_map index
+    local_types: Vec<ir::VarType>, // map from ir param/local index (including shadow locals) to ir param type
+    named_local_map: Vec<usize>, // map from real named local (i.e. those that exist in source code) to local_map/local_type index
     // Global for whole program
     module_wrapper: ModuleEncodeWrapper<'b>,
     // will also include function indices
@@ -29,21 +38,23 @@ impl<'a, 'b> MutContext<'a, 'b> {
         local_types: &[ir::VarType],
         module_wrapper: ModuleEncodeWrapper<'b>,
     ) -> Self {
+        let num_locals = local_map.len();
         Self {
             scratch: scratch,
             wasm_local_map: wasm_local_map.to_vec(),
             local_map: local_map.to_vec(),
             local_types: local_types.to_vec(),
+            named_local_map: (0..num_locals).collect(),
             module_wrapper: module_wrapper,
         }
     }
     /**
-     * Adds a local to the context, storing it in scratch, and updating wasm_local_map, local_map, local_types appropriately.
+     * Adds a shadow local to the context, storing it in scratch, and updating wasm_local_map, local_map, local_types appropriately.
      * Then initializes the locals with wasm_local_roots_init
      * Then runs the given callback f(mutctx, expr_builder, idx) , where `idx` is the index into `local_map` and `local_types` of the new local.
      * Then removes the local from the context but undoing everything.
      */
-    pub fn with_local<
+    pub fn with_shadow_local<
         H: HeapManager,
         R,
         F: FnOnce(&mut MutContext<'a, 'b>, &mut ExprBuilder, usize) -> R,
@@ -67,10 +78,28 @@ impl<'a, 'b> MutContext<'a, 'b> {
         self.pop_local(ir_vartype);
         result
     }
+    pub fn with_named_local<
+        H: HeapManager,
+        R,
+        F: FnOnce(&mut MutContext<'a, 'b>, &mut ExprBuilder, usize) -> R,
+    >(
+        &mut self,
+        ir_vartype: ir::VarType,
+        heap: &H,
+        expr_builder: &mut ExprBuilder,
+        f: F,
+    ) -> R {
+        self.with_shadow_local(ir_vartype, heap, expr_builder, move |mutctx, expr_builder, ir_localidx| {
+            mutctx.named_local_map.push(ir_localidx);
+            let ret = f(mutctx, expr_builder, ir_localidx);
+            mutctx.named_local_map.pop();
+            ret
+		})
+    }
     /**
-     * Adds an uninitialized local to the context.  It is like with_local(), but caller must guarantee that something is assigned to it before doing any heap allocations.
+     * Adds an uninitialized shadow local to the context.  It is like with_local(), but caller must guarantee that something is assigned to it before doing any heap allocations.
      */
-    pub fn with_uninitialized_local<R, F: FnOnce(&mut MutContext<'a, 'b>, usize) -> R>(
+    pub fn with_uninitialized_shadow_local<R, F: FnOnce(&mut MutContext<'a, 'b>, usize) -> R>(
         &mut self,
         ir_vartype: ir::VarType,
         f: F,
@@ -81,11 +110,26 @@ impl<'a, 'b> MutContext<'a, 'b> {
         self.pop_local(ir_vartype);
         result
     }
+    pub fn with_uninitialized_named_local<
+        R,
+        F: FnOnce(&mut MutContext<'a, 'b>, usize) -> R,
+    >(
+        &mut self,
+        ir_vartype: ir::VarType,
+        f: F,
+    ) -> R {
+        self.with_uninitialized_shadow_local(ir_vartype, move |mutctx, ir_localidx| {
+            mutctx.named_local_map.push(ir_localidx);
+            let ret = f(mutctx, ir_localidx);
+            mutctx.named_local_map.pop();
+            ret
+		})
+    }
     /**
      * Like `with_local()` but with many locals.
      * f(mutctx, expr_builder, idx), where `idx` is the starting index into `local_map` and `local_types` of the new locals.
      */
-    pub fn with_locals<
+    pub fn with_shadow_locals<
         H: HeapManager,
         R,
         F: FnOnce(&mut MutContext<'a, 'b>, &mut ExprBuilder, usize) -> R,
@@ -117,7 +161,7 @@ impl<'a, 'b> MutContext<'a, 'b> {
      * Like `with_uninitialized_local()` but with many locals.
      * f(mutctx, idx), where `idx` is the starting index into `local_map` and `local_types` of the new locals.
      */
-    pub fn with_uninitialized_locals<R, F: FnOnce(&mut MutContext<'a, 'b>, usize) -> R>(
+    pub fn with_uninitialized_shadow_locals<R, F: FnOnce(&mut MutContext<'a, 'b>, usize) -> R>(
         &mut self,
         ir_vartypes: &[ir::VarType],
         f: F,
@@ -133,7 +177,22 @@ impl<'a, 'b> MutContext<'a, 'b> {
         result
     }
     /**
+     * Adds an uninitialized local.  This function is dangerous, use with_uninitialized_local if possible.
+     */
+    pub fn add_uninitialized_shadow_local(&mut self, ir_vartype: ir::VarType) -> usize {
+        let ret = self.local_types.len();
+        self.push_local(ir_vartype);
+        ret
+    }
+    /**
+     * Removes an uninitialized local.  This function is dangerous, use with_uninitialized_local if possible.
+     */
+    pub fn remove_shadow_local(&mut self, ir_vartype: ir::VarType) {
+        self.pop_local(ir_vartype);
+    }
+    /**
      * Adds a local to the context, storing it in scratch, and updating wasm_local_map, local_map, local_types appropriately.
+     * It is uninitialized.
      */
     fn push_local(&mut self, ir_vartype: ir::VarType) {
         assert!(self.local_types.len() == self.local_map.len());
@@ -161,20 +220,8 @@ impl<'a, 'b> MutContext<'a, 'b> {
         self.local_types.pop();
     }
 
-    pub fn wasm_local_map(&self) -> &[wasmgen::LocalIdx] {
-        &self.wasm_local_map
-    }
-    pub fn local_map_elem(&self, idx: usize) -> usize {
-        self.local_map[idx]
-    }
-    pub fn local_types_elem(&self, idx: usize) -> ir::VarType {
+    pub fn named_local_types_elem(&self, idx: usize) -> ir::VarType {
         self.local_types[idx]
-    }
-    pub fn local_map_slice<Idx: SliceIndex<[usize]>>(&self, idx: Idx) -> &Idx::Output {
-        &self.local_map[idx]
-    }
-    pub fn local_types_slice<Idx: SliceIndex<[ir::VarType]>>(&self, idx: Idx) -> &Idx::Output {
-        &self.local_types[idx]
     }
     pub fn scratch_mut(&mut self) -> &mut Scratch<'a> {
         &mut self.scratch
@@ -188,8 +235,17 @@ impl<'a, 'b> MutContext<'a, 'b> {
                 self.wasm_local_map.len()
             })]
     }
+    pub fn named_wasm_local_slice(&self, named_ir_localidx: usize) -> &[wasmgen::LocalIdx] {
+        let ir_localidx = self.named_local_map[named_ir_localidx];
+        &self.wasm_local_map[self.local_map[ir_localidx]
+            ..(if ir_localidx + 1 < self.local_map.len() {
+                self.local_map[ir_localidx + 1]
+            } else {
+                self.wasm_local_map.len()
+            })]
+    }
     // Same as wasm_local_slice() and scratch_mut() combined, but plays nice with the lifetime checker.
-    pub fn wasm_local_slice_and_scratch(
+    pub fn named_wasm_local_slice_and_scratch(
         &mut self,
         ir_localidx: usize,
     ) -> (&[wasmgen::LocalIdx], &mut Scratch<'a>) {
