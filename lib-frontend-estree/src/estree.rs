@@ -375,7 +375,13 @@ impl Scope for ArrowFunctionExpression {
             if let NodeKind::BlockStatement(block) = (*self.body).kind {
                 block.body
             } else {
-                vec![*self.body]
+                // need to wrap in a return expr
+                vec![Node {
+                    loc: None,
+                    kind: NodeKind::ReturnStatement(ReturnStatement {
+                        argument: Some(self.body),
+                    }),
+                }]
             },
             self.address_taken_vars,
             Vec::new(),

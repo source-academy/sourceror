@@ -710,8 +710,10 @@ fn post_parse_function<Func: Function>(
         },
     });
 
-    // do a few things including calculating the struct def and emitting assignment statements for the captured vars
+    // Do a few things including calculating the struct def and emitting assignment statements for the captured vars
+    // this will become the closure struct definition:
     let mut struct_def: Vec<ir::VarType> = Vec::new();
+    // this will become a map from es_captured_vars index to struct_def index
     let mut struct_field_map: Box<[usize]> = es_captured_vars.iter().map(|_| usize::MAX).collect();
     for (i, varlocid) in es_captured_vars.iter().enumerate() {
         if let ir::TargetExpr::Local { localidx, next } = parse_ctx.get_target(varlocid).unwrap() {
@@ -749,6 +751,7 @@ fn post_parse_function<Func: Function>(
                 Some(_) => {}
             }
         } else {
+            // globals should not be captured
             pppanic();
         }
     }
@@ -784,11 +787,13 @@ fn post_parse_function<Func: Function>(
                                         })),
                                     },
                                     expr: Box::new(ir::Expr {
-                                        vartype: Some(ir::VarType::Any),
+                                        vartype: Some(ir::VarType::StructT {
+                                            typeidx: box_structfield.typeidx,
+                                        }),
                                         kind: ir::ExprKind::VarName {
                                             source: ir::TargetExpr::Local {
                                                 localidx: *localidx,
-                                                next: next.clone(),
+                                                next: None, // None - because we need to store the enclosing struct instance to do pass-by-reference
                                             },
                                         },
                                     }),
@@ -802,6 +807,7 @@ fn post_parse_function<Func: Function>(
                     }
                 }
             } else {
+                // globals should not be captured
                 pppanic();
             }
         }
@@ -826,6 +832,7 @@ fn post_parse_function<Func: Function>(
                         next: Some(Box::new(ir::StructField {
                             typeidx: struct_idx,
                             fieldidx: struct_field_map[i], // todo: this is wrong
+                            // later note: now i'm not sure why the previous line is wrong
                             next: next.clone(),
                         })),
                     },
