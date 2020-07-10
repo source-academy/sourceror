@@ -214,6 +214,7 @@ fn encode_program(ir_program: &ir::Program, options: Options) -> wasmgen::WasmMo
         memidx,
         MEM_STACK_SIZE + globals_num_pages,
         MEM_STACK_SIZE + globals_num_pages + Cheney::initial_heap_size(),
+        global_var_manager.deref(),
         error_func,
         &mut wasm_module,
     );
@@ -234,7 +235,7 @@ fn encode_program(ir_program: &ir::Program, options: Options) -> wasmgen::WasmMo
         &struct_field_byte_offsets,
         imported_funcs,
         ir_program.entry_point,
-        global_var_manager,
+        global_var_manager.deref(),
         globalidx_stackptr,
         memidx,
         thunk_sv,

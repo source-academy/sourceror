@@ -1,8 +1,9 @@
+use crate::global_var::GlobalVarManagerRef;
 use wasmgen::Scratch;
 
 use super::WASM_PAGE_BITS;
 
-pub fn make_do_cheney(
+pub fn make_do_cheney<'a>(
     wasm_module: &mut wasmgen::WasmModule,
     tableidx: wasmgen::TableIdx,
     copy_indirect_table_offset: u32,
@@ -12,11 +13,13 @@ pub fn make_do_cheney(
     globalidx_end_mem_ptr: wasmgen::GlobalIdx,
     globalidx_gc_roots_stack_base_ptr: wasmgen::GlobalIdx,
     globalidx_gc_roots_stack_ptr: wasmgen::GlobalIdx,
+    copy_funcs: &[Option<wasmgen::FuncIdx>],
+    global_var_manager: GlobalVarManagerRef<'a>,
     heap_begin: u32,
 ) -> wasmgen::FuncIdx {
     // Guaranteed to synchronise localidx_free_mem_ptr and globalidx_free_mem_ptr before returning.
     // net wasm stack: [] -> []
-    fn generate_common_portion(
+    fn generate_common_portion<'a>(
         wasm_module: &mut wasmgen::WasmModule,
         tableidx: wasmgen::TableIdx,
         copy_indirect_table_offset: u32,
@@ -25,6 +28,9 @@ pub fn make_do_cheney(
         localidx_free_mem_ptr: wasmgen::LocalIdx,
         localidx_gc_roots_stack_base_ptr: wasmgen::LocalIdx,
         localidx_gc_roots_stack_ptr: wasmgen::LocalIdx,
+        copy_funcs: &[Option<wasmgen::FuncIdx>],
+        global_var_manager: GlobalVarManagerRef<'a>,
+        heap_begin: u32,
         expr_builder: &mut wasmgen::ExprBuilder,
         scratch: &mut Scratch,
     ) {
@@ -35,6 +41,204 @@ pub fn make_do_cheney(
         expr_builder.local_get(localidx_free_mem_ptr);
         expr_builder.local_set(localidx_scan);
 
+        // net wasm stack: [] -> []
+        {
+            // Pseudocode:
+            // for each global g {
+            //     copy_field_impl_$i(&mut g);
+            // }
+            for (ir_vartype, wasm_globalidxs) in global_var_manager {
+                // note: similar to copying struct fields in copy_children_elements()
+                match ir_vartype {
+                    ir::VarType::Any => {
+                        // f.data = (*(GC_TABLE_PTR_COPY_INDIRECT_OFFSET + f.tag))(f.data);
+                        // net wasm stack: [] -> []
+                        expr_builder.global_get(wasm_globalidxs[1]); // the `data` of the Any
+                        expr_builder.global_get(wasm_globalidxs[0]); // the `tag` of the Any
+                        if copy_indirect_table_offset != 0 {
+                            expr_builder.i32_const(copy_indirect_table_offset as i32);
+                            expr_builder.i32_add();
+                        }
+                        expr_builder.call_indirect(
+                            wasm_module.insert_type_into(wasmgen::FuncType::new(
+                                Box::new([wasmgen::ValType::I64]),
+                                Box::new([wasmgen::ValType::I64]),
+                            )),
+                            tableidx,
+                        );
+                        expr_builder.global_set(wasm_globalidxs[1]); // store the `data` of the Any
+                    }
+                    ir::VarType::Unassigned => {}
+                    ir::VarType::Undefined => {}
+                    ir::VarType::Number => {}
+                    ir::VarType::Boolean => {}
+                    ir::VarType::String => {
+                        // net wasm stack: [] -> []
+                        gen(
+                            expr_builder,
+                            scratch,
+                            wasm_globalidxs[0],
+                            tableidx,
+                            copy_funcs[ir::VarType::String.tag() as usize].unwrap(),
+                            heap_begin,
+                            true,
+                        );
+                    }
+                    ir::VarType::Func => {
+                        /*
+                        if (f.closure != -1) {
+                            if (*(f.closure-4)) & I32_MIN {
+                                f.closure = (*(f.closure-4)) << 1; // we don't know the closure type, but we point to the new one anyway.
+                            } else {
+                                f.closure = i32_wrap_i64((*(GC_TABLE_PTR_COPY_INDIRECT_OFFSET + *(f.closure-4)))(i64_extend_i32(f.closure)));
+                            }
+                        }
+                        */
+                        let localidx_closure = scratch.push_i32(); // f.closure
+                        let localidx_val = scratch.push_i32(); // *(f.closure-4)
+
+                        // net wasm stack: [] -> [f.closure(i32)]
+                        expr_builder.global_get(wasm_globalidxs[1]); // the `closure` of the Func
+                        expr_builder.local_tee(localidx_closure);
+
+                        // net wasm stack: [closure(i32)] -> [cond(i32)]
+                        expr_builder.i32_const(-1);
+                        expr_builder.i32_ne();
+
+                        // net wasm stack: [cond(i32)] -> []
+                        expr_builder.if_(&[]);
+                        {
+                            // net wasm stack: [] -> [closure_minus_4(i32)]
+                            expr_builder.local_get(localidx_closure);
+                            expr_builder.i32_const(4);
+                            expr_builder.i32_sub();
+
+                            // net wasm stack: [closure_minus_4(i32)] -> [val(i32)]
+                            expr_builder.i32_load(wasmgen::MemArg::new4(0));
+                            expr_builder.local_tee(localidx_val);
+
+                            // net wasm stack: [val(i32)] -> [cond(i32)]
+                            expr_builder.i32_const(i32::min_value());
+                            expr_builder.i32_and();
+
+                            // net wasm stack: [cond(i32)] -> [new_closure(i32)]
+                            expr_builder.if_(&[wasmgen::ValType::I32]);
+                            expr_builder.local_get(localidx_val);
+                            expr_builder.i32_const(1);
+                            expr_builder.i32_shl();
+                            expr_builder.else_();
+                            expr_builder.local_get(localidx_closure);
+                            expr_builder.i64_extend_i32_u();
+                            expr_builder.local_get(localidx_val);
+                            if copy_indirect_table_offset != 0 {
+                                expr_builder.i32_const(copy_indirect_table_offset as i32);
+                                expr_builder.i32_add();
+                            }
+                            expr_builder.call_indirect(
+                                wasm_module.insert_type_into(wasmgen::FuncType::new(
+                                    Box::new([wasmgen::ValType::I64]),
+                                    Box::new([wasmgen::ValType::I64]),
+                                )),
+                                tableidx,
+                            );
+                            expr_builder.i32_wrap_i64();
+                            expr_builder.end();
+
+                            // net wasm stack: [new_closure(i32)] -> []
+                            expr_builder.global_set(wasm_globalidxs[1]);
+                        }
+                        expr_builder.end();
+
+                        scratch.pop_i32();
+                        scratch.pop_i32();
+                    }
+                    ir::VarType::StructT { typeidx } => {
+                        // net wasm stack: [] -> []
+                        gen(
+                            expr_builder,
+                            scratch,
+                            wasm_globalidxs[0],
+                            tableidx,
+                            copy_funcs[ir::VarType::StructT { typeidx }.tag() as usize].unwrap(),
+                            heap_begin,
+                            false,
+                        );
+                    }
+                }
+            }
+
+            fn gen(
+                expr_builder: &mut wasmgen::ExprBuilder,
+                scratch: &mut Scratch,
+                wasm_globalidx: wasmgen::GlobalIdx,
+                tableidx: wasmgen::TableIdx,
+                copy_func: wasmgen::FuncIdx,
+                heap_begin: u32,
+                is_string: bool,
+            ) {
+                /*
+                if (ptr != -1 && (f is not String || ptr > heap_begin * WASM_PAGE_SIZE)) {
+                    if (*(ptr-4)) & I32_MIN { // already copied (we multiplex the MSB of the tag field, since there shouldn't be more than 2^31 types)
+                        f.ptr = (*(ptr-4)) << 1; // we store the ptr in the tag, but shifted right by one bit position (valid since ptr are all multiple of 4)
+                    } else {
+                        f.ptr = copy_${tag of f}(f.ptr);
+                    }
+                }
+                */
+                let localidx_ptr = scratch.push_i32(); // from_any_data(data)
+                let localidx_val = scratch.push_i32(); // *(from_any_data(data)-4)
+
+                // net wasm stack: [] -> [ptr(i32)]
+                expr_builder.global_get(wasm_globalidx);
+                expr_builder.local_tee(localidx_ptr);
+
+                // net wasm stack: [ptr(i32)] -> [cond(i32)]
+                expr_builder.i32_const(-1);
+                expr_builder.i32_ne();
+                if is_string {
+                    expr_builder.local_get(localidx_ptr);
+                    expr_builder.i32_const((heap_begin << WASM_PAGE_BITS) as i32);
+                    expr_builder.i32_gt_u();
+                    expr_builder.i32_and();
+                }
+
+                // net wasm stack: [cond(i32)] -> []
+                expr_builder.if_(&[]);
+                {
+                    // net wasm stack: [] -> [ptr_minus_4(i32)]
+                    expr_builder.local_get(localidx_ptr);
+                    expr_builder.i32_const(4);
+                    expr_builder.i32_sub();
+
+                    // net wasm stack: [ptr_minus_4(i32)] -> [val(i32)]
+                    expr_builder.i32_load(wasmgen::MemArg::new4(0));
+                    expr_builder.local_tee(localidx_val);
+
+                    // net wasm stack: [val(i32)] -> [cond(i32)]
+                    expr_builder.i32_const(i32::min_value());
+                    expr_builder.i32_and();
+
+                    // net wasm stack: [cond(i32)] -> [ret(i32)]
+                    expr_builder.if_(&[wasmgen::ValType::I32]);
+                    expr_builder.local_get(localidx_val);
+                    expr_builder.i32_const(1);
+                    expr_builder.i32_shl();
+                    expr_builder.else_();
+                    expr_builder.local_get(localidx_ptr);
+                    expr_builder.call(copy_func);
+                    expr_builder.end();
+
+                    // net wasm stack: [ret(i32)] -> []
+                    expr_builder.global_set(wasm_globalidx);
+                }
+                expr_builder.end();
+
+                scratch.pop_i32();
+                scratch.pop_i32();
+            }
+        }
+
+        // net wasm stack: [] -> []
         {
             let localidx_gc_roots_it = scratch.push_i32();
 
@@ -229,6 +433,9 @@ pub fn make_do_cheney(
                 localidx_free_mem_ptr,
                 localidx_gc_roots_stack_base_ptr,
                 localidx_gc_roots_stack_ptr,
+                copy_funcs,
+                global_var_manager,
+                heap_begin,
                 expr_builder,
                 &mut scratch,
             );
@@ -281,6 +488,9 @@ pub fn make_do_cheney(
                 localidx_free_mem_ptr,
                 localidx_gc_roots_stack_base_ptr,
                 localidx_gc_roots_stack_ptr,
+                copy_funcs,
+                global_var_manager,
+                heap_begin,
                 expr_builder,
                 &mut scratch,
             );

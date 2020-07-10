@@ -1,9 +1,9 @@
 use super::HeapManager;
 use super::WASM_PAGE_BITS;
 use super::WASM_PAGE_SIZE;
-use wasmgen::Scratch;
-
+use crate::global_var::GlobalVarManagerRef;
 use crate::var_conv::*;
+use wasmgen::Scratch;
 
 mod copy_children_elements;
 mod copy_funcs;
@@ -60,13 +60,14 @@ const MEM_INITIAL_HEAP_SIZE: u32 = MEM_INITIAL_USABLE_SIZE * 2 + (1 << 4); // 2 
 impl<'a, 'b, 'c> Cheney<'a, 'b, 'c> {
     // Constructs a new Cheney GC, and initializes it appropriately.
 
-    pub fn new(
+    pub fn new<'d>(
         struct_types: &'a [Box<[ir::VarType]>],
         struct_field_byte_offsets: &'b [Box<[u32]>],
         struct_sizes: &'c [u32],
         memidx: wasmgen::MemIdx,
         heap_begin: u32,
         heap_initial_end: u32,
+        global_var_manager: GlobalVarManagerRef<'d>, // stores global vars that are gc roots too
         error_func: wasmgen::FuncIdx,
         wasm_module: &mut wasmgen::WasmModule,
     ) -> Self {
@@ -80,23 +81,28 @@ impl<'a, 'b, 'c> Cheney<'a, 'b, 'c> {
         // $i is the VarType::tag() (so Any doesn't have any of these functions)
         fn copy_children_$i(ptr: i32) -> i32 {
             for each field f in *ptr {
-                if constexpr f has type Any {
-                    f.data = (*(GC_TABLE_PTR_COPY_INDIRECT_OFFSET + f.tag))(f.data);
-                } else if constexpr f is Func {
-                    if (f.closure != -1) {
-                        if (*(f.closure-4)) & I32_MIN {
-                            f.closure = (*(f.closure-4)) << 1; // we don't know the closure type, but we point to the new one anyway.
-                        } else {
-                            f.closure = i32_wrap_i64((*(GC_TABLE_PTR_COPY_INDIRECT_OFFSET + *(f.closure-4)))(i64_extend_i32(f.closure)));
-                        }
+                // this function is inlined
+                copy_field_impl_$i(&mut f);
+            }
+        }
+        // this function will be inlined - it doesn't really exist in the wasm file
+        fn copy_field_impl_$i(&mut f) {
+            if constexpr f has type Any {
+                f.data = (*(GC_TABLE_PTR_COPY_INDIRECT_OFFSET + f.tag))(f.data);
+            } else if constexpr f is Func {
+                if (f.closure != -1) {
+                    if (*(f.closure-4)) & I32_MIN {
+                        f.closure = (*(f.closure-4)) << 1; // we don't know the closure type, but we point to the new one anyway.
+                    } else {
+                        f.closure = i32_wrap_i64((*(GC_TABLE_PTR_COPY_INDIRECT_OFFSET + *(f.closure-4)))(i64_extend_i32(f.closure)));
                     }
-                } else if constexpr f is a ptr type {
-                    if (ptr != -1 && (f is not String || ptr > heap_begin * WASM_PAGE_SIZE)) { // '-1' means not yet assigned pointer, 'ptr <= heap_begin' means it is from global data or unprotected stack (if ptr == heap_begin then it is a zero-sized type that is not GC'ed).
-                        if (*(ptr-4)) & I32_MIN { // already copied (we multiplex the MSB of the tag field, since there shouldn't be more than 2^31 types)
-                            f.ptr = (*(ptr-4)) << 1; // we store the ptr in the tag, but shifted right by one bit position (valid since ptr are all multiple of 4)
-                        } else {
-                            f.ptr = copy_${tag of f}(f.ptr);
-                        }
+                }
+            } else if constexpr f is a ptr type {
+                if (ptr != -1 && (f is not String || ptr > heap_begin * WASM_PAGE_SIZE)) { // '-1' means not yet assigned pointer, 'ptr <= heap_begin' means it is from global data or unprotected stack (if ptr == heap_begin then it is a zero-sized type that is not GC'ed).
+                    if (*(ptr-4)) & I32_MIN { // already copied (we multiplex the MSB of the tag field, since there shouldn't be more than 2^31 types)
+                        f.ptr = (*(ptr-4)) << 1; // we store the ptr in the tag, but shifted right by one bit position (valid since ptr are all multiple of 4)
+                    } else {
+                        f.ptr = copy_${tag of f}(f.ptr);
                     }
                 }
             }
@@ -148,12 +154,17 @@ impl<'a, 'b, 'c> Cheney<'a, 'b, 'c> {
                 // common section (start)
                 let scan = free_mem_ptr;
 
+                for each global g {
+                    copy_field_impl_$i(&mut g);
+                }
+
                 let gc_roots_it = gc_roots_stack_base_ptr;
                 while (gc_roots_it != gc_roots_stack_ptr) {
-                    let f = *gc_roots_it;
+                    let f = &mut *gc_roots_it;
                     f.data = (*(GC_TABLE_PTR_COPY_INDIRECT_OFFSET + f.tag))(f.data);
                     gc_roots_it += 12; // 12 is the size of Any
                 }
+
                 // note: must reload free_mem_ptr after every iteration, it is modified in the function call
                 while (scan != free_mem_ptr) {
                     scan = (*(GC_TABLE_PTR_COPY_CHILDREN_OFFSET + *scan))(scan+4);
@@ -172,12 +183,17 @@ impl<'a, 'b, 'c> Cheney<'a, 'b, 'c> {
                 // common section (start)
                 let scan = free_mem_ptr;
 
+                for each global g {
+                    copy_field_impl_$i(&mut g);
+                }
+
                 let gc_roots_it = gc_roots_stack_base_ptr;
                 while (gc_roots_it != gc_roots_stack_ptr) {
                     let f = *gc_roots_it;
                     f.data = (*(GC_TABLE_PTR_COPY_INDIRECT_OFFSET + f.tag))(f.data);
                     gc_roots_it += 12; // 12 is the size of Any
                 }
+
                 // note: must reload free_mem_ptr every iteration, it is modified in the function call
                 while (scan != free_mem_ptr) {
                     scan = (*(GC_TABLE_PTR_COPY_CHILDREN_OFFSET + *scan))(scan+4);
@@ -265,6 +281,8 @@ impl<'a, 'b, 'c> Cheney<'a, 'b, 'c> {
             end_mem_ptr,
             gc_roots_stack_base_ptr,
             gc_roots_stack_ptr,
+            &copy_funcs,
+            global_var_manager,
             heap_begin,
         );
 
