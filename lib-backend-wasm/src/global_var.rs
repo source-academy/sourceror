@@ -46,12 +46,45 @@ impl GlobalVarManager {
 }
 
 impl<'a> GlobalVarManagerRef<'a> {
-    pub fn wasm_global_slice(&self, ir_globalidx: usize) -> &[wasmgen::GlobalIdx] {
+    pub fn wasm_global_slice(&self, ir_globalidx: usize) -> &'a [wasmgen::GlobalIdx] {
         &self.wasm_global_map[self.global_map[ir_globalidx]
             ..(if ir_globalidx + 1 < self.global_map.len() {
                 self.global_map[ir_globalidx + 1]
             } else {
                 self.wasm_global_map.len()
             })]
+    }
+}
+
+pub struct GlobalVarManagerIter<'a> {
+    s: GlobalVarManagerRef<'a>,
+    i: usize,
+}
+impl<'a> std::iter::Iterator for GlobalVarManagerIter<'a> {
+    type Item = (ir::VarType, &'a [wasmgen::GlobalIdx]);
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.i != self.s.global_types.len() {
+            let ret = (
+                self.s.global_types[self.i],
+                self.s.wasm_global_slice(self.i),
+            );
+            self.i += 1;
+            Some(ret)
+        } else {
+            None
+        }
+    }
+}
+impl<'a> std::iter::FusedIterator for GlobalVarManagerIter<'a> {}
+impl<'a> std::iter::ExactSizeIterator for GlobalVarManagerIter<'a> {
+    fn len(&self) -> usize {
+        self.s.global_types.len() - self.i
+    }
+}
+impl<'a> IntoIterator for GlobalVarManagerRef<'a> {
+    type Item = (ir::VarType, &'a [wasmgen::GlobalIdx]);
+    type IntoIter = GlobalVarManagerIter<'a>;
+    fn into_iter(self) -> Self::IntoIter {
+        GlobalVarManagerIter { s: self, i: 0 }
     }
 }

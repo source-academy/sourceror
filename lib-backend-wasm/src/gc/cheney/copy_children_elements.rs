@@ -75,6 +75,7 @@ pub fn make_copy_children_elements(
                 .cloned()
                 .zip(byte_offsets.iter().cloned())
                 .for_each(|(ir_vartype, byte_offset)| {
+                    // note: similar to copying global roots in do_cheney()
                     match ir_vartype {
                         ir::VarType::Any => {
                             // f.data = (*(GC_TABLE_PTR_COPY_INDIRECT_OFFSET + f.tag))(f.data);

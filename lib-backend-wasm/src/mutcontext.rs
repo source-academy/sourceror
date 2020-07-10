@@ -89,12 +89,17 @@ impl<'a, 'b> MutContext<'a, 'b> {
         expr_builder: &mut ExprBuilder,
         f: F,
     ) -> R {
-        self.with_shadow_local(ir_vartype, heap, expr_builder, move |mutctx, expr_builder, ir_localidx| {
-            mutctx.named_local_map.push(ir_localidx);
-            let ret = f(mutctx, expr_builder, ir_localidx);
-            mutctx.named_local_map.pop();
-            ret
-		})
+        self.with_shadow_local(
+            ir_vartype,
+            heap,
+            expr_builder,
+            move |mutctx, expr_builder, ir_localidx| {
+                mutctx.named_local_map.push(ir_localidx);
+                let ret = f(mutctx, expr_builder, ir_localidx);
+                mutctx.named_local_map.pop();
+                ret
+            },
+        )
     }
     /**
      * Adds an uninitialized shadow local to the context.  It is like with_local(), but caller must guarantee that something is assigned to it before doing any heap allocations.
@@ -110,10 +115,7 @@ impl<'a, 'b> MutContext<'a, 'b> {
         self.pop_local(ir_vartype);
         result
     }
-    pub fn with_uninitialized_named_local<
-        R,
-        F: FnOnce(&mut MutContext<'a, 'b>, usize) -> R,
-    >(
+    pub fn with_uninitialized_named_local<R, F: FnOnce(&mut MutContext<'a, 'b>, usize) -> R>(
         &mut self,
         ir_vartype: ir::VarType,
         f: F,
@@ -123,7 +125,7 @@ impl<'a, 'b> MutContext<'a, 'b> {
             let ret = f(mutctx, ir_localidx);
             mutctx.named_local_map.pop();
             ret
-		})
+        })
     }
     /**
      * Like `with_local()` but with many locals.

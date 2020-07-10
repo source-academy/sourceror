@@ -90,13 +90,13 @@ impl<'a> ModuleEncodeWrapper<'a> {
     }*/
 }
 
-pub fn encode_funcs<Heap: HeapManager>(
+pub fn encode_funcs<'a, Heap: HeapManager>(
     ir_funcs: &[ir::Func],
     ir_struct_types: &[Box<[ir::VarType]>],
     ir_struct_field_byte_offsets: &[Box<[u32]>],
     imported_funcs: Box<[wasmgen::FuncIdx]>,
     ir_entry_point_funcidx: ir::FuncIdx,
-    global_var_manager: GlobalVarManager,
+    global_var_manager: GlobalVarManagerRef<'a>,
     globalidx_stackptr: wasmgen::GlobalIdx,
     memidx: wasmgen::MemIdx,
     thunk_sv: SearchableVec<Box<[ir::OverloadEntry]>>,
@@ -183,7 +183,7 @@ pub fn encode_funcs<Heap: HeapManager>(
                     struct_field_byte_offsets: ir_struct_field_byte_offsets,
                     funcs: ir_funcs,
                     wasm_funcidxs: &wasm_funcidxs,
-                    globals: global_var_manager.deref(),
+                    globals: global_var_manager,
                     stackptr: globalidx_stackptr,
                     memidx: memidx,
                     heap: heap,
@@ -229,7 +229,7 @@ pub fn encode_funcs<Heap: HeapManager>(
                     struct_field_byte_offsets: ir_struct_field_byte_offsets,
                     funcs: ir_funcs,
                     wasm_funcidxs: &wasm_funcidxs,
-                    globals: global_var_manager.deref(),
+                    globals: global_var_manager,
                     stackptr: globalidx_stackptr,
                     memidx: memidx,
                     heap: heap,
@@ -653,31 +653,34 @@ fn encode_expr<H: HeapManager>(
                         mutctx,
                         expr_builder,
                         |mutctx, expr_builder| {
-                            mutctx.with_uninitialized_named_local(*expected, |mutctx, ir_localidx| {
-                                // net wasm stack: [] -> []
-                                {
-                                    let (named_wasm_local_slice, scratch) =
-                                        mutctx.named_wasm_local_slice_and_scratch(ir_localidx);
-                                    encode_unchecked_local_conv_any_narrowing(
-                                        tmp_i64_data,
-                                        named_wasm_local_slice,
-                                        *expected,
-                                        scratch,
+                            mutctx.with_uninitialized_named_local(
+                                *expected,
+                                |mutctx, ir_localidx| {
+                                    // net wasm stack: [] -> []
+                                    {
+                                        let (named_wasm_local_slice, scratch) =
+                                            mutctx.named_wasm_local_slice_and_scratch(ir_localidx);
+                                        encode_unchecked_local_conv_any_narrowing(
+                                            tmp_i64_data,
+                                            named_wasm_local_slice,
+                                            *expected,
+                                            scratch,
+                                            expr_builder,
+                                        );
+                                    }
+                                    // net wasm stack: [] -> [<true_expr.vartype>]
+                                    let wasm_reachable =
+                                        encode_expr(true_expr, ctx, mutctx, expr_builder);
+                                    // [<true_expr.vartype>] -> [<expr.vartype>]
+                                    encode_opt_result_widening_operation(
+                                        expr.vartype,
+                                        true_expr.vartype,
+                                        wasm_reachable,
+                                        mutctx.scratch_mut(),
                                         expr_builder,
                                     );
-                                }
-                                // net wasm stack: [] -> [<true_expr.vartype>]
-                                let wasm_reachable =
-                                    encode_expr(true_expr, ctx, mutctx, expr_builder);
-                                // [<true_expr.vartype>] -> [<expr.vartype>]
-                                encode_opt_result_widening_operation(
-                                    expr.vartype,
-                                    true_expr.vartype,
-                                    wasm_reachable,
-                                    mutctx.scratch_mut(),
-                                    expr_builder,
-                                );
-                            });
+                                },
+                            );
                         },
                         (!false_expr.is_prim_undefined()).as_some(
                             |mutctx: &mut MutContext, expr_builder: &mut wasmgen::ExprBuilder| {
