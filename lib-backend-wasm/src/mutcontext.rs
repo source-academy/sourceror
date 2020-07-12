@@ -22,6 +22,9 @@ pub struct MutContext<'a, 'b> {
     // you should do wasm_local_map[local_map[names_local_map[i]]..(local_map[names_local_map[i]+1)]]
     // wasm locals that are not in the wasm_local_map are auxiliary scratch space (e.g. for type conversion procedures)
     // locals that are not in the named local map are auxiliary ir locals (e.g. temporary unnamed variables in complex ir expressions)
+    //
+    // By convention, a parameter prefixed with "named_" is usd as an index into named_local_map,
+    // otherwise it should bypass the named_local_map and be used for local_map/local_types directly.
     wasm_local_map: Vec<wasmgen::LocalIdx>,
     local_map: Vec<usize>, // map from ir param/local index (including shadow locals) to wasm_local_map index
     local_types: Vec<ir::VarType>, // map from ir param/local index (including shadow locals) to ir param type
@@ -78,6 +81,10 @@ impl<'a, 'b> MutContext<'a, 'b> {
         self.pop_local(ir_vartype);
         result
     }
+    /**
+     * Like with_shadow_local(), but adds an entry to the named_local_map.
+     * The index yielded in the callback is a *named* local idx, which should be equivalent to localidxs used in the ir.
+     */
     pub fn with_named_local<
         H: HeapManager,
         R,
@@ -94,8 +101,9 @@ impl<'a, 'b> MutContext<'a, 'b> {
             heap,
             expr_builder,
             move |mutctx, expr_builder, ir_localidx| {
+                let named_ir_localidx = mutctx.named_local_map.len();
                 mutctx.named_local_map.push(ir_localidx);
-                let ret = f(mutctx, expr_builder, ir_localidx);
+                let ret = f(mutctx, expr_builder, named_ir_localidx);
                 mutctx.named_local_map.pop();
                 ret
             },
@@ -115,14 +123,19 @@ impl<'a, 'b> MutContext<'a, 'b> {
         self.pop_local(ir_vartype);
         result
     }
+    /**
+     * Like with_uninitialized_shadow_local(), but adds an entry to the named_local_map.
+     * The index yielded in the callback is a *named* local idx, which should be equivalent to localidxs used in the ir.
+     */
     pub fn with_uninitialized_named_local<R, F: FnOnce(&mut MutContext<'a, 'b>, usize) -> R>(
         &mut self,
         ir_vartype: ir::VarType,
         f: F,
     ) -> R {
         self.with_uninitialized_shadow_local(ir_vartype, move |mutctx, ir_localidx| {
+            let named_ir_localidx = mutctx.named_local_map.len();
             mutctx.named_local_map.push(ir_localidx);
-            let ret = f(mutctx, ir_localidx);
+            let ret = f(mutctx, named_ir_localidx);
             mutctx.named_local_map.pop();
             ret
         })
@@ -222,8 +235,8 @@ impl<'a, 'b> MutContext<'a, 'b> {
         self.local_types.pop();
     }
 
-    pub fn named_local_types_elem(&self, idx: usize) -> ir::VarType {
-        self.local_types[idx]
+    pub fn named_local_types_elem(&self, named_idx: usize) -> ir::VarType {
+        self.local_types[self.named_local_map[named_idx]]
     }
     pub fn scratch_mut(&mut self) -> &mut Scratch<'a> {
         &mut self.scratch
@@ -249,8 +262,9 @@ impl<'a, 'b> MutContext<'a, 'b> {
     // Same as wasm_local_slice() and scratch_mut() combined, but plays nice with the lifetime checker.
     pub fn named_wasm_local_slice_and_scratch(
         &mut self,
-        ir_localidx: usize,
+        named_ir_localidx: usize,
     ) -> (&[wasmgen::LocalIdx], &mut Scratch<'a>) {
+        let ir_localidx = self.named_local_map[named_ir_localidx];
         (
             &self.wasm_local_map[self.local_map[ir_localidx]
                 ..(if ir_localidx + 1 < self.local_map.len() {
