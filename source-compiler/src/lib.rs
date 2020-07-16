@@ -69,7 +69,7 @@ pub async fn compile(context: i32, source_code: String) -> js_sys::Uint8Array {
         let ir_program =
             frontend_estree::run_frontend(source_code, fetch_dep_proxy, MainLogger::new(context))
                 .await?;
-        let ir_program_opt = ir::opt::optimize(ir_program);
+        let ir_program_opt = ir::opt::optimize_mandatory(ir_program);
         let wasm_module =
             backend_wasm::run_backend(&ir_program_opt, backend_wasm::Options::default());
         let mut receiver = std::vec::Vec::<u8>::new();

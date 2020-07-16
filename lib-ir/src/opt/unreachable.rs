@@ -13,8 +13,6 @@ pub fn optimize(mut program: Program) -> (Program, bool) {
         changed |= optimize_func(func);
     }
     (program, changed)
-
-    // TODO: we should propagate other types as well (i.e. do forward type checking)
 }
 
 /**

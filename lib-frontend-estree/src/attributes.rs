@@ -52,35 +52,36 @@ impl NodeForEachWithAttributes<Node> for [Node] {
                         kind: NodeKind::Identifier(ident),
                     } = &**left
                     {
-                        let key: &str = &ident.name;
-                        if let Node {
-                            loc: valloc,
-                            kind:
-                                NodeKind::Literal(Literal {
-                                    value: LiteralValue::String(strval),
-                                }),
-                        } = &**right
-                        {
-                            let val: HashMap<String, Option<String>> = parse_attributes(&strval)
-                                .map_err(|_| {
-                                    CompileMessage::new_error(
-                                        valloc.into_sl(filename).to_owned(),
-                                        ParseProgramError::AttributeParseError,
-                                    )
-                                })?;
-                            if let Some((_, sl)) = prev_attr {
+                        if ident.name == "__attributes" {
+                            if let Node {
+                                loc: valloc,
+                                kind:
+                                    NodeKind::Literal(Literal {
+                                        value: LiteralValue::String(strval),
+                                    }),
+                            } = &**right
+                            {
+                                let val: HashMap<String, Option<String>> =
+                                    parse_attributes(&strval).map_err(|_| {
+                                        CompileMessage::new_error(
+                                            valloc.into_sl(filename).to_owned(),
+                                            ParseProgramError::AttributeParseError,
+                                        )
+                                    })?;
+                                if let Some((_, sl)) = prev_attr {
+                                    return Err(CompileMessage::new_error(
+                                        sl.to_owned(),
+                                        ParseProgramError::DanglingAttributeError,
+                                    ));
+                                }
+                                prev_attr = Some((val, stmtloc.into_sl(filename)));
+                                continue;
+                            } else {
                                 return Err(CompileMessage::new_error(
-                                    sl.to_owned(),
-                                    ParseProgramError::DanglingAttributeError,
+                                    right.loc.into_sl(filename).to_owned(),
+                                    ParseProgramError::AttributeNotStringLiteralError,
                                 ));
                             }
-                            prev_attr = Some((val, stmtloc.into_sl(filename)));
-                            continue;
-                        } else {
-                            return Err(CompileMessage::new_error(
-                                right.loc.into_sl(filename).to_owned(),
-                                ParseProgramError::AttributeNotStringLiteralError,
-                            ));
                         }
                     }
                 }
@@ -145,35 +146,36 @@ impl NodeForEachWithAttributesMut<Node> for [Node] {
                         kind: NodeKind::Identifier(ident),
                     } = &**left
                     {
-                        let key: &str = &ident.name;
-                        if let Node {
-                            loc: valloc,
-                            kind:
-                                NodeKind::Literal(Literal {
-                                    value: LiteralValue::String(strval),
-                                }),
-                        } = &**right
-                        {
-                            let val: HashMap<String, Option<String>> = parse_attributes(&strval)
-                                .map_err(|_| {
-                                    CompileMessage::new_error(
-                                        valloc.into_sl(filename).to_owned(),
-                                        ParseProgramError::AttributeParseError,
-                                    )
-                                })?;
-                            if let Some((_, sl)) = prev_attr {
+                        if ident.name == "__attributes" {
+                            if let Node {
+                                loc: valloc,
+                                kind:
+                                    NodeKind::Literal(Literal {
+                                        value: LiteralValue::String(strval),
+                                    }),
+                            } = &**right
+                            {
+                                let val: HashMap<String, Option<String>> =
+                                    parse_attributes(&strval).map_err(|_| {
+                                        CompileMessage::new_error(
+                                            valloc.into_sl(filename).to_owned(),
+                                            ParseProgramError::AttributeParseError,
+                                        )
+                                    })?;
+                                if let Some((_, sl)) = prev_attr {
+                                    return Err(CompileMessage::new_error(
+                                        sl.to_owned(),
+                                        ParseProgramError::DanglingAttributeError,
+                                    ));
+                                }
+                                prev_attr = Some((val, stmtloc.into_sl(filename)));
+                                continue;
+                            } else {
                                 return Err(CompileMessage::new_error(
-                                    sl.to_owned(),
-                                    ParseProgramError::DanglingAttributeError,
+                                    right.loc.into_sl(filename).to_owned(),
+                                    ParseProgramError::AttributeNotStringLiteralError,
                                 ));
                             }
-                            prev_attr = Some((val, stmtloc.into_sl(filename)));
-                            continue;
-                        } else {
-                            return Err(CompileMessage::new_error(
-                                right.loc.into_sl(filename).to_owned(),
-                                ParseProgramError::AttributeNotStringLiteralError,
-                            ));
                         }
                     }
                 }
@@ -234,35 +236,36 @@ impl<C: IntoIterator<Item = Node>> NodeForEachWithAttributesInto<Node> for C {
                         kind: NodeKind::Identifier(ident),
                     } = &**left
                     {
-                        let key: &str = &ident.name;
-                        if let Node {
-                            loc: valloc,
-                            kind:
-                                NodeKind::Literal(Literal {
-                                    value: LiteralValue::String(strval),
-                                }),
-                        } = &**right
-                        {
-                            let val: HashMap<String, Option<String>> = parse_attributes(&strval)
-                                .map_err(|_| {
-                                    CompileMessage::new_error(
-                                        valloc.into_sl(filename).to_owned(),
-                                        ParseProgramError::AttributeParseError,
-                                    )
-                                })?;
-                            if let Some((_, sl)) = prev_attr {
+                        if ident.name == "__attributes" {
+                            if let Node {
+                                loc: valloc,
+                                kind:
+                                    NodeKind::Literal(Literal {
+                                        value: LiteralValue::String(strval),
+                                    }),
+                            } = &**right
+                            {
+                                let val: HashMap<String, Option<String>> =
+                                    parse_attributes(&strval).map_err(|_| {
+                                        CompileMessage::new_error(
+                                            valloc.into_sl(filename).to_owned(),
+                                            ParseProgramError::AttributeParseError,
+                                        )
+                                    })?;
+                                if let Some((_, sl)) = prev_attr {
+                                    return Err(CompileMessage::new_error(
+                                        sl.to_owned(),
+                                        ParseProgramError::DanglingAttributeError,
+                                    ));
+                                }
+                                prev_attr = Some((val, stmtloc.into_sl(filename)));
+                                continue;
+                            } else {
                                 return Err(CompileMessage::new_error(
-                                    sl.to_owned(),
-                                    ParseProgramError::DanglingAttributeError,
+                                    right.loc.into_sl(filename).to_owned(),
+                                    ParseProgramError::AttributeNotStringLiteralError,
                                 ));
                             }
-                            prev_attr = Some((val, stmtloc.into_sl(filename)));
-                            continue;
-                        } else {
-                            return Err(CompileMessage::new_error(
-                                right.loc.into_sl(filename).to_owned(),
-                                ParseProgramError::AttributeNotStringLiteralError,
-                            ));
                         }
                     }
                 }
