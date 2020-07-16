@@ -205,6 +205,8 @@ pub struct ArrowFunctionExpression {
     #[serde(skip)]
     pub address_taken_vars: Vec<usize>, // list of address-taken vars, populated by pre_parse()
     #[serde(skip)]
+    pub direct_funcs: Vec<(String, Box<[ir::VarType]>)>, // list of direct functions, populated by pre_parse()
+    #[serde(skip)]
     pub captured_vars: Vec<VarLocId>, // list of non-global variables captured by the function
 }
 
@@ -336,12 +338,16 @@ impl Function for ArrowFunctionExpression {
 
 pub trait Scope {
     fn address_taken_vars_mut(&mut self) -> &mut Vec<usize>;
+    fn direct_funcs_mut(&mut self) -> &mut Vec<(String, Box<[ir::VarType]>)>;
     fn destructure(self) -> (Vec<Node>, Vec<usize>, Vec<(String, Box<[ir::VarType]>)>);
 }
 
 impl Scope for BlockStatement {
     fn address_taken_vars_mut(&mut self) -> &mut Vec<usize> {
         &mut self.address_taken_vars
+    }
+    fn direct_funcs_mut(&mut self) -> &mut Vec<(String, Box<[ir::VarType]>)> {
+        &mut self.direct_funcs
     }
     fn destructure(self) -> (Vec<Node>, Vec<usize>, Vec<(String, Box<[ir::VarType]>)>) {
         (self.body, self.address_taken_vars, self.direct_funcs)
@@ -351,6 +357,9 @@ impl Scope for BlockStatement {
 impl Scope for FunctionDeclaration {
     fn address_taken_vars_mut(&mut self) -> &mut Vec<usize> {
         &mut self.address_taken_vars
+    }
+    fn direct_funcs_mut(&mut self) -> &mut Vec<(String, Box<[ir::VarType]>)> {
+        &mut self.direct_funcs
     }
     fn destructure(self) -> (Vec<Node>, Vec<usize>, Vec<(String, Box<[ir::VarType]>)>) {
         (
@@ -369,6 +378,9 @@ impl Scope for ArrowFunctionExpression {
     fn address_taken_vars_mut(&mut self) -> &mut Vec<usize> {
         &mut self.address_taken_vars
     }
+    fn direct_funcs_mut(&mut self) -> &mut Vec<(String, Box<[ir::VarType]>)> {
+        &mut self.direct_funcs
+    }
     fn destructure(self) -> (Vec<Node>, Vec<usize>, Vec<(String, Box<[ir::VarType]>)>) {
         // self.body can be either a Block or an expression
         (
@@ -384,7 +396,7 @@ impl Scope for ArrowFunctionExpression {
                 }]
             },
             self.address_taken_vars,
-            Vec::new(),
+            self.direct_funcs,
         )
     }
 }

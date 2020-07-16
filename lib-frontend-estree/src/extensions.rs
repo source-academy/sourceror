@@ -15,8 +15,8 @@ impl<'a> IntoSourceLocation<Option<&'a str>, projstd::log::SourceLocationRef<'a>
                     column: sl.start.column as i32,
                 },
                 end: projstd::log::Position {
-                    line: sl.start.line as i32,
-                    column: sl.start.column as i32,
+                    line: sl.end.line as i32,
+                    column: sl.end.column as i32,
                 },
             },
             None => projstd::log::SourceLocationRef::default(),
@@ -35,8 +35,8 @@ impl<'a> IntoSourceLocation<Option<String>, projstd::log::SourceLocation>
                     column: sl.start.column as i32,
                 },
                 end: projstd::log::Position {
-                    line: sl.start.line as i32,
-                    column: sl.start.column as i32,
+                    line: sl.end.line as i32,
+                    column: sl.end.column as i32,
                 },
             },
             None => projstd::log::SourceLocationRef::default().to_owned(),

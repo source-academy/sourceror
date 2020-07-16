@@ -49,16 +49,21 @@ pub fn pre_parse_program(
 
     let undo_ctx = name_ctx.add_scope(curr_decls);
 
+    let mut direct_funcs = Vec::new();
+
     es_program
         .body
         .each_with_attributes_mut(filename, |es_node, attr| {
-            let usages = pre_parse_statement(es_node, attr, name_ctx, 0, filename)?;
+            let usages =
+                pre_parse_statement(es_node, attr, name_ctx, &mut direct_funcs, 0, filename)?;
             assert!(
                 usages.is_empty(),
                 "Global variable got returned as a Usage, this is a bug"
             );
             Ok(())
         })?;
+
+    es_program.direct_funcs = direct_funcs;
 
     name_ctx.remove_scope(undo_ctx);
 
@@ -93,14 +98,25 @@ fn pre_parse_block_statement(
 
     let mut ret_usages: BTreeMap<VarLocId, Usage> = BTreeMap::new();
 
+    let mut direct_funcs = Vec::new();
+
     es_block
         .body
         .each_with_attributes_mut(filename, |es_node, attr| {
-            let usages = pre_parse_statement(es_node, attr, name_ctx, new_depth, filename)?;
+            let usages = pre_parse_statement(
+                es_node,
+                attr,
+                name_ctx,
+                &mut direct_funcs,
+                new_depth,
+                filename,
+            )?;
             let tmp = std::mem::take(&mut ret_usages); // necessary because of weird borrow rules in Rust
             ret_usages = varusage::merge_series(tmp, usages);
             Ok(())
         })?;
+
+    es_block.direct_funcs = direct_funcs;
 
     es_block.address_taken_vars = split_off_address_taken_vars(&mut ret_usages, new_depth);
 
@@ -158,14 +174,25 @@ fn pre_parse_function<F: Function + Scope>(
 
         let undo_ctx = name_ctx.add_scope(curr_decls);
 
+        let mut direct_funcs = Vec::new();
+
         es_block
             .body
             .each_with_attributes_mut(filename, |es_node, attr| {
-                let usages = pre_parse_statement(es_node, attr, name_ctx, new_depth, filename)?;
+                let usages = pre_parse_statement(
+                    es_node,
+                    attr,
+                    name_ctx,
+                    &mut direct_funcs,
+                    new_depth,
+                    filename,
+                )?;
                 let tmp = std::mem::take(&mut ret_usages); // necessary because of weird borrow rules in Rust
                 ret_usages = varusage::merge_series(tmp, usages);
                 Ok(())
             })?;
+
+        *es_func.direct_funcs_mut() = direct_funcs;
 
         undo_ctx
     } else {
@@ -220,6 +247,7 @@ fn pre_parse_statement(
     es_node: &mut Node,
     attr: HashMap<String, Option<String>>,
     name_ctx: &mut HashMap<String, PreVar>, // contains all names referenceable from outside the current sequence
+    direct_funcs: &mut Vec<(String, Box<[ir::VarType]>)>,
     /*deps: &[&HashMap<String, PreVar>],*/
     /*order: usize,*/
     depth: usize,
@@ -270,7 +298,15 @@ fn pre_parse_statement(
     // 'is_direct' can only appear on FunctionDeclaration
     if is_direct {
         return if let NodeKind::FunctionDeclaration(func_decl) = &mut es_node.kind {
-            pre_parse_direct_func_decl(func_decl, &es_node.loc, name_ctx, depth, filename)
+            pre_parse_direct_func_decl(
+                func_decl,
+                constraint_str,
+                &es_node.loc,
+                name_ctx,
+                direct_funcs,
+                depth,
+                filename,
+            )
         // a direct function declaration does not incur any usages
         } else {
             Err(CompileMessage::new_error(
@@ -341,6 +377,7 @@ fn pre_parse_expr_statement(
                     let rhs_expr = pre_parse_expr(&mut **right, name_ctx, depth, filename)?;
                     let resvar = *name_ctx.get(name.as_str()).unwrap();
                     assert!(*prevar == Some(resvar)); // they should already have a prevar attached
+                                                      // note: this is probably a bug, they would not have prevar attached yet...
                     let varlocid = match resvar {
                         PreVar::Target(varlocid) => varlocid,
                         PreVar::Direct => panic!("ICE: Should be VarLocId"),
@@ -498,12 +535,66 @@ fn pre_parse_func_decl(
 
 fn pre_parse_direct_func_decl(
     es_func_decl: &mut FunctionDeclaration,
+    constraint_str: Option<String>,
     loc: &Option<esSL>,
     name_ctx: &mut HashMap<String, PreVar>, // contains all names referenceable from outside the current sequence
+    direct_funcs: &mut Vec<(String, Box<[ir::VarType]>)>,
     depth: usize,
     filename: Option<&str>,
 ) -> Result<BTreeMap<VarLocId, Usage>, CompileMessage<ParseProgramError>> {
     let rhs_expr = pre_parse_function(es_func_decl, loc, name_ctx, depth, filename)?; // parse_function will parse the function body, and transform the result using the function usage transformer.
+
+    match es_func_decl {
+        FunctionDeclaration { id, .. } => {
+            match &mut **id {
+                Node {
+                    loc: _,
+                    kind: NodeKind::Identifier(Identifier { name, prevar }),
+                } => {
+                    // register it as a direct function
+                    *prevar = Some(PreVar::Direct);
+
+                    // register this direct func in the given direct_funcs param
+                    let constraints = constraint_str
+                        .as_deref()
+                        .map_or(Ok(HashMap::new()), |cstr| {
+                            constraint::parse_constraint(cstr)
+                        })
+                        .map_err(|(_loc_str, reason)| {
+                            CompileMessage::new_error(
+                                loc.into_sl(filename).to_owned(), // this is the wrong location, but it's hard to get the correct one
+                                ParseProgramError::AttributeContentError(reason),
+                            )
+                        })?;
+                    let direct_type: Box<[ir::VarType]> = es_func_decl
+                        .params
+                        .iter()
+                        .map(|id_node| match id_node {
+                            Node {
+                                loc: _,
+                                kind: NodeKind::Identifier(id),
+                            } => Ok(constraints
+                                .get(id.name.as_str())
+                                .copied()
+                                .unwrap_or(ir::VarType::Any)),
+                            Node { loc, kind: _ } => Err(CompileMessage::new_error(
+                                loc.into_sl(filename).to_owned(),
+                                ParseProgramError::ESTreeError("Expected ESTree Identifier here"),
+                            )),
+                        })
+                        .collect::<Result<Box<[ir::VarType]>, CompileMessage<ParseProgramError>>>(
+                        )?;
+                    direct_funcs.push((name.clone(), direct_type));
+                }
+                Node { loc, kind: _ } => {
+                    return Err(CompileMessage::new_error(
+                        loc.into_sl(filename).to_owned(),
+                        ParseProgramError::ESTreeError("Expected ESTree Identifier here"),
+                    ))
+                }
+            }
+        }
+    }
 
     // check that there are no captured variables (globals are not in the rhs_expr)
     if !rhs_expr.is_empty() {
@@ -975,7 +1066,7 @@ fn try_coalesce_id_direct<'a>(
         let constraints: HashMap<&str, ir::VarType> = match constraint_str_opt {
             Some(cso) => match cso {
                 Some(constraint_str) => {
-                    constraint::parse_constraint(constraint_str).map_err(|(loc_str_, reason)| {
+                    constraint::parse_constraint(constraint_str).map_err(|(_loc_str, reason)| {
                         CompileMessage::new_error(
                             loc.into_sl(filename).to_owned(), // this is the wrong location, but it's hard to get the correct one
                             ParseProgramError::AttributeContentError(reason),
