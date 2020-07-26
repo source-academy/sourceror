@@ -23,11 +23,11 @@ extern "C" {
     pub fn compiler_log(context: i32, message: String);
 
     #[wasm_bindgen(js_name = sourcerorFetchDepCallback)]
-    pub fn fetch_dep(name: String) -> js_sys::Promise;
+    pub fn fetch_dep(context: i32, name: String) -> js_sys::Promise;
 }
 
-async fn fetch_dep_proxy(name: String) -> Option<String> {
-    JsFuture::from(fetch_dep(name))
+async fn fetch_dep_proxy(context: i32, name: String) -> Option<String> {
+    JsFuture::from(fetch_dep(context, name))
         .await
         .ok()
         .and_then(|x| x.as_string())
@@ -66,9 +66,12 @@ pub async fn compile(context: i32, source_code: String) -> js_sys::Uint8Array {
         use wasmgen::WasmSerialize;
 
         //let ir_imports = frontend_estree::parse_imports(import_spec, MainLogger::new(context))?;
-        let ir_program =
-            frontend_estree::run_frontend(source_code, fetch_dep_proxy, MainLogger::new(context))
-                .await?;
+        let ir_program = frontend_estree::run_frontend(
+            source_code,
+            move |name| fetch_dep_proxy(context, name),
+            MainLogger::new(context),
+        )
+        .await?;
         let ir_program_opt = ir::opt::optimize_mandatory(ir_program);
         let wasm_module =
             backend_wasm::run_backend(&ir_program_opt, backend_wasm::Options::default());
