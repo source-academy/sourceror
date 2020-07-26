@@ -48,8 +48,9 @@ where
         f: F,
     ) -> Result<Self, CompileMessage<DepError>> {
         let mut graph = Graph::<T> { nodes: Vec::new() };
-        // Note: for some reasons async functions are not allowed to be recursive,
-        // so we do a DFS using a separate vector as the 'stack'.
+        // cache.get(name) == None: never seen this file before
+        // cache.get(name) == Some(None): seen this file on the ancestor chain
+        // cache.get(name) == Some(Some(idx)): seen this file on an unrelated chain, so it would have already gotten an index
         let mut cache = HashMap::<String, Option<usize>>::new();
         let mut deps = Vec::new();
         for (dep, sl) in t.extract_deps(None) {

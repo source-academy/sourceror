@@ -49,21 +49,20 @@ pub fn post_parse_program(
                 kind: NodeKind::ImportDeclaration(import_decl),
             } = es_node
             {
+                let curr_dep_idx = dep_index;
+                dep_index += 1;
+
                 for import_spec_node in &import_decl.specifiers {
                     let import_spec = as_import_spec_ref(import_spec_node);
-                    let source_id = as_id_ref(&*import_spec.source);
+                    //let source_id = as_id_ref(&*import_spec.imported);
                     let local_id = as_id_ref(&*import_spec.local);
                     match local_id.prevar.unwrap() {
                         PreVar::Direct => direct_imports.push((
                             local_id.name.to_owned(),
-                            deps[{
-                                let tmp = dep_index;
-                                dep_index += 1;
-                                tmp
-                            }]
-                            .get_direct(local_id.name.as_str())
-                            .unwrap()
-                            .clone(),
+                            deps[curr_dep_idx]
+                                .get_direct(local_id.name.as_str())
+                                .unwrap()
+                                .clone(),
                         )),
                         _ => {}
                     }
@@ -126,21 +125,17 @@ pub fn post_parse_program(
                 kind: NodeKind::ImportDeclaration(import_decl),
             } = es_node
             {
+                let curr_dep_idx = dep_index;
+                dep_index += 1;
+
                 for import_spec_node in &import_decl.specifiers {
                     let import_spec = as_import_spec_ref(&import_spec_node);
-                    let source_id = as_id_ref(&*import_spec.source);
+                    //let source_id = as_id_ref(&*import_spec.imported);
                     let local_id = as_id_ref(&*import_spec.local);
                     match local_id.prevar.as_ref().unwrap() {
                         PreVar::Target(varlocid) => target_expr_entries.push((
                             *varlocid,
-                            deps[{
-                                let tmp = dep_index;
-                                dep_index += 1;
-                                tmp
-                            }]
-                            .get_target(varlocid)
-                            .unwrap()
-                            .clone(),
+                            deps[curr_dep_idx].get_target(varlocid).unwrap().clone(),
                         )),
                         _ => {}
                     }

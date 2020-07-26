@@ -267,7 +267,7 @@ pub struct ImportDeclaration {
 #[derive(Deserialize, Debug)]
 pub struct ImportSpecifier {
     pub local: Box<Node>,
-    pub source: Box<Node>,
+    pub imported: Box<Node>,
 }
 
 #[derive(Deserialize, Debug)]

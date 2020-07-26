@@ -99,8 +99,10 @@ impl<'a> dep_graph::ExtractDeps<'a> for SourceItem {
                 })
                 .iter()
                 .filter_map(move |es_node| {
-                    if let NodeKind::ImportSpecifier(ImportSpecifier { local: _, source }) =
-                        &es_node.kind
+                    if let NodeKind::ImportDeclaration(ImportDeclaration {
+                        specifiers: _,
+                        source,
+                    }) = &es_node.kind
                     {
                         if let NodeKind::Literal(Literal {
                             value: LiteralValue::String(s),

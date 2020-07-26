@@ -130,7 +130,7 @@ fn pre_parse_block_statement(
  */
 fn pre_parse_function<F: Function + Scope>(
     es_func: &mut F,
-    loc: &Option<esSL>,
+    _loc: &Option<esSL>,
     name_ctx: &mut HashMap<String, PreVar>, // contains all names referenceable from outside the current sequence
     depth: usize,
     filename: Option<&str>,
@@ -156,7 +156,7 @@ fn pre_parse_function<F: Function + Scope>(
         .collect();
 
     let undo_ctx = if let Node {
-        loc,
+        loc: _,
         kind: NodeKind::BlockStatement(es_block),
     } = body
     {
@@ -346,16 +346,39 @@ fn pre_parse_statement(
             es_node.loc.into_sl(filename).to_owned(),
             ParseProgramError::ESTreeError("This statement type is not allowed"),
         )),
-        _ => Err(CompileMessage::new_error(
-            es_node.loc.into_sl(filename).to_owned(),
-            ParseProgramError::ESTreeError("Statement node expected in a BlockStatement"),
-        )),
+        node_kind => {
+            // if we are at global scope, we accept Import and Export declarations (but don't do anything with them)
+            // because the caller would have already mapped them
+            if depth == 0 {
+                match node_kind {
+                    NodeKind::ImportDeclaration(import_decl) => {
+                        pre_parse_import_decl(import_decl, &es_node.loc, name_ctx, filename)?;
+                        Ok(BTreeMap::new())
+                    }
+                    NodeKind::ExportNamedDeclaration(export_decl) => {
+                        pre_parse_export_decl(export_decl, &es_node.loc, name_ctx, filename)?;
+                        Ok(BTreeMap::new())
+                    }
+                    _ => Err(CompileMessage::new_error(
+                        es_node.loc.into_sl(filename).to_owned(),
+                        ParseProgramError::ESTreeError(
+                            "Statement, Import or Export node expected at top-level",
+                        ),
+                    )),
+                }
+            } else {
+                Err(CompileMessage::new_error(
+                    es_node.loc.into_sl(filename).to_owned(),
+                    ParseProgramError::ESTreeError("Statement node expected in a BlockStatement"),
+                ))
+            }
+        }
     }
 }
 
 fn pre_parse_expr_statement(
     es_expr_stmt: &mut ExpressionStatement,
-    loc: &Option<esSL>,
+    _loc: &Option<esSL>,
     name_ctx: &mut HashMap<String, PreVar>, // contains all names referenceable from outside the current sequence
     depth: usize,
     filename: Option<&str>,
@@ -402,7 +425,7 @@ fn pre_parse_expr_statement(
                     ),
                 )),
             },
-            other => Err(CompileMessage::new_error(
+            _ => Err(CompileMessage::new_error(
                 es_expr_node.loc.into_sl(filename).to_owned(),
                 ParseProgramError::SourceRestrictionError(
                     "Compound assignment operator not allowed",
@@ -673,6 +696,80 @@ fn pre_parse_var_decl(
         })
 }
 
+fn pre_parse_import_decl(
+    es_import_decl: &mut ImportDeclaration,
+    _loc: &Option<esSL>,
+    name_ctx: &mut HashMap<String, PreVar>, // contains all names referenceable from outside the current sequence
+    filename: Option<&str>,
+) -> Result<(), CompileMessage<ParseProgramError>> {
+    for import_spec_node in &mut es_import_decl.specifiers {
+        if let Node {
+            loc: _,
+            kind: NodeKind::ImportSpecifier(import_spec),
+        } = import_spec_node
+        {
+            if let Node {
+                loc: _,
+                kind: NodeKind::Identifier(Identifier { name, prevar }),
+            } = &mut *import_spec.local
+            {
+                let resvar = *name_ctx.get(name.as_str()).unwrap();
+                *prevar = Some(resvar);
+            } else {
+                return Err(CompileMessage::new_error(
+                    import_spec.local.loc.into_sl(filename).to_owned(),
+                    ParseProgramError::ESTreeError("ImportSpecifier local must be Identifier"),
+                ));
+            }
+        } else {
+            return Err(CompileMessage::new_error(
+                import_spec_node.loc.into_sl(filename).to_owned(),
+                ParseProgramError::ESTreeError(
+                    "Expected ImportSpecifier inside ImportDeclaration only",
+                ),
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn pre_parse_export_decl(
+    es_export_decl: &mut ExportNamedDeclaration,
+    _loc: &Option<esSL>,
+    name_ctx: &mut HashMap<String, PreVar>, // contains all names referenceable from outside the current sequence
+    filename: Option<&str>,
+) -> Result<(), CompileMessage<ParseProgramError>> {
+    for export_spec_node in &mut es_export_decl.specifiers {
+        if let Node {
+            loc: _,
+            kind: NodeKind::ExportSpecifier(export_spec),
+        } = export_spec_node
+        {
+            if let Node {
+                loc: _,
+                kind: NodeKind::Identifier(Identifier { name, prevar }),
+            } = &mut *export_spec.local
+            {
+                let resvar = *name_ctx.get(name.as_str()).unwrap();
+                *prevar = Some(resvar);
+            } else {
+                return Err(CompileMessage::new_error(
+                    export_spec.local.loc.into_sl(filename).to_owned(),
+                    ParseProgramError::ESTreeError("ExportSpecifier local must be Identifier"),
+                ));
+            }
+        } else {
+            return Err(CompileMessage::new_error(
+                export_spec_node.loc.into_sl(filename).to_owned(),
+                ParseProgramError::ESTreeError(
+                    "Expected ExportSpecifier inside ExportNamedDeclaration only",
+                ),
+            ));
+        }
+    }
+    Ok(())
+}
+
 fn pre_parse_expr(
     es_expr: &mut Node,
     name_ctx: &mut HashMap<String, PreVar>,
@@ -772,7 +869,7 @@ fn pre_parse_identifier_use(
     es_id: &mut Identifier,
     loc: &Option<esSL>,
     name_ctx: &mut HashMap<String, PreVar>,
-    depth: usize,
+    _depth: usize,
     filename: Option<&str>,
 ) -> Result<BTreeMap<VarLocId, Usage>, CompileMessage<ParseProgramError>> {
     match name_ctx.get(es_id.name.as_str()) {
@@ -971,7 +1068,7 @@ fn process_var_decl_validation(
     } else {
         for var_decr_node in &var_decl.declarations {
             if let Node {
-                loc: loc2,
+                loc: _,
                 kind: NodeKind::VariableDeclarator(var_decr),
             } = var_decr_node
             {
@@ -1029,7 +1126,7 @@ fn try_coalesce_id_direct<'a>(
     param_nodes: &[Node],
     es_id_node: &'a Node,
     constraint_str_opt: Option<&Option<String>>,
-    depth: usize,
+    _depth: usize,
     start_idx: &mut usize,
     filename: Option<&str>,
 ) -> Result<Option<&'a str>, CompileMessage<ParseProgramError>> {
@@ -1141,14 +1238,14 @@ fn process_import_decl_validation(
     } else {
         for import_spec_node in &import_decl.specifiers {
             if let Node {
-                loc: loc2,
+                loc: _,
                 kind: NodeKind::ImportSpecifier(import_spec),
             } = import_spec_node
             {
                 if let Node {
                     loc: loc3,
                     kind: NodeKind::Identifier(source_id),
-                } = &*import_spec.source
+                } = &*import_spec.imported
                 {
                     if let Node {
                         loc: loc4,
@@ -1206,7 +1303,7 @@ fn process_import_decl_validation(
                     }
                 } else {
                     return Err(CompileMessage::new_error(
-                        import_spec.source.loc.into_sl(filename).to_owned(),
+                        import_spec.imported.loc.into_sl(filename).to_owned(),
                         ParseProgramError::ESTreeError("ImportSpecifier source must be Identifier"),
                     ));
                 }
@@ -1255,7 +1352,7 @@ fn process_export_decl_validation(
     } else {
         for export_spec_node in &export_decl.specifiers {
             if let Node {
-                loc: loc2,
+                loc: _,
                 kind: NodeKind::ExportSpecifier(export_spec),
             } = export_spec_node
             {
@@ -1300,7 +1397,7 @@ fn process_export_decl_validation(
                 }
             } else {
                 return Err(CompileMessage::new_error(
-                    loc.into_sl(filename).to_owned(),
+                    export_spec_node.loc.into_sl(filename).to_owned(),
                     ParseProgramError::ESTreeError(
                         "Expected ExportSpecifier inside ExportNamedDeclaration only",
                     ),
@@ -1322,7 +1419,7 @@ fn validate_and_extract_params(
         .enumerate()
         .map(|(i, param)| {
             if let Node {
-                loc,
+                loc: _,
                 kind: NodeKind::Identifier(es_id),
             } = param
             {
