@@ -511,7 +511,7 @@ fn make_function_body<S: Scope>(
 
             post_parse_decl_helper(
                 varlocid,
-                rhs_expr,
+                move |_, _, _, _, _| Ok(rhs_expr),
                 (more_ir_vartype_iter, more_stmt_attr_iter),
                 parse_ctx,
                 |(mut more_ir_vartype_iter, mut more_stmt_attr_iter),
@@ -1232,22 +1232,18 @@ fn post_parse_if_statement(
                     }),
                 },
             }),
-            true_expr: Box::new(post_parse_expr(
-                *es_if.consequent,
-                parse_ctx,
-                depth,
-                num_locals,
-                filename,
-                ir_program,
-            )?),
-            false_expr: Box::new(post_parse_expr(
-                *es_if.alternate.unwrap(),
-                parse_ctx,
-                depth,
-                num_locals,
-                filename,
-                ir_program,
-            )?),
+            true_expr: Box::new({
+                let (block_stmt, loc) = as_block_statement_with_loc(*es_if.consequent);
+                post_parse_block_statement(
+                    block_stmt, loc, parse_ctx, depth, num_locals, filename, ir_program,
+                )?
+            }),
+            false_expr: Box::new({
+                let (block_stmt, loc) = as_block_statement_with_loc(*es_if.alternate.unwrap());
+                post_parse_block_statement(
+                    block_stmt, loc, parse_ctx, depth, num_locals, filename, ir_program,
+                )?
+            }),
         },
     })
 }
@@ -1288,21 +1284,23 @@ fn post_parse_func_decl<I: Iterator<Item = (Node, HashMap<String, Option<String>
     ir_program: &mut ir::Program,
 ) -> Result<(ir::Expr, I), CompileMessage<ParseProgramError>> {
     let varlocid = as_varlocid(as_id_ref(&*es_func_decl.id).prevar.unwrap());
-    let rhs_expr: ir::Expr = post_parse_function(
-        es_func_decl,
-        loc,
-        parse_ctx,
-        depth,
-        num_locals,
-        filename,
-        ir_program,
-    )?;
+
     post_parse_decl_helper(
         varlocid,
-        rhs_expr,
+        move |parse_ctx, depth, num_locals, filename, ir_program| {
+            post_parse_function(
+                es_func_decl,
+                loc,
+                parse_ctx,
+                depth,
+                num_locals,
+                filename,
+                ir_program,
+            )
+        },
         more_stmt_attr_iter,
         parse_ctx,
-        |more_stmt_attr_iter, parse_ctx, depth, num_locals, filename, ir_program| {
+        move |more_stmt_attr_iter, parse_ctx, depth, num_locals, filename, ir_program| {
             add_remaining_stmts(
                 more_stmt_attr_iter,
                 parse_ctx,
@@ -1390,26 +1388,23 @@ fn post_parse_var_decr_recurse<
     ir_program: &mut ir::Program,
 ) -> Result<(ir::Expr, (J, I)), CompileMessage<ParseProgramError>> {
     let varlocid = as_varlocid(as_id(*es_var_decr.id).prevar.unwrap());
-    let rhs_expr: ir::Expr = post_parse_expr(
-        *es_var_decr.init.unwrap(),
-        parse_ctx,
-        depth,
-        num_locals,
-        filename,
-        ir_program,
-    )?;
+    let init_expr = *es_var_decr.init.unwrap();
 
     post_parse_decl_helper(
         varlocid,
-        rhs_expr,
+        move |parse_ctx, depth, num_locals, filename, ir_program| {
+            post_parse_expr(
+                init_expr, parse_ctx, depth, num_locals, filename, ir_program,
+            )
+        },
         (more_var_decr_iter, more_stmt_attr_iter),
         parse_ctx,
-        |(mut more_var_decr_iter, mut more_stmt_attr_iter),
-         parse_ctx,
-         depth,
-         num_locals,
-         filename,
-         ir_program| {
+        move |(mut more_var_decr_iter, mut more_stmt_attr_iter),
+              parse_ctx,
+              depth,
+              num_locals,
+              filename,
+              ir_program| {
             let mut ret: Vec<ir::Expr> = Vec::new();
             while let Some(es_var_decr) = more_var_decr_iter.next() {
                 let (ir_expr2, (var_2, stmt_2)) = post_parse_var_decr_recurse(
@@ -1459,9 +1454,16 @@ fn post_parse_decl_helper<
         Option<&str>,
         &mut ir::Program,
     ) -> Result<(Vec<ir::Expr>, R), CompileMessage<ParseProgramError>>,
+    G: FnOnce(
+        &mut ParseState,
+        usize,
+        usize,
+        Option<&str>,
+        &mut ir::Program,
+    ) -> Result<ir::Expr, CompileMessage<ParseProgramError>>,
 >(
     varlocid: VarLocId,
-    es_rhs_expr: ir::Expr,
+    es_rhs_expr_maker: G,
     forwarded: R,
     parse_ctx: &mut ParseState,
     more: F,
@@ -1477,13 +1479,18 @@ fn post_parse_decl_helper<
             vartype: Some(ir::VarType::Undefined),
             kind: ir::ExprKind::Assign {
                 target: target_expr.clone(),
-                expr: Box::new(es_rhs_expr),
+                expr: Box::new(es_rhs_expr_maker(
+                    parse_ctx, depth, num_locals, filename, ir_program,
+                )?),
             },
         };
         Ok((ret_expr, forwarded))
     } else {
         // target does not exist... it is not address-taken
         // so we create a new local variable
+
+        let new_num_locals = num_locals + 1;
+
         let mut sequence: Vec<ir::Expr> = Vec::new();
         sequence.push(ir::Expr {
             vartype: Some(ir::VarType::Undefined),
@@ -1492,7 +1499,13 @@ fn post_parse_decl_helper<
                     localidx: num_locals,
                     next: None,
                 },
-                expr: Box::new(es_rhs_expr),
+                expr: Box::new(es_rhs_expr_maker(
+                    parse_ctx,
+                    depth,
+                    new_num_locals,
+                    filename,
+                    ir_program,
+                )?),
             },
         });
 
@@ -1503,8 +1516,6 @@ fn post_parse_decl_helper<
                 next: None,
             },
         );
-
-        let new_num_locals = num_locals + 1;
 
         let (mut ir_exprs, ret_fwd) = more(
             forwarded,
@@ -2127,6 +2138,14 @@ fn as_import_spec_ref(es_node: &Node) -> &ImportSpecifier {
 fn as_export_spec(es_node: Node) -> ExportSpecifier {
     if let NodeKind::ExportSpecifier(export_spec) = es_node.kind {
         export_spec
+    } else {
+        pppanic();
+    }
+}
+
+fn as_block_statement_with_loc(es_node: Node) -> (BlockStatement, Option<esSL>) {
+    if let NodeKind::BlockStatement(block_stmt) = es_node.kind {
+        (block_stmt, es_node.loc)
     } else {
         pppanic();
     }

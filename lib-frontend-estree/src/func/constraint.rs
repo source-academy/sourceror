@@ -39,6 +39,7 @@ fn convert_vartype(s: &str) -> Option<ir::VarType> {
         "number" => Some(ir::VarType::Number),
         "boolean" => Some(ir::VarType::Boolean),
         "string" => Some(ir::VarType::String),
+        "function" => Some(ir::VarType::Func),
         _ => None,
     }
 }

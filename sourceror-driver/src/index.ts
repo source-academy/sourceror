@@ -2,7 +2,7 @@ import * as Sourceror from "./wrapper";
 import { Context } from "js-slang";
 import { ErrorType, ErrorSeverity } from "js-slang/dist/types";
 import { parse as slang_parse } from "js-slang/dist/parser/parser";
-import { Options as AcornOptions, parse as acorn_parse } from "acorn";
+import { Options as AcornOptions, Parser as AcornParser } from "acorn";
 import * as es from "estree";
 
 export class CompileError extends Error {
@@ -14,6 +14,13 @@ export class CompileError extends Error {
 export class RuntimeError extends Error {
   constructor(message: string) {
     super(message);
+  }
+}
+
+class SyntacticParser extends AcornParser {
+  raiseRecoverable(pos: any, message: string) {
+    if (message.includes("Identifier ") && message.includes(" has already been declared")) return;
+    (AcornParser.prototype as any).raiseRecoverable.call(this, pos, message);
   }
 }
 
@@ -37,7 +44,7 @@ function parseImport(code: string): es.Program | undefined {
   let program: es.Program | undefined;
   let has_errors = false;
   try {
-    program = (acorn_parse(code, createImportOptions(() => { has_errors = true; })) as unknown) as es.Program
+    program = (SyntacticParser.parse(code, createImportOptions(() => { has_errors = true; })) as unknown) as es.Program
   } catch (error) {
     if (error instanceof SyntaxError) {
       has_errors = true;
@@ -61,12 +68,10 @@ export async function compile(
     );
   }
   let es_str: string = JSON.stringify(estree);
-  let has_errors: boolean = false;
-  let wasm_context: number = Sourceror.createContext((severity_code: number, message: string, line: number, column: number) => {
-    if (severity_code >= 4) has_errors = true;
+  let wasm_context: number = Sourceror.createContext((message: string) => {
     context.errors.push({
       type: ErrorType.SYNTAX,
-      severity: severity_code >= 4 ? ErrorSeverity.ERROR : ErrorSeverity.WARNING, // Sourceror supports other severity levels, but js-slang does not
+      /*severity: severity_code >= 4 ? ErrorSeverity.ERROR : ErrorSeverity.WARNING, // Sourceror supports other severity levels, but js-slang does not
       location: {
         source: null,
         start: {
@@ -77,7 +82,9 @@ export async function compile(
           line,
           column: column + 1,
         },
-      },
+      },*/
+      severity: ErrorSeverity.ERROR,
+      location: undefined as unknown as es.SourceLocation, // shhhh
       explain: (): string => message,
       elaborate: (): string => "",
     });
@@ -104,7 +111,7 @@ export async function compile(
   });
   return Sourceror.compile(wasm_context, es_str)
     .then((wasm_binary: Uint8Array) => {
-      if (!has_errors) {
+      if (wasm_binary.byteLength > 0) {
         return WebAssembly.compile(wasm_binary).catch((err: string) => {
           context.errors.push({
             type: ErrorType.SYNTAX,

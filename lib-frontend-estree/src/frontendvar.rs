@@ -176,14 +176,28 @@ impl<O: Superset> Append<OverloadSet<O>> for OverloadSet<O> {
      * Returns false if some old thing would have been eliminated.
      */
     fn try_append(&mut self, other: OverloadSet<O>) -> bool {
-        unimplemented!();
+        let orig_len = self.signatures.len();
+        for other_o in other.signatures {
+            // we just check the first `orig_len` elements because we don't need to compare elements that were from `other`
+            for o in &self.signatures[0..orig_len] {
+                if other_o.superset(o) {
+                    self.signatures.truncate(orig_len);
+                    return false;
+                }
+            }
+            self.signatures.push(other_o);
+        }
+        true
     }
     /**
      * Adds this name to the current overload set.
      * Returns false if some old thing got eliminated.
      */
     fn append(&mut self, other: OverloadSet<O>) -> bool {
-        unimplemented!();
+        other
+            .signatures
+            .into_iter()
+            .fold(true, |prev, curr| prev & self.append(curr))
     }
 }
 
