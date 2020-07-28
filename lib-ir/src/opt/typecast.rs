@@ -68,13 +68,6 @@ fn write_new_expr(
     }
 }
 
-fn dummy_expr() -> Expr {
-    Expr {
-        vartype: Some(VarType::Undefined),
-        kind: ExprKind::PrimUndefined,
-    }
-}
-
 fn relabel_target(target: &mut TargetExpr, local_map: &mut Relabeller) -> bool {
     if let TargetExpr::Local { localidx, next: _ } = target {
         let new_localidx: usize = local_map.map_old_to_new(*localidx).unwrap();
@@ -93,7 +86,12 @@ fn relabel_target(target: &mut TargetExpr, local_map: &mut Relabeller) -> bool {
  * Mapping from current idx to new idx.
  */
 fn optimize_expr(expr: &mut Expr, local_map: &mut Relabeller) -> bool {
+    // Note: we explicitly list out all possibilities so we will get a compile error if a new exprkind is added.
     match &mut expr.kind {
+        ExprKind::PrimUndefined
+        | ExprKind::PrimNumber { val: _ }
+        | ExprKind::PrimBoolean { val: _ }
+        | ExprKind::PrimStructT { typeidx: _ } | ExprKind::PrimString{val:_} => false,
         ExprKind::PrimFunc {
             funcidxs: _,
             closure,
@@ -167,6 +165,7 @@ fn optimize_expr(expr: &mut Expr, local_map: &mut Relabeller) -> bool {
                 panic!("Vartype cannot be none for TypeCast test expr");
             }
         }
+        ExprKind::VarName { source } => relabel_target(source, local_map),
         ExprKind::PrimAppl { prim_inst: _, args } => args
             .iter_mut()
             .fold(false, |prev, arg| prev | optimize_expr(arg, local_map)),
@@ -199,7 +198,13 @@ fn optimize_expr(expr: &mut Expr, local_map: &mut Relabeller) -> bool {
         ExprKind::Sequence { content } => content
             .iter_mut()
             .fold(false, |prev, expr| prev | optimize_expr(expr, local_map)),
-        ExprKind::VarName { source } => relabel_target(source, local_map),
-        _ => false,
+        ExprKind::Trap{code:_, location:_} => false,
+    }
+}
+
+fn dummy_expr() -> Expr {
+    Expr {
+        vartype: Some(VarType::Undefined),
+        kind: ExprKind::PrimUndefined,
     }
 }

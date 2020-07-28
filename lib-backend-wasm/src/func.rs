@@ -845,8 +845,11 @@ fn encode_expr<H: HeapManager>(
                 encode_expr(rhs_expr, ctx, mutctx, expr_builder);
                 // write the value from the stack to the target
                 encode_target_addr_post(target, actual_vartype, ctx, mutctx, expr_builder);
+                true
             }
-            true
+            else {
+                panic!("ICE: IR->Wasm: expression in assignment statement cannot be Void");
+			}
         }
         ir::ExprKind::Return { expr: inner_expr } => {
             // For return expressions, we assume that any type inference engine already ensures that:

@@ -1702,12 +1702,15 @@ fn post_parse_varname(
     match es_id.prevar.unwrap() {
         PreVar::Target(varlocid) => {
             // it's a Target, so return a ExprKind::VarName containing the TargetExpr
-            Ok(ir::Expr {
+            // if the manage to find the target, then we emit the VarName for it
+            // otherwise it is a non-address-taken variable and we're accessing it before it was declared
+            // in which case we set it to PrimUnassigned
+            Ok(if let Some(ir_target_expr) = parse_ctx.get_target(&varlocid) {ir::Expr {
                 vartype: Some(ir::VarType::Any),
                 kind: ir::ExprKind::VarName {
-                    source: parse_ctx.get_target(&varlocid).unwrap().clone(),
+                    source: ir_target_expr.clone(),
                 },
-            })
+            }} else {make_trap_for_accessing_var_before_init(as_ir_sl(&loc, 0 /*FILE*/))})
         }
         PreVar::Direct => {
             // it's a direct, so we have to synthesise a wrapper func for it
@@ -2092,6 +2095,16 @@ fn make_prim_undefined() -> ir::Expr {
     ir::Expr {
         vartype: Some(ir::VarType::Undefined),
         kind: ir::ExprKind::PrimUndefined,
+    }
+}
+
+fn make_trap_for_accessing_var_before_init(ir_sl: ir::SourceLocation) -> ir::Expr {
+    ir::Expr {
+        vartype: None,
+        kind: ir::ExprKind::Trap {
+            code: ir::error::ERROR_CODE_ACCESS_VAR_BEFORE_INIT,
+            location: ir_sl,
+        },
     }
 }
 

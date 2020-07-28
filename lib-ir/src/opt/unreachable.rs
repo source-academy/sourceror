@@ -24,7 +24,12 @@ fn optimize_func(func: &mut Func) -> bool {
 }
 
 fn optimize_expr(expr: &mut Expr) -> bool {
+    // Note: we explicitly list out all possibilities so we will get a compile error if a new exprkind is added.
     match &mut expr.kind {
+        ExprKind::PrimUndefined
+        | ExprKind::PrimNumber { val: _ }
+        | ExprKind::PrimBoolean { val: _ }
+        | ExprKind::PrimStructT { typeidx: _ } | ExprKind::PrimString{val:_} => false,
         ExprKind::PrimFunc {
             funcidxs: _,
             closure,
@@ -40,6 +45,7 @@ fn optimize_expr(expr: &mut Expr) -> bool {
                 | optimize_expr(&mut **true_expr)
                 | optimize_expr(&mut **false_expr)
         }
+        ExprKind::VarName { source: _ } => false,
         ExprKind::PrimAppl { prim_inst: _, args } => args
             .iter_mut()
             .fold(false, |prev, arg| prev | optimize_expr(arg)),
@@ -69,7 +75,17 @@ fn optimize_expr(expr: &mut Expr) -> bool {
             expr.vartype = expr2.vartype;
             res
         }
-        ExprKind::Assign { target: _, expr } => optimize_expr(&mut **expr),
+        ExprKind::Assign { target: _, expr: expr2 } => {
+            let ret = optimize_expr(&mut **expr2);
+            // If the RHS of assignment is none, then the assignment can't actually happen,
+            // so we are just executing the RHS for its side-effects.
+            if expr2.vartype.is_none() {
+                let expr_tmp = std::mem::replace(&mut **expr2, dummy_expr());
+                *expr = expr_tmp;
+                true
+			}
+            else {ret}
+        }
         ExprKind::Return { expr } => optimize_expr(&mut **expr),
         ExprKind::Sequence { content } => {
             let tmp_content = std::mem::take(content);
@@ -91,6 +107,13 @@ fn optimize_expr(expr: &mut Expr) -> bool {
             *content = new_content;
             changed
         }
-        _ => false,
+        ExprKind::Trap{code:_, location:_} => false,
+    }
+}
+
+fn dummy_expr() -> Expr {
+    Expr {
+        vartype: Some(VarType::Undefined),
+        kind: ExprKind::PrimUndefined,
     }
 }

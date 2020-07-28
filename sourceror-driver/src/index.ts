@@ -200,6 +200,8 @@ function stringifySourcerorRuntimeErrorCode(code: number): [string, string] {
       return ["Function call operator applied on a non-function", ""];
     case 0x17:
       return ["If statement has a non-boolean condition", ""];
+    case 0x1A:
+      return ["Variable used before initialization", ""];
     default:
       return [
         "Unknown runtime error",
