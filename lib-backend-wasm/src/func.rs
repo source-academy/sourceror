@@ -28,8 +28,8 @@ struct EncodeContext<'a, 'b, 'c, 'd, 'e, 'f, 'g, 'h, Heap: HeapManager> {
     // Global for whole program
     struct_types: &'a [Box<[ir::VarType]>],
     struct_field_byte_offsets: &'b [Box<[u32]>], // has same sizes as `struct_types`, but instead stores the byte offset of each field from the beginning of the struct
-    funcs: &'c [ir::Func], // ir functions, so that callers can check the param type of return type
-    wasm_funcidxs: &'d [wasmgen::FuncIdx], // mapping from ir::FuncIdx to wasmgen::FuncIdx (used when we need to invoke a DirectAppl)
+    ir_signature_list: &'c [Signature], // mapping from ir::FuncIdx, for callers to check the param type or return type
+    wasm_funcidxs: &'d [wasmgen::FuncIdx], // mapping from ir::FuncIdx to wasmgen::FuncIdx (used when we need to invoke a DirectAppl), this includes imports too
 
     // Global var management (does not include special globals like the stackptr)
     globals: GlobalVarManagerRef<'e>,
@@ -90,7 +90,13 @@ impl<'a> ModuleEncodeWrapper<'a> {
     }*/
 }
 
+pub struct Signature {
+    pub params: Box<[ir::VarType]>,
+    pub result: Option<ir::VarType>,
+}
+
 pub fn encode_funcs<'a, Heap: HeapManager>(
+    ir_signature_list: &[Signature], // direct mapping from ir::FuncIdx: includes both imports and funcs
     ir_funcs: &[ir::Func],
     ir_struct_types: &[Box<[ir::VarType]>],
     ir_struct_field_byte_offsets: &[Box<[u32]>],
@@ -123,7 +129,7 @@ pub fn encode_funcs<'a, Heap: HeapManager>(
     // register all the funcs first, in order of ir::funcidx
     // also encode the params and the locals and the return type
     // note: must register the funcs before any code (including thunks) can be generated,
-    // so we can make calls these funcs.
+    // so we can make calls to these funcs.
     let (registry_list, code_builder_list): (Vec<WasmRegistry>, Vec<wasmgen::CodeBuilder>) =
         ir_funcs
             .iter()
@@ -181,7 +187,7 @@ pub fn encode_funcs<'a, Heap: HeapManager>(
                     return_type: Some(ir::VarType::Any),
                     struct_types: ir_struct_types,
                     struct_field_byte_offsets: ir_struct_field_byte_offsets,
-                    funcs: ir_funcs,
+                    ir_signature_list: ir_signature_list,
                     wasm_funcidxs: &wasm_funcidxs,
                     globals: global_var_manager,
                     stackptr: globalidx_stackptr,
@@ -227,7 +233,7 @@ pub fn encode_funcs<'a, Heap: HeapManager>(
                     return_type: ir_func.result,
                     struct_types: ir_struct_types,
                     struct_field_byte_offsets: ir_struct_field_byte_offsets,
-                    funcs: ir_funcs,
+                    ir_signature_list: ir_signature_list,
                     wasm_funcidxs: &wasm_funcidxs,
                     globals: global_var_manager,
                     stackptr: globalidx_stackptr,
@@ -846,10 +852,9 @@ fn encode_expr<H: HeapManager>(
                 // write the value from the stack to the target
                 encode_target_addr_post(target, actual_vartype, ctx, mutctx, expr_builder);
                 true
-            }
-            else {
+            } else {
                 panic!("ICE: IR->Wasm: expression in assignment statement cannot be Void");
-			}
+            }
         }
         ir::ExprKind::Return { expr: inner_expr } => {
             // For return expressions, we assume that any type inference engine already ensures that:
@@ -1270,15 +1275,15 @@ fn encode_direct_appl<H: HeapManager>(
     expr_builder: &mut wasmgen::ExprBuilder,
 ) {
     // Assert that this funcidx exists
-    assert!(funcidx < ctx.funcs.len(), "invalid funcidx");
+    assert!(funcidx < ctx.ir_signature_list.len(), "invalid funcidx");
 
-    let func: &ir::Func = &ctx.funcs[funcidx];
+    let signature: &Signature = &ctx.ir_signature_list[funcidx];
 
     // Assert that the function has correct return type
-    assert!(return_type == func.result);
+    assert!(return_type == signature.result);
 
     // Encode all the arguments
-    encode_args_to_call_function(&func.params, args, ctx, mutctx, expr_builder);
+    encode_args_to_call_function(&signature.params, args, ctx, mutctx, expr_builder);
 
     // todo!(For optimisation, encode_local_roots_prologue and encode_local_roots_epilogue should only be called if the callee might allocate)
     // Note: encode_args_to_call_function should be *before* encode_local_roots_prologue, since the args themselves might make function calls.
@@ -1482,7 +1487,7 @@ fn encode_thunk<H: HeapManager>(
         .iter()
         .rev() // for consistency, but it doesn't affect it because we sort later
         .map(|o| {
-            let num_actual_params = ctx.funcs[o.funcidx].params.len() as u32;
+            let num_actual_params = ctx.ir_signature_list[o.funcidx].params.len() as u32;
             let closure_subtract = if o.has_closure_param { 1 } else { 0 };
             assert!(num_actual_params >= closure_subtract);
             num_actual_params - closure_subtract
@@ -1559,6 +1564,7 @@ fn encode_thunk<H: HeapManager>(
             for (i, x) in param_counts.iter().copied().enumerate() {
                 list[x as usize] = i as u32;
             }
+            expr_builder.local_get(num_ir_params);
             expr_builder.br_table(&list, param_counts.len() as u32);
             for (i, x) in param_counts.iter().copied().enumerate() {
                 expr_builder.end();
@@ -1685,13 +1691,13 @@ fn encode_thunk<H: HeapManager>(
                 .rev() // according to ir spec we match from back to front
                 .filter_map(|oe| {
                     let params: &[ir::VarType] = if !oe.has_closure_param {
-                        &ctx.funcs[oe.funcidx].params
+                        &ctx.ir_signature_list[oe.funcidx].params
                     } else {
-                        assert!(!ctx.funcs[oe.funcidx].params.is_empty());
-                        &ctx.funcs[oe.funcidx].params[1..]
+                        assert!(!ctx.ir_signature_list[oe.funcidx].params.is_empty());
+                        &ctx.ir_signature_list[oe.funcidx].params[1..]
                     };
                     if params.len() as u32 == num_params {
-                        Some((params, ctx.funcs[oe.funcidx].result, oe))
+                        Some((params, ctx.ir_signature_list[oe.funcidx].result, oe))
                     } else {
                         None
                     }

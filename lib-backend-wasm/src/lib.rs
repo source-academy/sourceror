@@ -139,6 +139,20 @@ fn encode_program(ir_program: &ir::Program, options: Options) -> wasmgen::WasmMo
 
     let mut wasm_module = wasm_module_builder.build();
 
+    // build the signature list (directly maps from ir::FuncIdx)
+    let signature_list: Box<[func::Signature]> = ir_program
+        .imports
+        .iter()
+        .map(|ir_import| func::Signature {
+            params: translate_import_params(&ir_import.params),
+            result: Some(translate_import_param(ir_import.result)),
+        })
+        .chain(ir_program.funcs.iter().map(|ir_func| func::Signature {
+            params: ir_func.params.clone(),
+            result: ir_func.result,
+        }))
+        .collect();
+
     // add stack ptr
     let globalidx_stackptr =
         wasm_module.add_i32_global(wasmgen::Mut::Var, (MEM_STACK_SIZE * WASM_PAGE_SIZE) as i32);
@@ -230,6 +244,7 @@ fn encode_program(ir_program: &ir::Program, options: Options) -> wasmgen::WasmMo
     );*/
 
     func::encode_funcs(
+        &signature_list, // for checking types of params and results only
         &ir_program.funcs,
         &ir_program.struct_types,
         &struct_field_byte_offsets,
@@ -247,6 +262,21 @@ fn encode_program(ir_program: &ir::Program, options: Options) -> wasmgen::WasmMo
     );
 
     wasm_module
+}
+
+fn translate_import_params(ivts: &[ir::ImportValType]) -> Box<[ir::VarType]> {
+    ivts.iter()
+        .copied()
+        .map(|ivt| translate_import_param(ivt))
+        .collect()
+}
+
+fn translate_import_param(ivt: ir::ImportValType) -> ir::VarType {
+    match ivt {
+        ir::ImportValType::Undefined => ir::VarType::Undefined,
+        ir::ImportValType::Number => ir::VarType::Number,
+        ir::ImportValType::String => ir::VarType::String,
+    }
 }
 
 fn encode_import_params(ivts: &[ir::ImportValType]) -> Box<[wasmgen::ValType]> {

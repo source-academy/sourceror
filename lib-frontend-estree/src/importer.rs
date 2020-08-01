@@ -10,6 +10,10 @@ use std::boxed::Box;
 use std::collections::HashMap;
 use std::result::Result;
 
+// The import file has "@SourceImports" on the first line,
+// and subsequent lines are either empty or are of the following syntax:
+// <local name> <imported namespace> <imported name> <return type> <param types...>
+
 pub struct ImportSpec {
     pub content: Vec<(String, Import)>,
 }

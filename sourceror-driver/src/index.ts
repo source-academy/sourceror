@@ -4,6 +4,7 @@ import { ErrorType, ErrorSeverity } from "js-slang/dist/types";
 import { parse as slang_parse } from "js-slang/dist/parser/parser";
 import { Options as AcornOptions, Parser as AcornParser } from "acorn";
 import * as es from "estree";
+export { makePlatformImports } from "./platform";
 
 export class CompileError extends Error {
   constructor(message: string) {
@@ -44,6 +45,8 @@ function parseImport(code: string): es.Program | undefined {
   let program: es.Program | undefined;
   let has_errors = false;
   try {
+    // we directly use acorn, because js-slang's parse is too restrictive
+    // with attributes and exports
     program = (SyntacticParser.parse(code, createImportOptions(() => { has_errors = true; })) as unknown) as es.Program
   } catch (error) {
     if (error instanceof SyntaxError) {
@@ -98,7 +101,6 @@ export async function compile(
           }
           else {
             // it is a Source file, need to parse it with acorn
-            // all libraries currently parsed with Source chapter 3
             const estree: es.Program | undefined = parseImport(rsptxt);
             if (!estree) {
               return Promise.reject(
@@ -215,39 +217,40 @@ const propagationToken = {};
 
 export async function run(
   wasm_module: WebAssembly.Module,
-  context: Context
+  platform: any,
+  context: Context,
 ): Promise<any> {
-  return WebAssembly.instantiate(wasm_module, {
-    core: {
-      error: (
-        code: number,
-        detail: number,
-        file: number,
-        line: number,
-        column: number
-      ) => {
-        const [explain, elaborate] = stringifySourcerorRuntimeErrorCode(code);
-        context.errors.push({
-          type: ErrorType.RUNTIME,
-          severity: ErrorSeverity.ERROR,
-          location: {
-            source: null,
-            start: {
-              line,
-              column,
-            },
-            end: {
-              line,
-              column: column + 1,
-            },
+  const real_imports = Object.assign({}, platform);
+  real_imports.core = {
+    error: (
+      code: number,
+      detail: number,
+      file: number,
+      line: number,
+      column: number
+    ) => {
+      const [explain, elaborate] = stringifySourcerorRuntimeErrorCode(code);
+      context.errors.push({
+        type: ErrorType.RUNTIME,
+        severity: ErrorSeverity.ERROR,
+        location: {
+          source: null,
+          start: {
+            line,
+            column,
           },
-          explain: (): string => explain,
-          elaborate: (): string => elaborate,
-        });
-        throw propagationToken; // to stop the webassembly binary immediately
-      },
+          end: {
+            line,
+            column: column + 1,
+          },
+        },
+        explain: (): string => explain,
+        elaborate: (): string => elaborate,
+      });
+      throw propagationToken; // to stop the webassembly binary immediately
     },
-  }).then((instance) => {
+  };
+  return WebAssembly.instantiate(wasm_module, real_imports).then((instance) => {
     try {
       (instance.exports.main as Function)();
       return read_js_result(
@@ -277,5 +280,26 @@ export async function run(
         return Promise.reject(e);
       }
     }
+  }, (err: string) => {
+    context.errors.push({
+      type: ErrorType.SYNTAX,
+      severity: ErrorSeverity.ERROR,
+      location: {
+        source: null,
+        start: {
+          line: 0,
+          column: 0,
+        },
+        end: {
+          line: 0,
+          column: 0,
+        },
+      },
+      explain: (): string => err,
+      elaborate: (): string => "Your browser's WebAssembly engine is unable to instantiate the WebAssembly module.",
+    });
+    return Promise.reject(
+      new CompileError("WebAssembly instantiation error")
+    );
   });
 }

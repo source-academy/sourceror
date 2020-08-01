@@ -29,7 +29,8 @@ fn optimize_expr(expr: &mut Expr) -> bool {
         ExprKind::PrimUndefined
         | ExprKind::PrimNumber { val: _ }
         | ExprKind::PrimBoolean { val: _ }
-        | ExprKind::PrimStructT { typeidx: _ } | ExprKind::PrimString{val:_} => false,
+        | ExprKind::PrimStructT { typeidx: _ }
+        | ExprKind::PrimString { val: _ } => false,
         ExprKind::PrimFunc {
             funcidxs: _,
             closure,
@@ -75,7 +76,10 @@ fn optimize_expr(expr: &mut Expr) -> bool {
             expr.vartype = expr2.vartype;
             res
         }
-        ExprKind::Assign { target: _, expr: expr2 } => {
+        ExprKind::Assign {
+            target: _,
+            expr: expr2,
+        } => {
             let ret = optimize_expr(&mut **expr2);
             // If the RHS of assignment is none, then the assignment can't actually happen,
             // so we are just executing the RHS for its side-effects.
@@ -83,8 +87,9 @@ fn optimize_expr(expr: &mut Expr) -> bool {
                 let expr_tmp = std::mem::replace(&mut **expr2, dummy_expr());
                 *expr = expr_tmp;
                 true
-			}
-            else {ret}
+            } else {
+                ret
+            }
         }
         ExprKind::Return { expr } => optimize_expr(&mut **expr),
         ExprKind::Sequence { content } => {
@@ -107,7 +112,10 @@ fn optimize_expr(expr: &mut Expr) -> bool {
             *content = new_content;
             changed
         }
-        ExprKind::Trap{code:_, location:_} => false,
+        ExprKind::Trap {
+            code: _,
+            location: _,
+        } => false,
     }
 }
 
