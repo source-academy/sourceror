@@ -1,6 +1,7 @@
 use crate::error::DepError;
 use crate::error::FetcherError;
 use crate::error::GraphError;
+use crate::import_name_resolver;
 use async_trait::async_trait;
 use projstd::log::CompileMessage;
 use projstd::log::SourceLocationRef as plSLRef;
@@ -23,7 +24,10 @@ pub trait Fetcher<T>: Copy {
 }
 
 pub trait ExtractDeps<'a> {
-    type Iter: Iterator<Item = (&'a str, plSLRef<'a>)>;
+    type Iter: Iterator<Item = (import_name_resolver::ResolveIter, plSLRef<'a>)>;
+    // Note: If we find a relative import path, then this function should resolve it to a (unique) absolute path before returning.
+    // This is because the caller might do caching - to avoid making multiple web requests for the same file,
+    // and we will still want to fetch a second file with the same relative path, if the absolute path is different.
     fn extract_deps(&'a self, filename: Option<&'a str>) -> Self::Iter;
 }
 
@@ -70,36 +74,41 @@ where
     }
     fn get_or_fetch_node_recursive<'b, F: 'b + Fetcher<T>>(
         &'b mut self,
-        name: &'b str,
+        mut candidate_resolved_names: impl Iterator<Item = String> + 'static,
         sl: plSLRef<'b>,
         cache: &'b mut HashMap<String, Option<usize>>,
         f: F,
     ) -> Pin<Box<dyn 'b + Future<Output = Result<usize, CompileMessage<DepError>>>>> {
         Box::pin(async move {
-            if let Some(opt_idx) = cache.get(name) {
-                if let Some(idx) = opt_idx {
-                    return Ok(*idx);
-                }
-                return Err(CompileMessage::new_error(sl.to_owned(), GraphError {}).into_cm());
-            }
-            match f.fetch(name, sl).await {
-                Err(e) => Err(e.into_cm()),
-                Ok(t) => {
-                    cache.insert(name.to_owned(), None);
-                    let mut deps = Vec::new();
-                    for (dep, sl) in t.extract_deps(Some(name)) {
-                        deps.push(self.get_or_fetch_node_recursive(dep, sl, cache, f).await?);
+            let mut err: Option<CompileMessage<DepError>> = None;
+            while let Some(name) = candidate_resolved_names.next() {
+                if let Some(opt_idx) = cache.get(name.as_str()) {
+                    if let Some(idx) = opt_idx {
+                        return Ok(*idx);
                     }
-                    let idx = self.nodes.len();
-                    self.nodes.push(GraphNode {
-                        deps: deps,
-                        content: t,
-                        name: Some(name.to_owned()),
-                    });
-                    *cache.get_mut(name).unwrap() = Some(idx);
-                    Ok(idx)
+                    return Err(CompileMessage::new_error(sl.to_owned(), GraphError {}).into_cm());
+                }
+                match f.fetch(name.as_str(), sl).await {
+                    Err(e) => err = Some(e.into_cm()),
+                    Ok(t) => {
+                        cache.insert(name.to_owned(), None);
+                        let mut deps = Vec::new();
+                        for (dep, sl) in t.extract_deps(Some(name.as_str())) {
+                            deps.push(self.get_or_fetch_node_recursive(dep, sl, cache, f).await?);
+                        }
+                        let idx = self.nodes.len();
+                        self.nodes.push(GraphNode {
+                            deps: deps,
+                            content: t,
+                            name: Some(name.to_owned()),
+                        });
+                        *cache.get_mut(name.as_str()).unwrap() = Some(idx);
+                        return Ok(idx);
+                    }
                 }
             }
+            // should not panic, because we will definitely have at least one candidate
+            Err(err.unwrap())
         })
     }
 }

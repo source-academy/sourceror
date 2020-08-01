@@ -154,7 +154,7 @@ pub fn post_parse_program(
     let direct_entries: Box<[(String, (Box<[ir::VarType]>, ir::FuncIdx))]> = direct_funcs
         .into_iter()
         .map(|(s, signature)| {
-            let tmp = ir_program.funcs.len();
+            let tmp: ir::FuncIdx = ir_program.imports.len() + ir_program.funcs.len(); // offset necessary by import len
             ir_program.funcs.push(ir::Func::new());
             (s, (signature, tmp))
         })
@@ -287,7 +287,7 @@ fn post_parse_scope<S: Scope, PE: ScopePrefixEmitter>(
     let direct_entries: Box<[(String, (Box<[ir::VarType]>, ir::FuncIdx))]> = direct_funcs
         .into_iter()
         .map(|(s, signature)| {
-            let tmp = ir_program.funcs.len();
+            let tmp: ir::FuncIdx = ir_program.imports.len() + ir_program.funcs.len(); // offset necessary by import len
             ir_program.funcs.push(ir::Func::new());
             (s, (signature, tmp))
         })
@@ -645,7 +645,8 @@ fn post_parse_direct_function(
 
     parse_ctx.leave_closure(undo_ctx);
 
-    let curr_func: &mut ir::Func = &mut ir_program.funcs[ir_funcidx];
+    assert!(ir_funcidx >= ir_program.imports.len());
+    let curr_func: &mut ir::Func = &mut ir_program.funcs[ir_funcidx - ir_program.imports.len()];
     curr_func.params = ir_params;
     curr_func.result = Some(ir::VarType::Any);
     curr_func.expr = ir_func_body;
@@ -857,7 +858,7 @@ fn post_parse_function<Func: Function>(
     parse_ctx.leave_closure(undo_ctx);
 
     // add the function to the ir_program
-    let ir_funcidx = ir_program.funcs.len();
+    let ir_funcidx = ir_program.imports.len() + ir_program.funcs.len();
     ir_program.funcs.push(ir::Func {
         params: ir_params_with_closure,
         result: Some(ir::VarType::Any),
@@ -1705,12 +1706,18 @@ fn post_parse_varname(
             // if the manage to find the target, then we emit the VarName for it
             // otherwise it is a non-address-taken variable and we're accessing it before it was declared
             // in which case we set it to PrimUnassigned
-            Ok(if let Some(ir_target_expr) = parse_ctx.get_target(&varlocid) {ir::Expr {
-                vartype: Some(ir::VarType::Any),
-                kind: ir::ExprKind::VarName {
-                    source: ir_target_expr.clone(),
+            Ok(
+                if let Some(ir_target_expr) = parse_ctx.get_target(&varlocid) {
+                    ir::Expr {
+                        vartype: Some(ir::VarType::Any),
+                        kind: ir::ExprKind::VarName {
+                            source: ir_target_expr.clone(),
+                        },
+                    }
+                } else {
+                    make_trap_for_accessing_var_before_init(as_ir_sl(&loc, 0 /*FILE*/))
                 },
-            }} else {make_trap_for_accessing_var_before_init(as_ir_sl(&loc, 0 /*FILE*/))})
+            )
         }
         PreVar::Direct => {
             // it's a direct, so we have to synthesise a wrapper func for it

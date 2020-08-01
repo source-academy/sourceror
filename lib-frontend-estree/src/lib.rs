@@ -7,6 +7,7 @@ mod estree;
 mod extensions;
 mod frontendvar;
 mod func;
+mod import_name_resolver;
 mod importer;
 mod parse_state;
 mod vartype_superset;
@@ -89,7 +90,7 @@ impl<Fut: Future<Output = Option<String>>, F: 'static + Copy + FnOnce(String) ->
 
 impl<'a> dep_graph::ExtractDeps<'a> for SourceItem {
     // todo! Change `dyn Iterator` to some compile-time thing when Rust gets impl Traits support for traits.
-    type Iter = Box<dyn Iterator<Item = (&'a str, plSLRef<'a>)> + 'a>;
+    type Iter = Box<dyn Iterator<Item = (import_name_resolver::ResolveIter, plSLRef<'a>)> + 'a>;
     fn extract_deps(&'a self, filename: Option<&'a str>) -> Self::Iter {
         match self {
             SourceItem::ESTree(es_node) => Box::new(
@@ -108,7 +109,10 @@ impl<'a> dep_graph::ExtractDeps<'a> for SourceItem {
                             value: LiteralValue::String(s),
                         }) = &source.kind
                         {
-                            return Some((s.as_str(), source.loc.into_sl(filename)));
+                            return Some((
+                                import_name_resolver::resolve(s.as_str(), filename),
+                                source.loc.into_sl(filename),
+                            ));
                         }
                     }
                     None

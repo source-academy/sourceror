@@ -91,7 +91,8 @@ fn optimize_expr(expr: &mut Expr, local_map: &mut Relabeller) -> bool {
         ExprKind::PrimUndefined
         | ExprKind::PrimNumber { val: _ }
         | ExprKind::PrimBoolean { val: _ }
-        | ExprKind::PrimStructT { typeidx: _ } | ExprKind::PrimString{val:_} => false,
+        | ExprKind::PrimStructT { typeidx: _ }
+        | ExprKind::PrimString { val: _ } => false,
         ExprKind::PrimFunc {
             funcidxs: _,
             closure,
@@ -198,7 +199,10 @@ fn optimize_expr(expr: &mut Expr, local_map: &mut Relabeller) -> bool {
         ExprKind::Sequence { content } => content
             .iter_mut()
             .fold(false, |prev, expr| prev | optimize_expr(expr, local_map)),
-        ExprKind::Trap{code:_, location:_} => false,
+        ExprKind::Trap {
+            code: _,
+            location: _,
+        } => false,
     }
 }
 
