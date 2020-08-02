@@ -1,12 +1,12 @@
 #!/usr/bin/env node
-import { compile, run } from "./index";
+import { compile, run, Transcoder } from "./index";
 import { createContext } from "js-slang";
 import * as fs from "fs";
 
 function compileAndRun(chapter = 1, code: string) {
   let context = createContext(chapter);
   compile(code, context)
-    .then((wasm_module) => run(wasm_module, {}, context))
+    .then((wasm_module) => run(wasm_module, {}, new Transcoder(), context))
     .then((result) => console.log(result))
     .catch((err) => console.error(err));
 }
