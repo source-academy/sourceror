@@ -5,6 +5,8 @@ import { parse as slang_parse } from "js-slang/dist/parser/parser";
 import { Options as AcornOptions, Parser as AcornParser } from "acorn";
 import * as es from "estree";
 export { makePlatformImports } from "./platform";
+import { Transcoder } from "./transcoder";
+export { Transcoder };
 
 export class CompileError extends Error {
   constructor(message: string) {
@@ -132,23 +134,15 @@ export async function compile(
             explain: (): string => err,
             elaborate: (): string => "Your browser's WebAssembly engine is unable to compile the WebAssembly binary produced by Sourceror.  This is probably a bug in Sourceror; please report it.",
           });
-          return Promise.reject(
-            new CompileError("WebAssembly compilation error")
-          );
+          throw new CompileError("WebAssembly compilation error");
         });
       }
       else {
-        return Promise.reject(
-          new CompileError("Syntax error")
-        );
+        throw new CompileError("Syntax error");
       }
     })
-    .then((x: WebAssembly.Module) => {
+    .finally(() => {
       Sourceror.destroyContext(wasm_context);
-      return x;
-    }, (e: any) => {
-      Sourceror.destroyContext(wasm_context);
-      return e;
     });
 }
 
@@ -218,6 +212,7 @@ const propagationToken = {};
 export async function run(
   wasm_module: WebAssembly.Module,
   platform: any,
+  transcoder: Transcoder,
   context: Context,
 ): Promise<any> {
   const real_imports = Object.assign({}, platform);
@@ -227,7 +222,7 @@ export async function run(
       detail: number,
       file: number,
       line: number,
-      column: number
+      column: number,
     ) => {
       const [explain, elaborate] = stringifySourcerorRuntimeErrorCode(code);
       context.errors.push({
@@ -249,8 +244,29 @@ export async function run(
       });
       throw propagationToken; // to stop the webassembly binary immediately
     },
+    abort: () => {
+      context.errors.push({
+        type: ErrorType.RUNTIME,
+        severity: ErrorSeverity.ERROR,
+        location: {
+          source: null,
+          start: {
+            line: 0,
+            column: 0,
+          },
+          end: {
+            line: 0,
+            column: 0,
+          },
+        },
+        explain: (): string => "Execution aborted by call to error()",
+        elaborate: (): string => "",
+      });
+      throw propagationToken; // to stop the webassembly binary immediately
+    },
   };
   return WebAssembly.instantiate(wasm_module, real_imports).then((instance) => {
+    transcoder.setMem(new DataView((instance.exports.linear_memory as WebAssembly.Memory).buffer));
     try {
       (instance.exports.main as Function)();
       return read_js_result(
@@ -258,7 +274,7 @@ export async function run(
       );
     } catch (e) {
       if (e === propagationToken) {
-        return Promise.reject(new RuntimeError("runtime error"));
+        throw new RuntimeError("runtime error");
       } else {
         context.errors.push({
           type: ErrorType.RUNTIME,
@@ -277,7 +293,7 @@ export async function run(
           explain: (): string => e.toString(),
           elaborate: (): string => e.toString(),
         });
-        return Promise.reject(e);
+        throw e;
       }
     }
   }, (err: string) => {
@@ -298,8 +314,6 @@ export async function run(
       explain: (): string => err,
       elaborate: (): string => "Your browser's WebAssembly engine is unable to instantiate the WebAssembly module.",
     });
-    return Promise.reject(
-      new CompileError("WebAssembly instantiation error")
-    );
+      throw new CompileError("WebAssembly instantiation error");
   });
 }

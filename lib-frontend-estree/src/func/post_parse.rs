@@ -56,11 +56,12 @@ pub fn post_parse_program(
                     let import_spec = as_import_spec_ref(import_spec_node);
                     //let source_id = as_id_ref(&*import_spec.imported);
                     let local_id = as_id_ref(&*import_spec.local);
+                    let imported_id = as_id_ref(&*import_spec.imported);
                     match local_id.prevar.unwrap() {
                         PreVar::Direct => direct_imports.push((
                             local_id.name.to_owned(),
                             deps[curr_dep_idx]
-                                .get_direct(local_id.name.as_str())
+                                .get_direct(imported_id.name.as_str())
                                 .unwrap()
                                 .clone(),
                         )),

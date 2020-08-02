@@ -3,12 +3,24 @@
  * It defines what the host environment provides for FFI imports.
  */
 
+import { Transcoder } from "./transcoder";
+
 /**
  * The main function to use.
- * Currently it takes no params, but eventually it should take params to specify the stream for output.
+ * Takes the external context as param, that contains hooks for embedding-specific functions like display().
  */
-export function makePlatformImports() {
+export function makePlatformImports(externalContext: any, transcoder: Transcoder) {
   return {
+    // MISC library
+    misc: {
+      get_time: () => new Date().getTime(),
+      display: (text_handle: number) => {
+        externalContext.display(transcoder.decodeString(text_handle));
+      },
+      parse_int: (text_handle: number, radix: number): number => {
+        return parseInt(transcoder.decodeString(text_handle), radix);
+      },
+    },
     // MATH library
     math: {
       // trigonometric functions
@@ -49,9 +61,6 @@ export function makePlatformImports() {
       imul: Math.imul,
       // random function
       random: Math.random,
-    },
-    misc: {
-      get_time: () => new Date().getTime(),
     },
   };
 }
