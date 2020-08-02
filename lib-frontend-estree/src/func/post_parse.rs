@@ -153,11 +153,7 @@ pub fn post_parse_program(
     // reserve ir::FuncIdx and generate the overload sets for all the directs
     let direct_entries: Box<[(String, (Box<[ir::VarType]>, ir::FuncIdx))]> = direct_funcs
         .into_iter()
-        .map(|(s, signature)| {
-            let tmp: ir::FuncIdx = ir_program.imports.len() + ir_program.funcs.len(); // offset necessary by import len
-            ir_program.funcs.push(ir::Func::new());
-            (s, (signature, tmp))
-        })
+        .map(|(s, signature)| (s, (signature, ir_program.add_func(ir::Func::new()))))
         .collect();
 
     // give the ir::FuncIdx to each direct FunctionDeclaration
@@ -286,11 +282,7 @@ fn post_parse_scope<S: Scope, PE: ScopePrefixEmitter>(
     // reserve ir::FuncIdx and generate the overload sets for all the directs
     let direct_entries: Box<[(String, (Box<[ir::VarType]>, ir::FuncIdx))]> = direct_funcs
         .into_iter()
-        .map(|(s, signature)| {
-            let tmp: ir::FuncIdx = ir_program.imports.len() + ir_program.funcs.len(); // offset necessary by import len
-            ir_program.funcs.push(ir::Func::new());
-            (s, (signature, tmp))
-        })
+        .map(|(s, signature)| (s, (signature, ir_program.add_func(ir::Func::new()))))
         .collect();
 
     // give the ir::FuncIdx to each direct FunctionDeclaration
@@ -646,7 +638,7 @@ fn post_parse_direct_function(
     parse_ctx.leave_closure(undo_ctx);
 
     assert!(ir_funcidx >= ir_program.imports.len());
-    let curr_func: &mut ir::Func = &mut ir_program.funcs[ir_funcidx - ir_program.imports.len()];
+    let curr_func: &mut ir::Func = ir_program.get_func_mut(ir_funcidx);
     curr_func.params = ir_params;
     curr_func.result = Some(ir::VarType::Any);
     curr_func.expr = ir_func_body;
@@ -858,8 +850,7 @@ fn post_parse_function<Func: Function>(
     parse_ctx.leave_closure(undo_ctx);
 
     // add the function to the ir_program
-    let ir_funcidx = ir_program.imports.len() + ir_program.funcs.len();
-    ir_program.funcs.push(ir::Func {
+    let ir_funcidx = ir_program.add_func(ir::Func {
         params: ir_params_with_closure,
         result: Some(ir::VarType::Any),
         expr: ir_func_body,

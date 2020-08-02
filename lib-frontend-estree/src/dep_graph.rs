@@ -89,7 +89,19 @@ where
                     return Err(CompileMessage::new_error(sl.to_owned(), GraphError {}).into_cm());
                 }
                 match f.fetch(name.as_str(), sl).await {
-                    Err(e) => err = Some(e.into_cm()),
+                    Err(e) => {
+                        // If we get an error, it could be that the file does not exist (in which case we might get served a custom 404 page)
+                        // if that happens, we will get a ESTreeParseError.
+                        // So we only continue if we get FetchError or ESTreeParseError (but not ImportsParseError).
+                        match e.message() {
+                            FetcherError::FetchError(_) | FetcherError::ESTreeParseError(_) => {
+                                err = Some(e.into_cm());
+                            }
+                            _ => {
+                                return Err(e.into_cm());
+                            }
+                        }
+                    }
                     Ok(t) => {
                         cache.insert(name.to_owned(), None);
                         let mut deps = Vec::new();

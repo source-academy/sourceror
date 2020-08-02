@@ -232,8 +232,7 @@ pub async fn run_frontend<
         },
         signature_filter: Default::default(),
     };
-    ir_program.entry_point = ir_program.funcs.len();
-    ir_program.funcs.push(ir_toplevel_func);
+    ir_program.entry_point = ir_program.add_func(ir_toplevel_func);
 
     Ok(ir_program)
 }

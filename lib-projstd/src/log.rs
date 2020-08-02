@@ -160,6 +160,9 @@ impl<E> CompileMessage<E> {
             message: self.message.into(),
         }
     }
+    pub fn message(&self) -> &E {
+        &self.message
+    }
 }
 impl<E: std::error::Error> std::error::Error for CompileMessage<E> {}
 impl<E: std::fmt::Display> std::fmt::Display for CompileMessage<E> {

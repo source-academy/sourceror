@@ -87,7 +87,8 @@ fn parse_import(
         })
     };
 
-    let mut it = import_line.split(' ');
+    // we allow any number of spaces between tokens
+    let mut it = import_line.split(' ').filter(|x| !x.is_empty());
 
     // this allows for empty lines
     let source_name = if let Some(s) = it.next() {

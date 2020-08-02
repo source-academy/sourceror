@@ -290,10 +290,7 @@ pub fn encode_funcs<'a, Heap: HeapManager>(
     // encode the entry point
     // Note: this is not the wasm start function (the wasm start function is invoked immediately on instantiation, before exported functions are callable)
     // By our convention this function is exported as "main"
-    wasm_module.export_func(
-        registry_list[ir_entry_point_funcidx].funcidx,
-        "main".to_string(),
-    );
+    wasm_module.export_func(wasm_funcidxs[ir_entry_point_funcidx], "main".to_string());
 }
 
 // returns (wasm_param_valtypes, wasm_param_map, param_map)

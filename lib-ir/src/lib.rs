@@ -327,6 +327,23 @@ impl Program {
             returned_map,
         )*/
     }
+
+    /**
+     * Insert func with proper import offset.  Returns the ir::FuncIdx (with proper offset)
+     */
+    pub fn add_func(&mut self, func: Func) -> FuncIdx {
+        let ret = self.imports.len() + self.funcs.len();
+        self.funcs.push(func);
+        ret
+    }
+    pub fn get_func(&self, funcidx: FuncIdx) -> &Func {
+        assert!(funcidx >= self.imports.len());
+        &self.funcs[funcidx - self.imports.len()]
+    }
+    pub fn get_func_mut(&mut self, funcidx: FuncIdx) -> &mut Func {
+        assert!(funcidx >= self.imports.len());
+        &mut self.funcs[funcidx - self.imports.len()]
+    }
 }
 
 impl Func {

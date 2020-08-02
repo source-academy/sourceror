@@ -82,7 +82,7 @@ pub fn state_with_builtins(
     (name_ctx, parse_ctx)
 }
 
-pub fn register_unary_op(
+fn register_unary_op(
     name: &str,
     ir_priminst: ir::PrimInst,
     ir_vartype: ir::VarType,
@@ -107,8 +107,7 @@ pub fn register_unary_op(
         },
     };
 
-    let funcidx = ir_program.funcs.len();
-    ir_program.funcs.push(ir::Func {
+    let funcidx = ir_program.add_func(ir::Func {
         params: Box::new([ir_vartype]),
         result: Some(ir_vartype),
         expr: ir_expr,
@@ -157,8 +156,7 @@ fn make_binary_op_impl(
         },
     };
 
-    let funcidx = ir_program.funcs.len();
-    ir_program.funcs.push(ir::Func {
+    let funcidx = ir_program.add_func(ir::Func {
         params: Box::new([ir_param_vartype, ir_param_vartype]),
         result: Some(ir_result_vartype),
         expr: ir_expr,
@@ -175,8 +173,7 @@ fn make_trivial_func_undefined_impl(ret: bool, ir_program: &mut ir::Program) -> 
         kind: ir::ExprKind::PrimBoolean { val: ret },
     };
 
-    let funcidx = ir_program.funcs.len();
-    ir_program.funcs.push(ir::Func {
+    let funcidx = ir_program.add_func(ir::Func {
         params: Box::new([ir::VarType::Undefined, ir::VarType::Undefined]),
         result: Some(ir::VarType::Boolean),
         expr: ir_expr,
@@ -186,7 +183,7 @@ fn make_trivial_func_undefined_impl(ret: bool, ir_program: &mut ir::Program) -> 
     funcidx
 }
 
-pub fn register_binary_op(
+fn register_binary_op(
     name: &str,
     ir_priminst: ir::PrimInst,
     ir_vartype: ir::VarType,
@@ -205,7 +202,7 @@ pub fn register_binary_op(
 }
 
 // overloaded on number and string
-pub fn register_addition_op(
+fn register_addition_op(
     name: &str,
     ir_priminst_number: ir::PrimInst,
     ir_priminst_string: ir::PrimInst,
@@ -241,7 +238,7 @@ pub fn register_addition_op(
 }
 
 // overloaded on number and string
-pub fn register_comparison_op(
+fn register_comparison_op(
     name: &str,
     ir_priminst_number: ir::PrimInst,
     ir_priminst_string: ir::PrimInst,
@@ -278,7 +275,7 @@ pub fn register_comparison_op(
 
 // overloaded all primitive types
 // struct type might need to be supported later
-pub fn register_equality_op(
+fn register_equality_op(
     name: &str,
     undefined_ret_val: bool,
     ir_priminst_number: ir::PrimInst,
