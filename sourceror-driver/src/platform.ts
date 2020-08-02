@@ -51,7 +51,7 @@ export function makePlatformImports() {
       random: Math.random,
     },
     misc: {
-      get_time: new Date().getTime(),
+      get_time: () => new Date().getTime(),
     },
   };
 }
