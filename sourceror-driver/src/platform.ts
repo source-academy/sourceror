@@ -17,8 +17,20 @@ export function makePlatformImports(externalContext: any, transcoder: Transcoder
       display: (text_handle: number) => {
         externalContext.display(transcoder.decodeString(text_handle));
       },
-      parse_int: (text_handle: number, radix: number): number => {
+      prompt: (message_handle: number): number => {
+        let res = prompt(transcoder.decodeString(message_handle));
+        // if the user pressed cancel, we encode the null character
+        // we hope the user doesn't try to type that character manually :)
+        return transcoder.encodeString(res === null ? "\0" : res);
+      },
+      parse_int: (text_handle: number, radix: number | undefined): number => {
         return parseInt(transcoder.decodeString(text_handle), radix);
+      },
+      parse_float: (text_handle: number): number => {
+        return parseFloat(transcoder.decodeString(text_handle));
+      },
+      stringify_float: (val: number): number => {
+        return transcoder.encodeString(val.toString());
       },
     },
     // MATH library
