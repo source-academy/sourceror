@@ -267,6 +267,7 @@ export async function run(
   };
   return WebAssembly.instantiate(wasm_module, real_imports).then((instance) => {
     transcoder.setMem(new DataView((instance.exports.linear_memory as WebAssembly.Memory).buffer));
+    transcoder.setAllocateStringFunc(instance.exports.allocate_string as (len: number) => number);
     try {
       (instance.exports.main as Function)();
       return read_js_result(

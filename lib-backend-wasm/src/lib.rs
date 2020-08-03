@@ -243,6 +243,10 @@ fn encode_program(ir_program: &ir::Program, options: Options) -> wasmgen::WasmMo
         &mut wasm_module,
     );*/
 
+    // Encode a bridging function to allocate strings so that the host
+    // can call it to allocate a returned string.
+    encode_heap_alloc_exports(&heap, &mut wasm_module);
+
     func::encode_funcs(
         &signature_list, // for checking types of params and results only
         &ir_program.funcs,
@@ -308,6 +312,40 @@ fn encode_pool_data(
     wasm_module: &mut wasmgen::WasmModule,
 ) {
     wasm_module.add_data(memidx, offset, pool_data);
+}
+
+/**
+ * Encodes functions to allocate memory (strings only for now)
+ * and binds them to exported names ("allocate_string")
+ */
+fn encode_heap_alloc_exports<H: HeapManager>(heap: &H, wasm_module: &mut wasmgen::WasmModule) {
+    // string alloc:
+    // [i32(len)] -> [i32(ptr)]
+    let wasm_functype = wasmgen::FuncType::new(
+        Box::new([wasmgen::ValType::I32]),
+        Box::new([wasmgen::ValType::I32]),
+    );
+    let (_, string_alloc_funcidx) = wasm_module.register_func(&wasm_functype);
+    let mut code_builder = wasmgen::CodeBuilder::new(wasm_functype);
+    {
+        let (locals_builder, expr_builder) = code_builder.split();
+        let mut scratch: Scratch = Scratch::new(locals_builder);
+        let len = wasmgen::LocalIdx { idx: 0 };
+
+        // encode the function - just generates the dynamic allocation code for string
+        expr_builder.local_get(len);
+        heap.encode_dynamic_allocation(
+            ir::VarType::String,
+            &[],
+            &[],
+            &[],
+            &mut scratch,
+            expr_builder,
+        );
+        expr_builder.end();
+    }
+    wasm_module.commit_func(string_alloc_funcidx, code_builder);
+    wasm_module.export_func(string_alloc_funcidx, "allocate_string".to_string());
 }
 
 #[cfg(feature = "wasmtest")]

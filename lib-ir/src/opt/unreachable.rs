@@ -108,7 +108,7 @@ fn optimize_expr(expr: &mut Expr) -> bool {
             changed |= new_content.len() != tmp_content_len;
             expr.vartype = new_content
                 .last()
-                .map_or_else(|| None, |expr2| expr2.vartype);
+                .map_or_else(|| Some(VarType::Undefined), |expr2| expr2.vartype);
             *content = new_content;
             changed
         }
