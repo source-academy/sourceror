@@ -94,9 +94,19 @@ fn pre_traverse_expr_kind(expr_kind: &ir::ExprKind, res: &mut TraverseResult) {
             pre_traverse_expr(true_expr, res);
             pre_traverse_expr(false_expr, res);
         }
-        ir::ExprKind::Declaration { local: _, expr }
-        | ir::ExprKind::Assign { target: _, expr }
-        | ir::ExprKind::Return { expr } => pre_traverse_expr(expr, res),
+        ir::ExprKind::Declaration {
+            local: _,
+            init,
+            contained_expr,
+        } => {
+            if let Some(init_expr) = init {
+                pre_traverse_expr(init_expr, res);
+            }
+            pre_traverse_expr(contained_expr, res);
+        }
+        ir::ExprKind::Assign { target: _, expr } | ir::ExprKind::Return { expr } => {
+            pre_traverse_expr(expr, res)
+        }
         ir::ExprKind::Sequence { content } => {
             pre_traverse_exprs(content, res);
         }

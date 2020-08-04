@@ -70,11 +70,24 @@ fn optimize_expr(expr: &mut Expr) -> bool {
         }
         ExprKind::Declaration {
             local: _,
-            expr: expr2,
+            init,
+            contained_expr,
         } => {
-            let res = optimize_expr(&mut **expr2);
-            expr.vartype = expr2.vartype;
-            res
+            let (init_res, init_is_none) = if let Some(init_expr) = init {
+                let res = optimize_expr(&mut **init_expr);
+                (res, init_expr.vartype.is_none())
+            } else {
+                (false, false)
+            };
+            if init_is_none {
+                let expr_tmp = std::mem::replace(&mut **(init.as_mut().unwrap()), dummy_expr());
+                *expr = expr_tmp;
+                true
+            } else {
+                let real_res = init_res | optimize_expr(&mut **contained_expr);
+                expr.vartype = contained_expr.vartype;
+                real_res
+            }
         }
         ExprKind::Assign {
             target: _,
