@@ -312,24 +312,15 @@ fn post_parse_scope<S: Scope, PE: ScopePrefixEmitter>(
 
     // make the actual ir:
     let mut sequence: Vec<ir::Expr> = Vec::new();
-    // add the struct allocation
-    sequence.push(ir::Expr {
-        vartype: Some(ir::VarType::Undefined),
-        kind: ir::ExprKind::Assign {
-            target: ir::TargetExpr::Local {
-                localidx: num_locals,
-                next: None,
-            },
-            expr: Box::new(ir::Expr {
-                vartype: Some(ir::VarType::StructT {
-                    typeidx: struct_idx,
-                }),
-                kind: ir::ExprKind::PrimStructT {
-                    typeidx: struct_idx,
-                },
-            }),
+    // create the struct allocation
+    let init_expr = ir::Expr {
+        vartype: Some(ir::VarType::StructT {
+            typeidx: struct_idx,
+        }),
+        kind: ir::ExprKind::PrimStructT {
+            typeidx: struct_idx,
         },
-    });
+    };
 
     // emit the body
     {
@@ -379,7 +370,8 @@ fn post_parse_scope<S: Scope, PE: ScopePrefixEmitter>(
             local: ir::VarType::StructT {
                 typeidx: struct_idx,
             },
-            expr: Box::new(ir::Expr {
+            init: Some(Box::new(init_expr)),
+            contained_expr: Box::new(ir::Expr {
                 vartype: Some(ir::VarType::Undefined),
                 kind: ir::ExprKind::Sequence { content: sequence },
             }),
@@ -679,25 +671,15 @@ fn post_parse_function<Func: Function>(
     .chain(es_func.params_mut().iter().map(|_| ir::VarType::Any))
     .collect();
 
-    // emit the struct allocation
-    sequence.push(ir::Expr {
-        vartype: Some(ir::VarType::Undefined),
-        kind: ir::ExprKind::Assign {
-            target: ir::TargetExpr::Local {
-                // this assumes a new declaration of a local, which we will do later
-                localidx: num_locals,
-                next: None,
-            },
-            expr: Box::new(ir::Expr {
-                vartype: Some(ir::VarType::StructT {
-                    typeidx: struct_idx,
-                }),
-                kind: ir::ExprKind::PrimStructT {
-                    typeidx: struct_idx,
-                },
-            }),
+    // create the struct allocation
+    let init_expr = ir::Expr {
+        vartype: Some(ir::VarType::StructT {
+            typeidx: struct_idx,
+        }),
+        kind: ir::ExprKind::PrimStructT {
+            typeidx: struct_idx,
         },
-    });
+    };
 
     // Do a few things including calculating the struct def and emitting assignment statements for the captured vars
     // this will become the closure struct definition:
@@ -888,7 +870,8 @@ fn post_parse_function<Func: Function>(
             local: ir::VarType::StructT {
                 typeidx: struct_idx,
             },
-            expr: Box::new(ir::Expr {
+            init: Some(Box::new(init_expr)),
+            contained_expr: Box::new(ir::Expr {
                 vartype: Some(ir::VarType::Func),
                 kind: ir::ExprKind::Sequence { content: sequence },
             }),
@@ -1485,22 +1468,7 @@ fn post_parse_decl_helper<
         let new_num_locals = num_locals + 1;
 
         let mut sequence: Vec<ir::Expr> = Vec::new();
-        sequence.push(ir::Expr {
-            vartype: Some(ir::VarType::Undefined),
-            kind: ir::ExprKind::Assign {
-                target: ir::TargetExpr::Local {
-                    localidx: num_locals,
-                    next: None,
-                },
-                expr: Box::new(es_rhs_expr_maker(
-                    parse_ctx,
-                    depth,
-                    new_num_locals,
-                    filename,
-                    ir_program,
-                )?),
-            },
-        });
+        let init_expr = es_rhs_expr_maker(parse_ctx, depth, num_locals, filename, ir_program)?;
 
         let undo_ctx = parse_ctx.add_target(
             varlocid,
@@ -1527,7 +1495,8 @@ fn post_parse_decl_helper<
                 vartype: Some(ir::VarType::Undefined),
                 kind: ir::ExprKind::Declaration {
                     local: ir::VarType::Any,
-                    expr: Box::new(ir::Expr {
+                    init: Some(Box::new(init_expr)),
+                    contained_expr: Box::new(ir::Expr {
                         vartype: Some(ir::VarType::Undefined),
                         kind: ir::ExprKind::Sequence { content: sequence },
                     }),

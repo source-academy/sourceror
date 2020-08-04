@@ -28,7 +28,7 @@ fn optimize_func(func: &mut Func) -> bool {
 
 fn write_new_expr(
     out: &mut Expr,
-    test: Expr, // if create_narrow_local == true then test should be already adjusted by one local, since we need to insert it in a declaration
+    test: Expr, // should be emitted in the init expr of the local, so that the new local is not in scope
     test_vartype: VarType,
     num_decls_for_narrow_local: Option<usize>,
     then: Expr,
@@ -38,24 +38,8 @@ fn write_new_expr(
             vartype: then.vartype,
             kind: ExprKind::Declaration {
                 local: test_vartype,
-                expr: Box::new(Expr {
-                    vartype: then.vartype,
-                    kind: ExprKind::Sequence {
-                        content: vec![
-                            Expr {
-                                vartype: Some(VarType::Undefined),
-                                kind: ExprKind::Assign {
-                                    target: TargetExpr::Local {
-                                        localidx: num_decls,
-                                        next: None,
-                                    },
-                                    expr: Box::new(test),
-                                },
-                            },
-                            then,
-                        ],
-                    },
-                }),
+                init: Some(Box::new(test)),
+                contained_expr: Box::new(then),
             },
         }
     } else {
@@ -122,12 +106,7 @@ fn optimize_expr(expr: &mut Expr, local_map: &mut Relabeller) -> bool {
                 } else {
                     // todo! this transformation may introduce a pessimization because the backend will have to initialize the declaration to a default value.  Perhaps we should let an ir declaration to have an optional initializer expr?
                     // if cnl is enabled, we need to skip one local because write_new_expr() will place the test expr inside a declaration.
-                    if cnl {
-                        local_map
-                            .with_skipped_new(|local_map| optimize_expr(&mut **test, local_map));
-                    } else {
-                        optimize_expr(&mut **test, local_map);
-                    }
+                    optimize_expr(&mut **test, local_map);
                     if vartype == *expected {
                         // we should always take true_expr
                         let opt_num_locals = if cnl {
@@ -190,8 +169,16 @@ fn optimize_expr(expr: &mut Expr, local_map: &mut Relabeller) -> bool {
         }
         ExprKind::Declaration {
             local: _,
-            expr: expr2,
-        } => local_map.with_entry(|local_map, _, _| optimize_expr(&mut **expr2, local_map)),
+            init,
+            contained_expr,
+        } => {
+            (if let Some(init_expr) = init {
+                optimize_expr(&mut **init_expr, local_map)
+            } else {
+                false
+            }) | local_map
+                .with_entry(|local_map, _, _| optimize_expr(&mut **contained_expr, local_map))
+        }
         ExprKind::Assign { target, expr } => {
             relabel_target(target, local_map) | optimize_expr(&mut **expr, local_map)
         }

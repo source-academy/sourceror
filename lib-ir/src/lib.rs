@@ -201,8 +201,9 @@ pub enum ExprKind {
         false_expr: Box<Expr>,
     }, // a ? b : c // Static type of cond must be bool.
     Declaration {
-        local: VarType,  // local variable being declared
-        expr: Box<Expr>, // expr in which the newly declared local is accessible
+        local: VarType,            // local variable being declared
+        init: Option<Box<Expr>>, // initialization expr for this declaration (if None, then it is default initialized in a way determined by the GC); the declaration itself is not accessible here
+        contained_expr: Box<Expr>, // expr in which the newly declared local is accessible
     }, // has the type of the `expr` (returns the value of the contained expr)
     Assign {
         target: TargetExpr,

@@ -828,12 +828,38 @@ fn encode_expr<H: HeapManager>(
         }
         ir::ExprKind::Declaration {
             local,
-            expr: inner_expr,
+            init,
+            contained_expr,
         } => {
-            assert!(expr.vartype == inner_expr.vartype, "ICE: IR->Wasm: the expression in a Declaration must have the same type as the Declaration itself");
-            mutctx.with_named_local(*local, ctx.heap, expr_builder, |mutctx, expr_builder, _| {
-                encode_expr(inner_expr, ctx, mutctx, expr_builder)
-            })
+            assert!(expr.vartype == contained_expr.vartype, "ICE: IR->Wasm: the expression in a Declaration must have the same type as the Declaration itself");
+            if let Some(init_expr) = init {
+                assert!(
+                    init_expr.vartype.is_some(),
+                    "ICE: IR->Wasm: init expr of a declaration cannot be noreturn"
+                );
+                // net wasm stack: [] -> [<init_expr.vartype>]
+                encode_expr(init_expr, ctx, mutctx, expr_builder);
+                mutctx.with_uninitialized_named_local(*local, |mutctx, named_localidx| {
+                    // net wasm stack: [<init_expr.vartype>] -> []
+                    encode_store_local(
+                        mutctx.named_wasm_local_slice(named_localidx),
+                        *local,
+                        init_expr.vartype.unwrap(),
+                        expr_builder,
+                    );
+                    // net wasm stack: [] -> [<contained_expr.vartype>]
+                    encode_expr(contained_expr, ctx, mutctx, expr_builder)
+                })
+            } else {
+                mutctx.with_named_local(
+                    *local,
+                    ctx.heap,
+                    expr_builder,
+                    |mutctx, expr_builder, _| {
+                        encode_expr(contained_expr, ctx, mutctx, expr_builder)
+                    },
+                )
+            }
             // note: we automatically propagate the WebAssembly-Voidness from the inner expr by returning it
         }
         ir::ExprKind::Assign {
