@@ -7,6 +7,7 @@ import * as es from "estree";
 export { makePlatformImports } from "./platform";
 import { Transcoder } from "./transcoder";
 export { Transcoder };
+import { cachedGetFile } from "./cache";
 
 export class CompileError extends Error {
   constructor(message: string) {
@@ -94,7 +95,8 @@ export async function compile(
       elaborate: (): string => "",
     });
   }, (name: string): Promise<string> => {
-      return fetch(name)
+    return cachedGetFile(name, name =>
+      fetch(name)
         .then(rsp => rsp.text())
         .then(rsptxt => {
           if (rsptxt.split('\n', 1)[0] == "@SourceImports") {
@@ -111,7 +113,7 @@ export async function compile(
             }
             return JSON.stringify(estree);
           }
-        });
+        }));
   });
   return Sourceror.compile(wasm_context, es_str)
     .then((wasm_binary: Uint8Array) => {
