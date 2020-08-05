@@ -94,15 +94,13 @@ fn optimize_expr(expr: &mut Expr, local_map: &mut Relabeller) -> bool {
                 if vartype == VarType::Any {
                     // we still need the typecast
                     let ret = optimize_expr(&mut **test, local_map);
-                    if cnl {
+                    ret | if cnl {
                         local_map.with_entry(|local_map, _, _| {
-                            ret | optimize_expr(&mut **true_expr, local_map)
-                                | optimize_expr(&mut **false_expr, local_map)
+                            optimize_expr(&mut **true_expr, local_map)
                         })
                     } else {
-                        ret | optimize_expr(&mut **true_expr, local_map)
-                            | optimize_expr(&mut **false_expr, local_map)
-                    }
+                        optimize_expr(&mut **true_expr, local_map)
+                    } | optimize_expr(&mut **false_expr, local_map)
                 } else {
                     // todo! this transformation may introduce a pessimization because the backend will have to initialize the declaration to a default value.  Perhaps we should let an ir declaration to have an optional initializer expr?
                     // if cnl is enabled, we need to skip one local because write_new_expr() will place the test expr inside a declaration.
@@ -125,19 +123,12 @@ fn optimize_expr(expr: &mut Expr, local_map: &mut Relabeller) -> bool {
                         true // always return true because we already modified the program
                     } else {
                         // we should always take false_expr
-                        let opt_num_locals = if cnl {
-                            local_map.with_entry(|local_map, _, new_local| {
-                                optimize_expr(&mut **false_expr, local_map);
-                                Some(new_local)
-                            })
-                        } else {
-                            optimize_expr(&mut **false_expr, local_map);
-                            None
-                        };
+                        // regardless of cnl, there is no new local for the false branch
+                        optimize_expr(&mut **false_expr, local_map);
                         // replace with a dummy expr
                         let test2: Expr = std::mem::replace(test, dummy_expr());
                         let false_expr2: Expr = std::mem::replace(&mut **false_expr, dummy_expr());
-                        write_new_expr(expr, test2, vartype, opt_num_locals, false_expr2);
+                        write_new_expr(expr, test2, vartype, None, false_expr2);
                         true // always return true because we already modified the program
                     }
                 }
