@@ -66,7 +66,7 @@ export async function compile(
   code: string,
   context: Context
 ): Promise<WebAssembly.Module> {
-  context.chapter = 3;
+  //context.chapter = 3;
   let estree: es.Program | undefined = slang_parse(code, context);
   if (!estree) {
     return Promise.reject(

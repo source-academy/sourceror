@@ -10,7 +10,6 @@ mod func;
 mod import_name_resolver;
 mod importer;
 mod parse_state;
-mod vartype_superset;
 
 use async_trait::async_trait;
 use error::*;

@@ -1,12 +1,29 @@
-use crate::frontendvar::Superset;
+use crate::FuncIdx;
+use crate::VarType;
 use std::ops::Deref;
 
-impl Superset for ir::VarType {
+pub trait Superset {
+    /**
+     * Returns true if self is a superset of other.
+     */
+    fn superset(&self, other: &Self) -> bool;
+}
+
+impl Superset for (Box<[VarType]>, FuncIdx) {
     /**
      * Returns true if self is a superset of other.
      */
     fn superset(&self, other: &Self) -> bool {
-        *self == *other || *self == ir::VarType::Any
+        self.0.superset(&other.0)
+    }
+}
+
+impl Superset for VarType {
+    /**
+     * Returns true if self is a superset of other.
+     */
+    fn superset(&self, other: &Self) -> bool {
+        *self == *other || *self == VarType::Any
     }
 }
 

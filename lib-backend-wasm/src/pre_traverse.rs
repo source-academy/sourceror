@@ -104,9 +104,13 @@ fn pre_traverse_expr_kind(expr_kind: &ir::ExprKind, res: &mut TraverseResult) {
             }
             pre_traverse_expr(contained_expr, res);
         }
-        ir::ExprKind::Assign { target: _, expr } | ir::ExprKind::Return { expr } => {
-            pre_traverse_expr(expr, res)
+        ir::ExprKind::Assign { target: _, expr }
+        | ir::ExprKind::Return { expr }
+        | ir::ExprKind::Break {
+            num_frames: _,
+            expr,
         }
+        | ir::ExprKind::Block { expr } => pre_traverse_expr(expr, res),
         ir::ExprKind::Sequence { content } => {
             pre_traverse_exprs(content, res);
         }
