@@ -174,6 +174,12 @@ fn optimize_expr(expr: &mut Expr, local_map: &mut Relabeller) -> bool {
             relabel_target(target, local_map) | optimize_expr(&mut **expr, local_map)
         }
         ExprKind::Return { expr } => optimize_expr(&mut **expr, local_map),
+
+        ExprKind::Break {
+            num_frames: _,
+            expr,
+        } => optimize_expr(&mut **expr, local_map),
+        ExprKind::Block { expr } => optimize_expr(&mut **expr, local_map),
         ExprKind::Sequence { content } => content
             .iter_mut()
             .fold(false, |prev, expr| prev | optimize_expr(expr, local_map)),

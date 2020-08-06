@@ -104,7 +104,32 @@ fn optimize_expr(expr: &mut Expr) -> bool {
                 ret
             }
         }
-        ExprKind::Return { expr } => optimize_expr(&mut **expr),
+        ExprKind::Return { expr: expr2 } => {
+            let ret = optimize_expr(&mut **expr2);
+            // If the arg is none, then we will never return
+            if expr2.vartype.is_none() {
+                let expr_tmp = std::mem::replace(&mut **expr2, dummy_expr());
+                *expr = expr_tmp;
+                true
+            } else {
+                ret
+            }
+        }
+        ExprKind::Break {
+            num_frames: _,
+            expr: expr2,
+        } => {
+            let ret = optimize_expr(&mut **expr2);
+            // If the arg is none, then we will never break
+            if expr2.vartype.is_none() {
+                let expr_tmp = std::mem::replace(&mut **expr2, dummy_expr());
+                *expr = expr_tmp;
+                true
+            } else {
+                ret
+            }
+        }
+        ExprKind::Block { expr } => optimize_expr(&mut **expr),
         ExprKind::Sequence { content } => {
             let tmp_content = std::mem::take(content);
             let mut changed = false;

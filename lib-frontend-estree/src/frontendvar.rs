@@ -1,3 +1,4 @@
+use ir::superset::Superset;
 use std::borrow::Borrow;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
@@ -227,11 +228,4 @@ impl<O: Superset> Append<O> for OverloadSet<O> {
         self.signatures.push(other);
         ret
     }
-}
-
-pub trait Superset {
-    /**
-     * Returns true if self is a superset of other.
-     */
-    fn superset(&self, other: &Self) -> bool;
 }

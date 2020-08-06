@@ -650,7 +650,8 @@ fn encode_expr<H: HeapManager>(
                         expr_builder.local_get(tmp_i32_result);
                     });
                     // net wasm stack: [i32 result] -> [<expr.vartype>]
-                    multi_value_polyfill::if_with_opt_else(
+                    mutctx.with_unused_landing(|mutctx| {
+                        multi_value_polyfill::if_with_opt_else(
                         encode_opt_vartype(expr.vartype),
                         ctx.options.wasm_multi_value,
                         mutctx,
@@ -701,6 +702,7 @@ fn encode_expr<H: HeapManager>(
                             },
                         ),
                     );
+                    });
                 });
             } else {
                 // we don't want a narrow local
@@ -715,38 +717,41 @@ fn encode_expr<H: HeapManager>(
 
                 // then we encode the true_expr and false_expr
                 // net wasm stack:  [i32 result] -> [<expr.vartype>]
-                multi_value_polyfill::if_with_opt_else(
-                    encode_opt_vartype(expr.vartype),
-                    ctx.options.wasm_multi_value,
-                    mutctx,
-                    expr_builder,
-                    |mutctx, expr_builder| {
-                        // net wasm stack: [] -> [<true_expr.vartype>]
-                        let wasm_reachable = encode_expr(true_expr, ctx, mutctx, expr_builder);
-                        // [<true_expr.vartype>] -> [<expr.vartype>]
-                        encode_opt_result_widening_operation(
-                            expr.vartype,
-                            true_expr.vartype,
-                            wasm_reachable,
-                            mutctx.scratch_mut(),
-                            expr_builder,
-                        );
-                    },
-                    (!false_expr.is_prim_undefined()).as_some(
-                        |mutctx: &mut MutContext, expr_builder: &mut wasmgen::ExprBuilder| {
-                            // net wasm stack: [] -> [<false_expr.vartype>]
-                            let wasm_reachable = encode_expr(false_expr, ctx, mutctx, expr_builder);
-                            // [<false_expr.vartype>] -> [<expr.vartype>]
+                mutctx.with_unused_landing(|mutctx| {
+                    multi_value_polyfill::if_with_opt_else(
+                        encode_opt_vartype(expr.vartype),
+                        ctx.options.wasm_multi_value,
+                        mutctx,
+                        expr_builder,
+                        |mutctx, expr_builder| {
+                            // net wasm stack: [] -> [<true_expr.vartype>]
+                            let wasm_reachable = encode_expr(true_expr, ctx, mutctx, expr_builder);
+                            // [<true_expr.vartype>] -> [<expr.vartype>]
                             encode_opt_result_widening_operation(
                                 expr.vartype,
-                                false_expr.vartype,
+                                true_expr.vartype,
                                 wasm_reachable,
                                 mutctx.scratch_mut(),
                                 expr_builder,
                             );
                         },
-                    ),
-                );
+                        (!false_expr.is_prim_undefined()).as_some(
+                            |mutctx: &mut MutContext, expr_builder: &mut wasmgen::ExprBuilder| {
+                                // net wasm stack: [] -> [<false_expr.vartype>]
+                                let wasm_reachable =
+                                    encode_expr(false_expr, ctx, mutctx, expr_builder);
+                                // [<false_expr.vartype>] -> [<expr.vartype>]
+                                encode_opt_result_widening_operation(
+                                    expr.vartype,
+                                    false_expr.vartype,
+                                    wasm_reachable,
+                                    mutctx.scratch_mut(),
+                                    expr_builder,
+                                );
+                            },
+                        ),
+                    );
+                });
             };
             true // since if-statements are never known by WebAssembly to be unreachable
         }
@@ -792,38 +797,40 @@ fn encode_expr<H: HeapManager>(
             encode_expr(cond, ctx, mutctx, expr_builder);
             // emit the if statement
             // net wasm stack:  [i32 result] -> [<expr.vartype>]
-            multi_value_polyfill::if_with_opt_else(
-                encode_opt_vartype(expr.vartype),
-                ctx.options.wasm_multi_value,
-                mutctx,
-                expr_builder,
-                |mutctx, expr_builder| {
-                    // net wasm stack: [] -> [<true_expr.vartype>]
-                    let wasm_reachable = encode_expr(true_expr, ctx, mutctx, expr_builder);
-                    // net wasm stack: [<true_expr.vartype>] -> [<expr.vartype>]
-                    encode_opt_result_widening_operation(
-                        expr.vartype,
-                        true_expr.vartype,
-                        wasm_reachable,
-                        mutctx.scratch_mut(),
-                        expr_builder,
-                    );
-                },
-                (!false_expr.is_prim_undefined()).as_some(
-                    |mutctx: &mut MutContext, expr_builder: &mut wasmgen::ExprBuilder| {
-                        // net wasm stack: [] -> [<false_expr.vartype>]
-                        let wasm_reachable = encode_expr(false_expr, ctx, mutctx, expr_builder);
-                        // net wasm stack: [<false_expr.vartype>] -> [<expr.vartype>]
+            mutctx.with_unused_landing(|mutctx| {
+                multi_value_polyfill::if_with_opt_else(
+                    encode_opt_vartype(expr.vartype),
+                    ctx.options.wasm_multi_value,
+                    mutctx,
+                    expr_builder,
+                    |mutctx, expr_builder| {
+                        // net wasm stack: [] -> [<true_expr.vartype>]
+                        let wasm_reachable = encode_expr(true_expr, ctx, mutctx, expr_builder);
+                        // net wasm stack: [<true_expr.vartype>] -> [<expr.vartype>]
                         encode_opt_result_widening_operation(
                             expr.vartype,
-                            false_expr.vartype,
+                            true_expr.vartype,
                             wasm_reachable,
                             mutctx.scratch_mut(),
                             expr_builder,
                         );
                     },
-                ),
-            );
+                    (!false_expr.is_prim_undefined()).as_some(
+                        |mutctx: &mut MutContext, expr_builder: &mut wasmgen::ExprBuilder| {
+                            // net wasm stack: [] -> [<false_expr.vartype>]
+                            let wasm_reachable = encode_expr(false_expr, ctx, mutctx, expr_builder);
+                            // net wasm stack: [<false_expr.vartype>] -> [<expr.vartype>]
+                            encode_opt_result_widening_operation(
+                                expr.vartype,
+                                false_expr.vartype,
+                                wasm_reachable,
+                                mutctx.scratch_mut(),
+                                expr_builder,
+                            );
+                        },
+                    ),
+                );
+            });
             true
         }
         ir::ExprKind::Declaration {
@@ -911,6 +918,58 @@ fn encode_expr<H: HeapManager>(
 
             // returns false, because WebAssembly knows that anything after a return instruction is unreachable
             false
+        }
+        ir::ExprKind::Break {
+            num_frames,
+            expr: inner_expr,
+        } => {
+            assert!(inner_expr.vartype.is_some());
+
+            // encode the inner expr
+            // net wasm stack: [] -> [<inner_expr.vartype>]
+            encode_expr(inner_expr, ctx, mutctx, expr_builder);
+
+            // get the landing site properties
+            let (landing_idx, landing_vartype, landing_ctx) = mutctx.get_wasm_landing(*num_frames);
+
+            // net wasm stack: [<inner_expr.vartype>] -> [<landing_vartype>]
+            encode_opt_result_widening_operation(
+                Some(landing_vartype),
+                inner_expr.vartype,
+                true,
+                mutctx.scratch_mut(),
+                expr_builder,
+            );
+
+            // encode the unconditional branch
+            multi_value_polyfill::break_(
+                landing_idx,
+                &landing_ctx,
+                encode_vartype(landing_vartype),
+                ctx.options.wasm_multi_value,
+                mutctx,
+                expr_builder,
+            );
+
+            // returns true, because WebAssembly branch instruction is stack-polymorphic
+            false
+        }
+        ir::ExprKind::Block { expr: inner_expr } => {
+            // register that a Break can land here
+            multi_value_polyfill::block(
+                encode_opt_vartype(expr.vartype),
+                ctx.options.wasm_multi_value,
+                mutctx,
+                expr_builder,
+                |mutctx, landing_ctx, expr_builder| {
+                    mutctx.with_landing(expr.vartype.unwrap(), landing_ctx, |mutctx| {
+                        encode_expr(inner_expr, ctx, mutctx, expr_builder);
+                    })
+                },
+            );
+
+            // returns true, because WebAssembly never regards a block as stack-polymorphic even if it is actually the case
+            true
         }
         ir::ExprKind::Sequence { content } => {
             if content.is_empty() {

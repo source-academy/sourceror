@@ -80,6 +80,17 @@ impl Relabeller {
         ret
     }
 
+    pub fn with_skipped_news<R, F: FnOnce(&mut Relabeller) -> R>(
+        &mut self,
+        amount: usize,
+        f: F,
+    ) -> R {
+        self.num_new += amount;
+        let ret = f(self);
+        self.num_new -= amount;
+        ret
+    }
+
     /**
      * Adds a new mapping entry.
      */
@@ -123,5 +134,11 @@ impl Relabeller {
     }
     pub fn len(&self) -> usize {
         self.content.len()
+    }
+    pub fn num_old(&self) -> usize {
+        self.num_old
+    }
+    pub fn num_new(&self) -> usize {
+        self.num_new
     }
 }

@@ -1821,6 +1821,7 @@ fn post_parse_logical_expr(
     filename: Option<&str>,
     ir_program: &mut ir::Program,
 ) -> Result<ir::Expr, CompileMessage<ParseProgramError>> {
+    // todo! there might be a bug - logical operators do not currently short-circuit
     // operators are Direct functions
     let opt_func_name: Option<&str> =
         builtins::resolve_logical_operator(es_logical_expr.operator.as_str());

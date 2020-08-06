@@ -1,6 +1,6 @@
 use super::frontendvar::*;
 use crate::estree::*;
-use crate::vartype_superset::*;
+use ir::superset::Superset;
 use std::collections::HashMap;
 
 #[derive(Default, Clone)]
@@ -63,15 +63,6 @@ impl ParseState {
 impl ParseState {
     pub fn get_target(&self, varlocid: &VarLocId) -> Option<&ir::TargetExpr> {
         self.targets.get(varlocid)
-    }
-}
-
-impl Superset for (Box<[ir::VarType]>, ir::FuncIdx) {
-    /**
-     * Returns true if self is a superset of other.
-     */
-    fn superset(&self, other: &Self) -> bool {
-        self.0.superset(&other.0)
     }
 }
 

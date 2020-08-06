@@ -27,6 +27,7 @@ use std::vec::Vec;
  */
 pub mod error;
 pub mod opt;
+pub mod superset;
 // mod primfunc;
 
 // If it stores value `func_idx`, then it refers to imports[func_idx] if (func_idx < imports.len())
@@ -159,7 +160,7 @@ pub enum ExprKind {
     }, // a struct (Any will be set to Unassigned variant; String, Func::closure, StructT will be set to something that the GC can recognise as a "null pointer" for that VarType)
     PrimFunc {
         funcidxs: Box<[OverloadEntry]>, // overload set, matched in priority from back to front.  Backend shall coalesce identical callstubs whenever possible.
-        closure: Box<Expr>, // Closure, that must be a pointer (that could be null) and will be type-erased (the pointer requirement allows the GC to understand it)
+        closure: Box<Expr>, // Closure, that must be a pointer (that could be null) or undefined (encoded as a GC undefined/null, and no overload should want a closure param), and will be type-erased (the pointer requirement allows the GC to understand it)
     }, // e.g. `() => {}`.  Only the given funcidx will know the type of the closure.
     TypeCast {
         /*
@@ -212,6 +213,13 @@ pub enum ExprKind {
     Return {
         expr: Box<Expr>,
     }, // Return statmenent; has Void type
+    Break {
+        num_frames: usize, // the number of Blocks and Loops to jump out of; zero refers to the Block or Loop closest to this Break
+        expr: Box<Expr>, // the expr that the target Block should return, should not be noreturn, and should fit into the vartype of the target Block.
+    }, // jumps to the end of an enclosing Block or the beginning of an enclosing Loop; Break is noreturn
+    Block {
+        expr: Box<Expr>,
+    }, // Jump target for Break; type must be at least as wide as expr.vartype and all Breaks that target this block
     Sequence {
         content: Vec<Expr>,
     }, // returns the value of the last expression, or `undefined` if there are zero expressions

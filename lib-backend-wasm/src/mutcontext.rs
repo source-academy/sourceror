@@ -29,6 +29,9 @@ pub struct MutContext<'a, 'b> {
     local_map: Vec<usize>, // map from ir param/local index (including shadow locals) to wasm_local_map index
     local_types: Vec<ir::VarType>, // map from ir param/local index (including shadow locals) to ir param type
     named_local_map: Vec<usize>, // map from real named local (i.e. those that exist in source code) to local_map/local_type index
+    // information for calculating and encoding Break exprs
+    ir_landings: Vec<(usize, ir::VarType, Box<[wasmgen::LocalIdx]>)>, // first item of the pair is the landing index (1-based), can be equal to (but no more than) wasm_landing_count
+    wasm_landing_count: usize,
     // Global for whole program
     module_wrapper: ModuleEncodeWrapper<'b>,
     // will also include function indices
@@ -48,6 +51,8 @@ impl<'a, 'b> MutContext<'a, 'b> {
             local_map: local_map.to_vec(),
             local_types: local_types.to_vec(),
             named_local_map: (0..num_locals).collect(),
+            ir_landings: Vec::new(),
+            wasm_landing_count: 0,
             module_wrapper: module_wrapper,
         }
     }
@@ -325,6 +330,53 @@ impl<'a, 'b> MutContext<'a, 'b> {
             .for_each(|valtype| self.scratch_mut().pop(*valtype));
         result
     }
+
+    /**
+     * Adds a ir-landable point
+     */
+    pub fn with_landing<R, F: FnOnce(&mut MutContext<'a, 'b>) -> R>(
+        &mut self,
+        ir_vartype: ir::VarType,
+        landing_ctx: &[wasmgen::LocalIdx],
+        f: F,
+    ) -> R {
+        self.wasm_landing_count += 1;
+        self.ir_landings.push((
+            self.wasm_landing_count,
+            ir_vartype,
+            landing_ctx.to_owned().into_boxed_slice(),
+        ));
+        let result = f(self);
+        self.ir_landings.pop();
+        self.wasm_landing_count -= 1;
+        result
+    }
+    /**
+     * Adds a non-landable landing point
+     */
+    pub fn with_unused_landing<R, F: FnOnce(&mut MutContext<'a, 'b>) -> R>(&mut self, f: F) -> R {
+        self.wasm_landing_count += 1;
+        let result = f(self);
+        self.wasm_landing_count -= 1;
+        result
+    }
+    /**
+     * Gets the wasm landing index from the given ir landing index.
+     * Note that both the ir and wasm indices are relative to the current code.
+     */
+    pub fn get_wasm_landing(
+        &self,
+        ir_landing: usize,
+    ) -> (usize, ir::VarType, Box<[wasmgen::LocalIdx]>) {
+        let (wasm_abs_landing, vartype, landing_ctx) =
+            self.ir_landings[self.ir_landings.len() - ir_landing - 1].clone(); // unnecessary clone, but we need to satisfy the Rust type checker
+        (
+            self.wasm_landing_count - wasm_abs_landing,
+            vartype,
+            landing_ctx,
+        )
+    }
+
     pub fn module_wrapper(&mut self) -> &mut ModuleEncodeWrapper<'b> {
         &mut self.module_wrapper
     }

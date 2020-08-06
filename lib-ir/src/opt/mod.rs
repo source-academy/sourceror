@@ -1,3 +1,4 @@
+mod propagate;
 mod relabeller;
 mod typecast;
 mod unreachable;
@@ -38,5 +39,19 @@ pub fn optimize_mandatory(mut program: Program) -> Program {
         }
     }
 
+    program
+}
+
+/**
+ * Main function to do discretionary optimizations for a program.
+ */
+pub fn optimize_all(mut program: Program) -> Program {
+    loop {
+        let (new_program, changed) = propagate::optimize(program);
+        program = new_program;
+        if !changed {
+            break;
+        }
+    }
     program
 }
