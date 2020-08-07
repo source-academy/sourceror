@@ -102,7 +102,6 @@ fn optimize_expr(expr: &mut Expr, local_map: &mut Relabeller) -> bool {
                         optimize_expr(&mut **true_expr, local_map)
                     } | optimize_expr(&mut **false_expr, local_map)
                 } else {
-                    // todo! this transformation may introduce a pessimization because the backend will have to initialize the declaration to a default value.  Perhaps we should let an ir declaration to have an optional initializer expr?
                     // if cnl is enabled, we need to skip one local because write_new_expr() will place the test expr inside a declaration.
                     optimize_expr(&mut **test, local_map);
                     if vartype == *expected {

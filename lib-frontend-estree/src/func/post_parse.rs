@@ -2043,7 +2043,6 @@ fn post_parse_direct_call_helper(
 ) -> Result<ir::Expr, CompileMessage<ParseProgramError>> {
     // This is only for operators, and maybe other builtin things.
     // IR should propage constants in order to convert this to a real direct call (perhaps by considering cases based on the param types here)
-    // TODO: look at post_parse_varname() to see how names are gotten.
 
     let primfunc_expr: ir::Expr = post_parse_direct_varname(
         func_name, loc, parse_ctx, depth, num_locals, filename, ir_program,
