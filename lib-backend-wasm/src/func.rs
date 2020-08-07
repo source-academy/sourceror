@@ -251,9 +251,10 @@ pub fn encode_funcs<'a, Heap: HeapManager>(
                     &registry.param_types,
                     ModuleEncodeWrapper { wasm_module },
                 );
-                encode_expr(&ir_func.expr, ctx, &mut mutctx, expr_builder);
+                let wasm_reachable = encode_expr(&ir_func.expr, ctx, &mut mutctx, expr_builder);
 
                 if let Some(vartype) = ir_func.expr.vartype {
+                    assert!(wasm_reachable);
                     encode_return_calling_conv(
                         ir_func.result.unwrap(),
                         vartype,
@@ -262,23 +263,10 @@ pub fn encode_funcs<'a, Heap: HeapManager>(
                         mutctx.scratch_mut(),
                         expr_builder,
                     );
-                } else {
-                    expr_builder.unreachable(); // todo! are we emitting multiple `unreachable` instructions?  is that too many?
+                } else if wasm_reachable {
+                    expr_builder.unreachable();
                 }
-
-                /*if !is_stack_polymorphic {
-                    // todo!: We should generate 'unreachable' for non-stack-polymorphic functions instead.
-                    // Since the frontend will insert 'return undefined;' statements, we are guaranteed to never end up here.
-                    // We should actually check if the last statement is a return statement, and then don't emit unreachable, and let control fall off the end of the function.
-                    // and only emit 'unreachable' if the end of the function is indeed unreachable.
-
-                    // encode a dummy return value since we fall off the end of the function
-                    // this dummy will never be used if we are returning something not null/undefined, but we have to encode the instruction in order to pass validation
-                    encode_load_dummies(
-                        &encode_result(ir_func.result, options.wasm_multi_value),
-                        expr_builder,
-                    );
-                }*/
+                // if !wasm_reachable then wasm knows that this point is unreachable, so we don't need to emit the `unreachable` instruction
 
                 // append the end instruction to end of the function
                 expr_builder.end();
@@ -583,7 +571,6 @@ fn encode_expr<H: HeapManager>(
                 expr.vartype == Some(ir::VarType::StructT { typeidx: *typeidx }),
                 "ICE: IR->Wasm: PrimStructT does not have correct type, or typeidx is incorrect"
             );
-            // todo!(Only store locals that are in scope at this point, instead of all of them.)
             mutctx.heap_encode_fixed_allocation(ctx.heap, expr.vartype.unwrap(), expr_builder);
             true
         }
@@ -1242,9 +1229,7 @@ fn encode_appl<H: HeapManager>(
     mutctx: &mut MutContext,
     expr_builder: &mut wasmgen::ExprBuilder,
 ) {
-    // todo! How to figure out at runtime if a function call has the correct number of arguments?
-    // For now, we will just let wasm trap automatically for us if we call the function wrongly (but we might not get a proper error message)
-    // Eventually we might want to check the signature manually.
+    // An Appl (indirect call) should be encoded using the uniform calling convention, placing actual arguments onto the unprotected stack.
 
     // Assert that the return type is Any (calling a function indirectly should return Any)
     assert!(return_type == Some(ir::VarType::Any));
@@ -1271,6 +1256,8 @@ fn encode_appl<H: HeapManager>(
         );
 
         // Encode all the arguments
+        // This will ensure that all args are evaluated before placing them onto the unprotected stack
+        // and be careful that if the GC is triggered while evaluating an arg, we will be using the new value of the pointer-type args.
         // net wasm stack: [] -> [i32(closure), i32(num_args)]
         encode_args_to_call_indirect_function(
             args,
@@ -1289,11 +1276,8 @@ fn encode_appl<H: HeapManager>(
         // net wasm stack: [] -> [tableidx]
         expr_builder.local_get(mutctx.wasm_local_slice(localidx_func)[0]);
 
-        // TODO: this is currently wrong, because we should only move values onto the unprotected stack just before calling the function.
-        // (Since the evaluation of params may call other functions, the data on the unprotected stack may get corrupted)
-        // When temporarily storing in locals, remember that we don't need to store them as Any type.
-        // We should only do the conversion while copying the locals onto the unprotected stack.
-
+        // todo!(For optimisation, heap_encode_prologue_epilogue should only be called if the callee might allocate)
+        // Note: encode_args_to_call_function should be *before* encode_local_roots_prologue, since the args themselves might make function calls.
         if true {
             // This function might allocate memory, so we need to store the locals in the gc_roots stack first.
 
@@ -1367,7 +1351,7 @@ fn encode_direct_appl<H: HeapManager>(
     // Encode all the arguments
     encode_args_to_call_function(&signature.params, args, ctx, mutctx, expr_builder);
 
-    // todo!(For optimisation, encode_local_roots_prologue and encode_local_roots_epilogue should only be called if the callee might allocate)
+    // todo!(For optimisation, heap_encode_prologue_epilogue should only be called if the callee might allocate)
     // Note: encode_args_to_call_function should be *before* encode_local_roots_prologue, since the args themselves might make function calls.
     if true {
         // This function might allocate memory, so we need to store the locals in the gc_roots stack first.
@@ -1407,6 +1391,7 @@ fn encode_args_to_call_function<H: HeapManager>(
     expr_builder: &mut wasmgen::ExprBuilder,
 ) {
     // todo! there might be a bug here - if a GC event happens midway encoding args, the old args that are references will break.
+    // See encode_args_to_call_indirect_function() for reference.
     //
     assert!(
         expected_param_types.len() == args.len(),
@@ -1457,7 +1442,6 @@ fn encode_args_to_call_indirect_function<H: HeapManager>(
                 // note: we only write the args to memory after evaluating all of them
                 // because calling a function may overwrite the parameter area on the unprotected stack.
 
-                // todo! encode the args as ir locals
                 // note: have to manually push/pop locals from mutctx
                 // so that we don't need to arbitrary nest the closures
 

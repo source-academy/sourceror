@@ -37,9 +37,8 @@
  *
  * Note: When comparing Anys for ===, the unused space might be anything!  So we need to switch on the vartype first.
  *
- * todo! unimplemented! Indirect function calls and functions returning functions are probably broken now because they need to be able to return a tuple of values.
- * The fix (not yet implemented) is to allocate space on the stack to transfer those values.
- * We need to define a proper calling convention for this (i.e. when to put it on the stack, and when to use the return value field).
+ * Indirect function calls use the Uniform Calling Convention, which allocates space on the stack to transfer the arguments.
+ * This allows a variable number of arguments.
  *
  * Memory management:
  * WebAssembly has one linear memory, growable at the right end (largest index).

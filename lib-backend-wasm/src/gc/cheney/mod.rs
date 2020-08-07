@@ -72,7 +72,6 @@ impl<'a, 'b, 'c> Cheney<'a, 'b, 'c> {
         wasm_module: &mut wasmgen::WasmModule,
     ) -> Self {
         assert!(heap_begin + MEM_INITIAL_HEAP_SIZE == heap_initial_end);
-        //todo! generate the gc functions for all struct types
         /*
         // copy_children_$i shall only exist for pointer types (i.e. types that reside on heap), i.e. StructT or String.
         Encoded function (for struct):
@@ -477,7 +476,7 @@ impl<'a, 'b, 'c> HeapManager for Cheney<'a, 'b, 'c> {
 
                 // Write Undefined to all Any fields in the struct
                 // and write nullptr (i.e. -1) to all String, Func::closure, StructT
-                // todo!: String should eventually be set to an empty string in the constant string pool.
+                // todo!: String should eventually be set to an empty string in the constant string pool.... on not?
                 // net wasm stack: [i32(ptr)] -> [i32(ptr)]
                 {
                     let localidx_ptr: wasmgen::LocalIdx = scratch.push_i32();

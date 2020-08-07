@@ -87,7 +87,6 @@ pub struct Program {
     pub body: Vec<Node>,
     #[serde(skip)]
     pub direct_funcs: Vec<(String, Box<[ir::VarType]>)>, // list of direct functions, populated by pre_parse()
-                                                         // todo! populate direct_funcs
 }
 
 #[derive(Deserialize, Debug)]
@@ -108,7 +107,6 @@ pub struct BlockStatement {
     pub address_taken_vars: Vec<usize>, // list of address-taken vars, populated by pre_parse()
     #[serde(skip)]
     pub direct_funcs: Vec<(String, Box<[ir::VarType]>)>, // list of direct functions, populated by pre_parse()
-                                                         // todo! populate direct_funcs
 }
 
 /*#[derive(Debug)]
