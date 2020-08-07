@@ -2,11 +2,6 @@
 # yarn lockfile v1
 
 
-"@btzy/libsourceror@^0.0.1":
-  version "0.0.1"
-  resolved "https://registry.yarnpkg.com/@btzy/libsourceror/-/libsourceror-0.0.1.tgz#a7283ce300ba6ac4dac3bcc8402c53e29f20db91"
-  integrity sha512-5zGfpcAzo/DSmpF39fTpv0veC5onFqOd5n7YavlqVSjiUrw+imr5befbvwTV3ak8VepTB9qGK/FNghB2otdH5g==
-
 "@types/estree@0.0.45", "@types/estree@^0.0.45":
   version "0.0.45"
   resolved "https://registry.yarnpkg.com/@types/estree/-/estree-0.0.45.tgz#e9387572998e5ecdac221950dab3e8c3b16af884"
@@ -532,10 +527,10 @@ isstream@~0.1.2:
   resolved "https://registry.yarnpkg.com/isstream/-/isstream-0.1.2.tgz#47e63f7af55afa6f92e1500e690eb8b8529c099a"
   integrity sha1-R+Y/evVa+m+S4VAOaQ64uFKcCZo=
 
-js-slang@^0.4.53:
-  version "0.4.53"
-  resolved "https://registry.yarnpkg.com/js-slang/-/js-slang-0.4.53.tgz#86cec1890cb0abf7b010a15d7ee9cdc1630091ef"
-  integrity sha512-tIDBsDtKLFlItPj02TifjcDxleiT3LQ5PG9ejKmiJNVXBgoEA6eh+bONViWS7/PkOCeRPsCue2VeMUJGCjAmPw==
+js-slang@^0.4.60:
+  version "0.4.60"
+  resolved "https://registry.yarnpkg.com/js-slang/-/js-slang-0.4.60.tgz#89b353a6db4f07d0cf414cf13e0df5e41839d261"
+  integrity sha512-q0xt5S6Vppe0AbfoFHi7Q0FH525cBNV+/Zvm5VHkM3CDN1H7dEcH+Iy80OUAI4THOECPE0AuAuikxIWxBzlKjg==
   dependencies:
     "@types/estree" "0.0.45"
     acorn "^7.3.1"
@@ -584,9 +579,9 @@ lodash.sortby@^4.7.0:
   integrity sha1-7dFMgk4sycHgsKG0K7UhBRakJDg=
 
 lodash@^4.17.15:
-  version "4.17.15"
-  resolved "https://registry.yarnpkg.com/lodash/-/lodash-4.17.15.tgz#b447f6670a0455bbfeedd11392eff330ea097548"
-  integrity sha512-8xOcRHvCjnocdS5cpwXQXVzmmh5e5+saE2QGoeQmbKmRS6J3VQppPOIt0MnmE+4xlZoumy0GPG0D0MVIQbNA1A==
+  version "4.17.19"
+  resolved "https://registry.yarnpkg.com/lodash/-/lodash-4.17.19.tgz#e48ddedbe30b3321783c5b4301fbd353bc1e4a4b"
+  integrity sha512-JNvd8XER9GQX0v2qJgsaN/mzFCNA5BRe/j8JN9d+tWyGLSodKQHKFicdwNYzWwI3wjRnaKPsGj1XkBjx/F96DQ==
 
 mime-db@1.44.0:
   version "1.44.0"
