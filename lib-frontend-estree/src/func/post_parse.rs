@@ -242,41 +242,45 @@ fn post_parse_scope<S: Scope, PE: ScopePrefixEmitter>(
 
     let new_depth = depth + 1;
 
-    // synthesise the struct for the address taken vars
-    let struct_idx = ir_program.struct_types.len();
-    let struct_type: Box<[ir::VarType]> = address_taken_vars
-        .iter()
-        .map(|_| ir::VarType::Any)
-        .collect();
-    ir_program.struct_types.push(struct_type);
+    let (new_num_locals, opt_struct_idx_and_target_undo_ctx) = if !address_taken_vars.is_empty() {
+        // synthesise the struct for the address taken vars
+        let struct_idx = ir_program.struct_types.len();
+        let struct_type: Box<[ir::VarType]> = address_taken_vars
+            .iter()
+            .map(|_| ir::VarType::Any)
+            .collect();
+        ir_program.struct_types.push(struct_type);
 
-    // generate the TargetExprs for the address taken vars
-    let target_expr_entries: Box<[(VarLocId, ir::TargetExpr)]> = address_taken_vars
-        .iter()
-        .copied()
-        .enumerate()
-        .map(|(ct, idx)| {
-            (
-                VarLocId {
-                    depth: new_depth,
-                    index: idx,
-                },
-                ir::TargetExpr::Local {
-                    localidx: num_locals,
-                    next: Some(Box::new(ir::StructField {
-                        typeidx: struct_idx,
-                        fieldidx: ct,
-                        next: None,
-                    })),
-                },
-            )
-        })
-        .collect();
+        // generate the TargetExprs for the address taken vars
+        let target_expr_entries: Box<[(VarLocId, ir::TargetExpr)]> = address_taken_vars
+            .iter()
+            .copied()
+            .enumerate()
+            .map(|(ct, idx)| {
+                (
+                    VarLocId {
+                        depth: new_depth,
+                        index: idx,
+                    },
+                    ir::TargetExpr::Local {
+                        localidx: num_locals,
+                        next: Some(Box::new(ir::StructField {
+                            typeidx: struct_idx,
+                            fieldidx: ct,
+                            next: None,
+                        })),
+                    },
+                )
+            })
+            .collect();
 
-    let new_num_locals = num_locals + 1;
+        // add these vars to the parse_ctx
+        let target_undo_ctx = parse_ctx.add_targets(target_expr_entries);
 
-    // add these vars to the parse_ctx
-    let target_undo_ctx = parse_ctx.add_targets(target_expr_entries);
+        (num_locals + 1, Some((struct_idx, target_undo_ctx)))
+    } else {
+        (num_locals, None)
+    };
 
     // same as post_parse_program() START
 
@@ -312,15 +316,6 @@ fn post_parse_scope<S: Scope, PE: ScopePrefixEmitter>(
 
     // make the actual ir:
     let mut sequence: Vec<ir::Expr> = Vec::new();
-    // create the struct allocation
-    let init_expr = ir::Expr {
-        vartype: Some(ir::VarType::StructT {
-            typeidx: struct_idx,
-        }),
-        kind: ir::ExprKind::PrimStructT {
-            typeidx: struct_idx,
-        },
-    };
 
     // emit the body
     {
@@ -364,27 +359,43 @@ fn post_parse_scope<S: Scope, PE: ScopePrefixEmitter>(
     // todo! IR should remove this Expr if the last stmt already returns undefined, so that we can ensure tail call in certain situations.
     sequence.push(make_prim_undefined());
 
-    let ret = ir::Expr {
+    let sequence_expr = ir::Expr {
         vartype: Some(ir::VarType::Undefined),
-        kind: ir::ExprKind::Declaration {
-            local: ir::VarType::StructT {
-                typeidx: struct_idx,
-            },
-            init: Some(Box::new(init_expr)),
-            contained_expr: Box::new(ir::Expr {
-                vartype: Some(ir::VarType::Undefined),
-                kind: ir::ExprKind::Sequence { content: sequence },
-            }),
-        },
+        kind: ir::ExprKind::Sequence { content: sequence },
     };
 
     // remove the direct entries from the parse_ctx
     parse_ctx.remove_directs(direct_undo_ctx);
 
-    // remove the vars from the parse_ctx
-    parse_ctx.remove_targets(target_undo_ctx);
+    Ok(match opt_struct_idx_and_target_undo_ctx {
+        Some((struct_idx, target_undo_ctx)) => {
+            // remove the vars from the parse_ctx
+            parse_ctx.remove_targets(target_undo_ctx);
 
-    Ok(ret)
+            // we need a struct for this scope
+            // create the struct allocation (wraps around the whole sequence)
+            let init_expr = ir::Expr {
+                vartype: Some(ir::VarType::StructT {
+                    typeidx: struct_idx,
+                }),
+                kind: ir::ExprKind::PrimStructT {
+                    typeidx: struct_idx,
+                },
+            };
+
+            ir::Expr {
+                vartype: Some(ir::VarType::Undefined),
+                kind: ir::ExprKind::Declaration {
+                    local: ir::VarType::StructT {
+                        typeidx: struct_idx,
+                    },
+                    init: Some(Box::new(init_expr)),
+                    contained_expr: Box::new(sequence_expr),
+                },
+            }
+        }
+        None => sequence_expr,
+    })
 }
 
 fn add_remaining_stmts<I: Iterator<Item = (Node, HashMap<String, Option<String>>)>>(
