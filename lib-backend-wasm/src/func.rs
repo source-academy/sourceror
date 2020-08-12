@@ -990,8 +990,10 @@ fn encode_expr<H: HeapManager>(
             expr_builder.i32_const(*code as i32);
             expr_builder.i32_const(0);
             expr_builder.i32_const(location.file as i32);
-            expr_builder.i32_const(location.start as i32);
-            expr_builder.i32_const(location.end as i32);
+            expr_builder.i32_const(location.start.line as i32);
+            expr_builder.i32_const(location.start.column as i32);
+            expr_builder.i32_const(location.end.line as i32);
+            expr_builder.i32_const(location.end.column as i32);
             expr_builder.call(ctx.error_func);
             expr_builder.unreachable();
             // in the future, PrimInst::Trap should take a error code parameter, and maybe source location
@@ -1922,6 +1924,8 @@ fn encode_thunk<H: HeapManager>(
         expr_builder.i32_const(ir::error::ERROR_CODE_FUNCTION_PARAM_TYPE as i32);
         expr_builder.i32_const(0);
         expr_builder.i32_const(0); // todo!(add actual source location)
+        expr_builder.i32_const(0);
+        expr_builder.i32_const(0);
         expr_builder.i32_const(0);
         expr_builder.i32_const(0);
         expr_builder.call(error_func);

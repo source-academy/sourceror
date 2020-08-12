@@ -203,7 +203,7 @@ pub async fn run_frontend<
                 &mut ir_toplevel_sequence,
             )
             .map_err(|cm| {
-                logger.log_msg(cm);
+                logger.log(cm);
             }),
             SourceItem::ImportSpec(import_spec) => {
                 assert!(deps.is_empty(), "Import spec should be empty");

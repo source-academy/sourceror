@@ -164,43 +164,37 @@ impl<E> CompileMessage<E> {
         &self.message
     }
 }
-impl<E: std::error::Error> std::error::Error for CompileMessage<E> {}
-impl<E: std::fmt::Display> std::fmt::Display for CompileMessage<E> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "At {}: {}: {}",
-            self.location.as_ref(),
-            self.severity,
-            self.message
-        )
+impl<E: std::fmt::Display> Loggable for CompileMessage<E> {
+    fn severity(&self) -> Severity {
+        self.severity
+    }
+    fn location<'a>(&'a self) -> SourceLocationRef<'a> {
+        self.location.as_ref()
+    }
+    fn message(&self) -> String {
+        format!("{}", self.message)
     }
 }
 
+/**
+ * A structured message that can be logged into js-slang format.
+ */
+pub trait Loggable {
+    fn severity(&self) -> Severity;
+    fn location<'a>(&'a self) -> SourceLocationRef<'a>;
+    fn message(&self) -> String;
+}
+
 pub trait Logger {
-    fn log(&self, message: String);
-    fn log_msg<M: Display>(&self, msg: M) {
-        self.log(format!("{}", msg));
-    }
-    /*fn display<M: std::fmt::Display, SL: Into<SourceLocation>>(
-        &self,
-        severity: Severity,
-        message: M,
-        loc: SL,
-    ) {
-        self.log(severity, format!("{}", message), loc.into());
-    }
-    fn error<M: std::fmt::Display, SL: Into<SourceLocation>>(&self, message: M, loc: SL) {
-        self.log(Severity::Error, format!("{}", message), loc.into());
-    }*/
+    fn log<L: Loggable>(&self, content: L);
 }
 
 pub trait LogErr<R> {
     fn log_err<L: Logger>(self, logger: &L) -> R;
 }
 
-impl<T, E: std::fmt::Display> LogErr<Result<T, ()>> for Result<T, E> {
+impl<T, E: Loggable> LogErr<Result<T, ()>> for Result<T, E> {
     fn log_err<L: Logger>(self, logger: &L) -> Result<T, ()> {
-        self.map_err(|e| logger.log_msg(e))
+        self.map_err(|e| logger.log(e))
     }
 }

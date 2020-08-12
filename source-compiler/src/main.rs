@@ -38,8 +38,13 @@ const IMPORT_MISC: &'static str = r#"
 #[derive(Copy, Clone)]
 pub struct MainLogger {}
 impl log::Logger for MainLogger {
-    fn log(&self, message: String) {
-        print!("logger: {}", message);
+    fn log<L: log::Loggable>(&self, content: L) {
+        print!(
+            "logger: {}: {}: {}",
+            content.severity(),
+            content.location(),
+            content.message()
+        );
     }
 }
 

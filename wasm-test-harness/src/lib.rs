@@ -112,6 +112,8 @@ impl<A: Fn(Box<[u8]>) -> ()> TestContext for NormalContext<A> {
                     wasmgen::ValType::I32,
                     wasmgen::ValType::I32,
                     wasmgen::ValType::I32,
+                    wasmgen::ValType::I32,
+                    wasmgen::ValType::I32,
                 ]),
                 Box::new([]),
             ),
