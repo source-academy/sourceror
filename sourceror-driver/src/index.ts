@@ -74,23 +74,21 @@ export async function compile(
     );
   }
   let es_str: string = JSON.stringify(estree);
-  let wasm_context: number = Sourceror.createContext((message: string) => {
+  let wasm_context: number = Sourceror.createContext((severity: number, location_file: string, location_start_line: number, location_start_column: number, location_end_line: number, location_end_column: number, message: string) => {
     context.errors.push({
       type: ErrorType.SYNTAX,
-      /*severity: severity_code >= 4 ? ErrorSeverity.ERROR : ErrorSeverity.WARNING, // Sourceror supports other severity levels, but js-slang does not
+      severity: severity >= 4 ? ErrorSeverity.ERROR : ErrorSeverity.WARNING, // Sourceror supports other severity levels, but js-slang does not
       location: {
-        source: null,
+        source: location_file ? location_file : undefined,
         start: {
-          line,
-          column,
+          line: location_start_line,
+          column: location_start_column,
         },
         end: {
-          line,
-          column: column + 1,
+          line: location_end_line,
+          column: location_end_column,
         },
-      },*/
-      severity: ErrorSeverity.ERROR,
-      location: undefined as unknown as es.SourceLocation, // shhhh
+      },
       explain: (): string => message,
       elaborate: (): string => "",
     });
@@ -123,7 +121,7 @@ export async function compile(
             type: ErrorType.SYNTAX,
             severity: ErrorSeverity.ERROR,
             location: {
-              source: null,
+              source: undefined,
               start: {
                 line: 0,
                 column: 0,
@@ -223,22 +221,24 @@ export async function run(
       code: number,
       detail: number,
       file: number,
-      line: number,
-      column: number,
+      start_line: number,
+      start_column: number,
+      end_line: number,
+      end_column: number,
     ) => {
       const [explain, elaborate] = stringifySourcerorRuntimeErrorCode(code);
       context.errors.push({
         type: ErrorType.RUNTIME,
         severity: ErrorSeverity.ERROR,
         location: {
-          source: null,
+          source: undefined,
           start: {
-            line,
-            column,
+            line: start_line,
+            column: start_column,
           },
           end: {
-            line,
-            column: column + 1,
+            line: end_line,
+            column: end_column,
           },
         },
         explain: (): string => explain,

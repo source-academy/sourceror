@@ -754,8 +754,8 @@ fn try_devirtualize_appl(expr: &mut Expr, local_map: &mut Relabeller, ctx: Conte
                             code: error::ERROR_CODE_FUNCTION_PARAM_TYPE,
                             location: SourceLocation {
                                 file: 0,
-                                start: 0,
-                                end: 0,
+                                start: Position { line: 0, column: 0 },
+                                end: Position { line: 0, column: 0 },
                             },
                         },
                     });
@@ -921,8 +921,8 @@ fn try_devirtualize_appl(expr: &mut Expr, local_map: &mut Relabeller, ctx: Conte
                                             code: error::ERROR_CODE_FUNCTION_PARAM_TYPE,
                                             location: SourceLocation {
                                                 file: 0,
-                                                start: 0,
-                                                end: 0,
+                                                start: Position { line: 0, column: 0 },
+                                                end: Position { line: 0, column: 0 },
                                             },
                                         },
                                     });

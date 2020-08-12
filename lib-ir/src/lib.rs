@@ -297,8 +297,8 @@ Represents a location in a source file.
 #[derive(Default, Debug, Copy, Clone)]
 pub struct SourceLocation {
     pub file: u32,
-    pub start: u32,
-    pub end: u32,
+    pub start: Position,
+    pub end: Position,
 }
 
 impl Program {

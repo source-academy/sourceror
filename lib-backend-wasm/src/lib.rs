@@ -116,6 +116,8 @@ fn encode_program(ir_program: &ir::Program, options: Options) -> wasmgen::WasmMo
                 wasmgen::ValType::I32,
                 wasmgen::ValType::I32,
                 wasmgen::ValType::I32,
+                wasmgen::ValType::I32,
+                wasmgen::ValType::I32,
             ]),
             Box::new([]),
         ),

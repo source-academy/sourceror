@@ -20,7 +20,16 @@ use projstd;
 #[wasm_bindgen]
 extern "C" {
     #[wasm_bindgen(js_name = sourcerorLogCallback)]
-    pub fn compiler_log(context: i32, message: String);
+    pub fn compiler_log(
+        context: i32,
+        severity: i32,
+        location_file: &str, /* main file gets empty string */
+        location_start_line: i32,
+        location_start_column: i32,
+        location_end_line: i32,
+        location_end_column: i32,
+        message: String,
+    );
 
     #[wasm_bindgen(js_name = sourcerorFetchDepCallback)]
     pub fn fetch_dep(context: i32, name: String) -> js_sys::Promise;
@@ -45,8 +54,18 @@ impl MainLogger {
 }
 
 impl projstd::log::Logger for MainLogger {
-    fn log(&self, message: String) {
-        compiler_log(self.context, message);
+    fn log<L: projstd::log::Loggable>(&self, content: L) {
+        let loc = content.location();
+        compiler_log(
+            self.context,
+            content.severity().code(),
+            loc.source.unwrap_or(""),
+            loc.start.line,
+            loc.start.column,
+            loc.end.line,
+            loc.end.column,
+            content.message(),
+        );
     }
 }
 

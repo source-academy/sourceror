@@ -137,6 +137,8 @@ impl<'a, 'b, 'c> Leaky<'a, 'b, 'c> {
                 expr_builder.i32_const(0);
                 expr_builder.i32_const(0);
                 expr_builder.i32_const(0);
+                expr_builder.i32_const(0);
+                expr_builder.i32_const(0);
                 expr_builder.call(self.error_func);
                 expr_builder.unreachable();
             }

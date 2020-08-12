@@ -2162,8 +2162,20 @@ fn as_id_ref(es_node: &Node) -> &Identifier {
 // TODO: store both line and column, and make fileidx work.
 fn as_ir_sl(opt_es_sl: &Option<SourceLocation>, fileidx: u32) -> ir::SourceLocation {
     let (start, end) = match opt_es_sl {
-        Some(es_sl) => (es_sl.start.line as u32, es_sl.end.line as u32),
-        None => (0, 0),
+        Some(es_sl) => (
+            ir::Position {
+                line: es_sl.start.line as u32,
+                column: es_sl.start.column as u32,
+            },
+            ir::Position {
+                line: es_sl.end.line as u32,
+                column: es_sl.start.column as u32,
+            },
+        ),
+        None => (
+            ir::Position { line: 0, column: 0 },
+            ir::Position { line: 0, column: 0 },
+        ),
     };
     ir::SourceLocation {
         file: fileidx,
