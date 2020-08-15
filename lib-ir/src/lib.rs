@@ -191,6 +191,7 @@ pub enum ExprKind {
     Appl {
         func: Box<Expr>,
         args: Box<[Expr]>,
+        location: SourceLocation, // will be displayed in the error message if the signature mismatches
     }, // function application (operators are functions too).  Closure parameter is implicitly prepended to the argument list.  Called using Source indirect calling convention (closure, length, and callerid as i32 params; others are Any and on unprotected stack). Static type of func must be func.
     DirectAppl {
         funcidx: FuncIdx,
@@ -225,7 +226,7 @@ pub enum ExprKind {
     }, // returns the value of the last expression, or `undefined` if there are zero expressions
     Trap {
         code: u32,
-        location: SourceLocation,
+        location: SourceLocation, // will be displayed in the error message
     }, // has Void type
 }
 
@@ -285,7 +286,7 @@ pub enum Builtin {
 }
 pub const NUM_BUILTINS: u8 = Builtin::UnaryMinus as u8 + 1;
 
-#[derive(Default, Debug, Copy, Clone)]
+#[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct Position {
     pub line: u32,
     pub column: u32,
@@ -294,7 +295,7 @@ pub struct Position {
 /*
 Represents a location in a source file.
 */
-#[derive(Default, Debug, Copy, Clone)]
+#[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct SourceLocation {
     pub file: u32,
     pub start: Position,

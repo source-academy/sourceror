@@ -23,16 +23,17 @@ pub struct ShiftedStringPool {
 #[derive(Default)]
 pub struct TraverseResult {
     pub string_pool: StringPool,
-    //pub addressed_funcs: SearchableVec<ir::FuncIdx>, // list of functions called by PrimFunc
     // map from [FuncIdx] to tableidx, since [FuncIdx] uniquely determines the thunk content
     // (note: we can know the signature from the funcidx)
     pub thunk_sv: SearchableVec<Box<[ir::OverloadEntry]>>,
+    pub appl_location_sv: SearchableVec<ir::SourceLocation>,
 }
 
 /*
 Traverses the IR to:
 - put all string constants in a string pool, and encodes the static data buffer
-- put all addressed functions in a vector
+- put all overload sets (thunks) in a SearchableVec
+- extract all SourceLocations in Appls into a SearchableVec
 */
 pub fn pre_traverse_funcs(funcs: &[ir::Func]) -> TraverseResult {
     let mut res = TraverseResult::default();
@@ -80,9 +81,14 @@ fn pre_traverse_expr_kind(expr_kind: &ir::ExprKind, res: &mut TraverseResult) {
         }
         ir::ExprKind::VarName { source: _ } => {}
         ir::ExprKind::PrimAppl { prim_inst: _, args } => pre_traverse_exprs(args, res),
-        ir::ExprKind::Appl { func, args } => {
+        ir::ExprKind::Appl {
+            func,
+            args,
+            location,
+        } => {
             pre_traverse_expr(func, res);
             pre_traverse_exprs(args, res);
+            res.appl_location_sv.insert_copy(location);
         }
         ir::ExprKind::DirectAppl { funcidx: _, args } => pre_traverse_exprs(args, res),
         ir::ExprKind::Conditional {
@@ -171,4 +177,30 @@ impl ShiftedStringPool {
     pub fn lookup(&self, str: &String) -> u32 {
         *self.map.get(str).unwrap()
     }
+}
+
+// encodes the appl_location_sv into static data
+// returns the data and the map from the SourceLocation to the index in memory (using the given `offset` to adjust this index)
+pub fn make_appl_location_static_data(
+    appl_location_sv: SearchableVec<ir::SourceLocation>,
+    offset: u32,
+) -> (Box<[u8]>, HashMap<ir::SourceLocation, u32>) {
+    let (v, hm) = appl_location_sv.into_parts();
+    let mut ret_bytes = Vec::new();
+    // 4 bytes per u32, and 5 u32 to specify the location, so 20 bytes per iterm
+    let ret_len = v.len() * 20;
+    ret_bytes.reserve_exact(ret_len);
+    for sl in v {
+        ret_bytes.extend_from_slice(&sl.file.to_le_bytes());
+        ret_bytes.extend_from_slice(&sl.start.line.to_le_bytes());
+        ret_bytes.extend_from_slice(&sl.start.column.to_le_bytes());
+        ret_bytes.extend_from_slice(&sl.end.line.to_le_bytes());
+        ret_bytes.extend_from_slice(&sl.end.column.to_le_bytes());
+    }
+    assert!(ret_bytes.len() == ret_len);
+    let ret_hm: HashMap<ir::SourceLocation, u32> = hm
+        .into_iter()
+        .map(|(sl, idx)| (sl, offset + (idx as u32) * 20))
+        .collect();
+    (ret_bytes.into_boxed_slice(), ret_hm)
 }

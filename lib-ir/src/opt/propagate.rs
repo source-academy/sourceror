@@ -200,7 +200,11 @@ fn optimize_expr(expr: &mut Expr, local_map: &mut Relabeller, ctx: Context) -> b
             }
             ret | try_const_eval(expr)
         }
-        ExprKind::Appl { func, args } => {
+        ExprKind::Appl {
+            func,
+            args,
+            location: _,
+        } => {
             let mut ret = optimize_expr(func, local_map, ctx);
             if func.vartype.is_none() {
                 let tmp_func = std::mem::replace(&mut **func, dummy_expr());
@@ -699,7 +703,12 @@ fn try_const_eval(expr: &mut Expr) -> bool {
  */
 fn try_devirtualize_appl(expr: &mut Expr, local_map: &mut Relabeller, ctx: Context) -> bool {
     assert!(expr.vartype == Some(VarType::Any));
-    if let ExprKind::Appl { func, args } = &mut expr.kind {
+    if let ExprKind::Appl {
+        func,
+        args,
+        location,
+    } = &mut expr.kind
+    {
         if let ExprKind::PrimFunc { funcidxs, closure } = &mut func.kind {
             // args will be temporarily saved into locals
             // we don't create Declarations now; we just wrap them later
@@ -752,11 +761,7 @@ fn try_devirtualize_appl(expr: &mut Expr, local_map: &mut Relabeller, ctx: Conte
                         vartype: None,
                         kind: ExprKind::Trap {
                             code: error::ERROR_CODE_FUNCTION_PARAM_TYPE,
-                            location: SourceLocation {
-                                file: 0,
-                                start: Position { line: 0, column: 0 },
-                                end: Position { line: 0, column: 0 },
-                            },
+                            location: std::mem::take(location),
                         },
                     });
 
@@ -777,6 +782,7 @@ fn try_devirtualize_appl(expr: &mut Expr, local_map: &mut Relabeller, ctx: Conte
                         args: &[Expr],
                         mut it: impl Iterator<Item = OverloadEntry>,
                         ctx: Context,
+                        location: SourceLocation,
                         out: &mut Vec<Expr>,
                     ) -> Option<VarType> {
                         if idx == args.len() {
@@ -869,6 +875,7 @@ fn try_devirtualize_appl(expr: &mut Expr, local_map: &mut Relabeller, ctx: Conte
                                         args,
                                         boxed_it2,
                                         ctx,
+                                        location,
                                         out,
                                     ),
                                 );
@@ -889,6 +896,7 @@ fn try_devirtualize_appl(expr: &mut Expr, local_map: &mut Relabeller, ctx: Conte
                                         args,
                                         boxed_it2,
                                         ctx,
+                                        location,
                                         &mut new_out,
                                     ),
                                 );
@@ -919,11 +927,7 @@ fn try_devirtualize_appl(expr: &mut Expr, local_map: &mut Relabeller, ctx: Conte
                                         vartype: None,
                                         kind: ExprKind::Trap {
                                             code: error::ERROR_CODE_FUNCTION_PARAM_TYPE,
-                                            location: SourceLocation {
-                                                file: 0,
-                                                start: Position { line: 0, column: 0 },
-                                                end: Position { line: 0, column: 0 },
-                                            },
+                                            location: location,
                                         },
                                     });
                                 }
@@ -951,6 +955,7 @@ fn try_devirtualize_appl(expr: &mut Expr, local_map: &mut Relabeller, ctx: Conte
                                 args,
                                 allowable_overloads.into_iter(),
                                 ctx,
+                                *location,
                                 &mut tmp_exprs,
                             );
                             (make_sequence_from_exprs(tmp_exprs), unioned_type)

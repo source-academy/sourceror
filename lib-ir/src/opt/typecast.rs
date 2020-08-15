@@ -139,7 +139,11 @@ fn optimize_expr(expr: &mut Expr, local_map: &mut Relabeller) -> bool {
         ExprKind::PrimAppl { prim_inst: _, args } => args
             .iter_mut()
             .fold(false, |prev, arg| prev | optimize_expr(arg, local_map)),
-        ExprKind::Appl { func, args } => {
+        ExprKind::Appl {
+            func,
+            args,
+            location: _,
+        } => {
             optimize_expr(func, local_map)
                 | args
                     .iter_mut()
