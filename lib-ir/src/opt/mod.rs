@@ -11,7 +11,7 @@ use super::*;
  */
 pub fn optimize_mandatory(mut program: Program) -> Program {
     let mut n: usize = 0;
-    const total: usize = 2;
+    const TOTAL: usize = 2;
     loop {
         {
             let (new_program, changed) = unreachable::optimize(program);
@@ -21,7 +21,7 @@ pub fn optimize_mandatory(mut program: Program) -> Program {
             } else {
                 n += 1;
             }
-            if n == total {
+            if n == TOTAL {
                 break;
             }
         }
@@ -33,7 +33,7 @@ pub fn optimize_mandatory(mut program: Program) -> Program {
             } else {
                 n += 1;
             }
-            if n == total {
+            if n == TOTAL {
                 break;
             }
         }
