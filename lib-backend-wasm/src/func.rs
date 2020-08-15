@@ -21,7 +21,7 @@ use boolinator::*;
 
 use std::collections::HashMap;
 
-struct EncodeContext<'a, 'b, 'c, 'd, 'e, 'f, 'g, 'h, Heap: HeapManager> {
+struct EncodeContext<'a, 'b, 'c, 'd, 'e, 'f, 'g, 'h, 'i, Heap: HeapManager> {
     // Local to this function
     return_type: Option<ir::VarType>,
 
@@ -38,19 +38,20 @@ struct EncodeContext<'a, 'b, 'c, 'd, 'e, 'f, 'g, 'h, Heap: HeapManager> {
     stackptr: wasmgen::GlobalIdx,
     memidx: wasmgen::MemIdx,
     thunk_map: &'f HashMap<Box<[ir::OverloadEntry]>, u32>, // map from overloads to elemidx
-    heap: &'g Heap,
-    string_pool: &'h ShiftedStringPool,
+    appl_data_encoder: &'g HashMap<ir::SourceLocation, u32>, // map from source location to the location in memory of the args
+    heap: &'h Heap,
+    string_pool: &'i ShiftedStringPool,
     error_func: wasmgen::FuncIdx, // imported function to call to error out (e.g. runtime type errors)
     options: Options,             // Compilation options (it implements Copy)
 }
 
 // Have to implement Copy and Clone manually, because #[derive(Copy, Clone)] doesn't work for generic types like Heap
-impl<'a, 'b, 'c, 'd, 'e, 'f, 'g, 'h, Heap: HeapManager> Copy
-    for EncodeContext<'a, 'b, 'c, 'd, 'e, 'f, 'g, 'h, Heap>
+impl<'a, 'b, 'c, 'd, 'e, 'f, 'g, 'h, 'i, Heap: HeapManager> Copy
+    for EncodeContext<'a, 'b, 'c, 'd, 'e, 'f, 'g, 'h, 'i, Heap>
 {
 }
-impl<'a, 'b, 'c, 'd, 'e, 'f, 'g, 'h, Heap: HeapManager> Clone
-    for EncodeContext<'a, 'b, 'c, 'd, 'e, 'f, 'g, 'h, Heap>
+impl<'a, 'b, 'c, 'd, 'e, 'f, 'g, 'h, 'i, Heap: HeapManager> Clone
+    for EncodeContext<'a, 'b, 'c, 'd, 'e, 'f, 'g, 'h, 'i, Heap>
 {
     fn clone(&self) -> Self {
         *self
@@ -106,6 +107,7 @@ pub fn encode_funcs<'a, Heap: HeapManager>(
     globalidx_stackptr: wasmgen::GlobalIdx,
     memidx: wasmgen::MemIdx,
     thunk_sv: SearchableVec<Box<[ir::OverloadEntry]>>,
+    appl_data_encoder: HashMap<ir::SourceLocation, u32>,
     heap: &Heap,
     string_pool: &ShiftedStringPool,
     error_func: wasmgen::FuncIdx,
@@ -113,7 +115,6 @@ pub fn encode_funcs<'a, Heap: HeapManager>(
     wasm_module: &mut wasmgen::WasmModule,
 ) {
     struct WasmRegistry {
-        typeidx: wasmgen::TypeIdx,
         funcidx: wasmgen::FuncIdx,
         wasm_param_map: Box<[wasmgen::LocalIdx]>, // map converts wasm_param_map index to actual wasm param index
         param_map: Box<[usize]>, // map converts ir param index to wasm_param_map index
@@ -140,11 +141,10 @@ pub fn encode_funcs<'a, Heap: HeapManager>(
                     wasm_param_valtypes,
                     encode_result(ir_func.result, options.wasm_multi_value),
                 );
-                let (wasm_typeidx, wasm_funcidx) = wasm_module.register_func(&wasm_functype);
+                let (_, wasm_funcidx) = wasm_module.register_func(&wasm_functype);
                 let code_builder = wasmgen::CodeBuilder::new(wasm_functype);
                 (
                     WasmRegistry {
-                        typeidx: wasm_typeidx,
                         funcidx: wasm_funcidx,
                         wasm_param_map: wasm_param_map,
                         param_map: param_map,
@@ -194,6 +194,7 @@ pub fn encode_funcs<'a, Heap: HeapManager>(
                     memidx: memidx,
                     heap: heap,
                     thunk_map: &new_thunk_map,
+                    appl_data_encoder: &appl_data_encoder,
                     string_pool: string_pool,
                     error_func: error_func,
                     options: options,
@@ -240,6 +241,7 @@ pub fn encode_funcs<'a, Heap: HeapManager>(
                     memidx: memidx,
                     heap: heap,
                     thunk_map: &new_thunk_map,
+                    appl_data_encoder: &appl_data_encoder,
                     string_pool: string_pool,
                     error_func: error_func,
                     options: options,
@@ -757,9 +759,21 @@ fn encode_expr<H: HeapManager>(
             encode_prim_inst(expr.vartype, *prim_inst, args, ctx, mutctx, expr_builder);
             true
         }
-        ir::ExprKind::Appl { func, args } => {
+        ir::ExprKind::Appl {
+            func,
+            args,
+            location,
+        } => {
             // encodes an indirect function call
-            encode_appl(expr.vartype, func, args, ctx, mutctx, expr_builder);
+            encode_appl(
+                expr.vartype,
+                func,
+                args,
+                location,
+                ctx,
+                mutctx,
+                expr_builder,
+            );
             true
         }
         ir::ExprKind::DirectAppl { funcidx, args } => {
@@ -1227,6 +1241,7 @@ fn encode_appl<H: HeapManager>(
     return_type: Option<ir::VarType>,
     func_expr: &ir::Expr,
     args: &[ir::Expr],
+    location: &ir::SourceLocation,
     ctx: EncodeContext<H>,
     mutctx: &mut MutContext,
     expr_builder: &mut wasmgen::ExprBuilder,
@@ -1269,10 +1284,9 @@ fn encode_appl<H: HeapManager>(
             expr_builder,
         );
 
-        // TODO: encode the proper caller id
-        // for now just use zero
+        // encode the proper caller id (which is the memory location of the SourceLocation)
         // net wasm stack: [] -> [i32(callerid)]
-        expr_builder.i32_const(0);
+        expr_builder.i32_const(*ctx.appl_data_encoder.get(location).unwrap() as i32);
 
         // push the tableidx onto the stack
         // net wasm stack: [] -> [tableidx]
@@ -1921,14 +1935,23 @@ fn encode_thunk<H: HeapManager>(
         sourceloc_ref: wasmgen::LocalIdx,
         expr_builder: &mut wasmgen::ExprBuilder,
     ) {
+        // we need to fetch the actual source location from the static memory to set as arguments of the error_func
         expr_builder.i32_const(ir::error::ERROR_CODE_FUNCTION_PARAM_TYPE as i32);
         expr_builder.i32_const(0);
-        expr_builder.i32_const(0); // todo!(add actual source location)
-        expr_builder.i32_const(0);
-        expr_builder.i32_const(0);
-        expr_builder.i32_const(0);
-        expr_builder.i32_const(0);
+        // the source location is 5 of u32s
+        expr_builder.local_get(sourceloc_ref);
+        expr_builder.i32_load(wasmgen::MemArg::new4(0));
+        expr_builder.local_get(sourceloc_ref);
+        expr_builder.i32_load(wasmgen::MemArg::new4(4));
+        expr_builder.local_get(sourceloc_ref);
+        expr_builder.i32_load(wasmgen::MemArg::new4(8));
+        expr_builder.local_get(sourceloc_ref);
+        expr_builder.i32_load(wasmgen::MemArg::new4(12));
+        expr_builder.local_get(sourceloc_ref);
+        expr_builder.i32_load(wasmgen::MemArg::new4(16));
+        // call the error_func with 7 arguments
         expr_builder.call(error_func);
+        // the error func is noreturn, so we want to tell wasm that it is indeed noreturn
         expr_builder.unreachable();
     }
 }

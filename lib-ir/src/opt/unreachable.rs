@@ -50,7 +50,11 @@ fn optimize_expr(expr: &mut Expr) -> bool {
         ExprKind::PrimAppl { prim_inst: _, args } => args
             .iter_mut()
             .fold(false, |prev, arg| prev | optimize_expr(arg)),
-        ExprKind::Appl { func, args } => {
+        ExprKind::Appl {
+            func,
+            args,
+            location: _,
+        } => {
             optimize_expr(func)
                 | args
                     .iter_mut()

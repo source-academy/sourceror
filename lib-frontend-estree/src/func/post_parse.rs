@@ -1695,7 +1695,6 @@ fn post_parse_varname(
             // it's a direct, so we have to synthesise a wrapper func for it
             post_parse_direct_varname(
                 es_id.name.as_str(),
-                loc,
                 parse_ctx,
                 depth,
                 num_locals,
@@ -1708,7 +1707,6 @@ fn post_parse_varname(
 
 fn post_parse_direct_varname(
     name: &str,
-    _loc: Option<esSL>,
     parse_ctx: &mut ParseState,
     _depth: usize,
     _num_locals: usize, // current number of IR locals
@@ -2012,6 +2010,7 @@ fn post_parse_call_expr(
     };
     post_parse_call_func_with_params_helper(
         func,
+        loc,
         es_call_expr.arguments.into_iter(),
         parse_ctx,
         depth,
@@ -2023,6 +2022,7 @@ fn post_parse_call_expr(
 
 fn post_parse_call_func_with_params_helper(
     func_expr: ir::Expr,
+    loc: Option<esSL>,
     args_iter: impl ExactSizeIterator<Item = Node> + DoubleEndedIterator<Item = Node>,
     parse_ctx: &mut ParseState,
     depth: usize,
@@ -2038,6 +2038,7 @@ fn post_parse_call_func_with_params_helper(
         kind: ir::ExprKind::Appl {
             func: Box::new(func_expr),
             args: args,
+            location: as_ir_sl(&loc, 0 /*FILE*/),
         },
     })
 }
@@ -2056,11 +2057,12 @@ fn post_parse_direct_call_helper(
     // IR should propage constants in order to convert this to a real direct call (perhaps by considering cases based on the param types here)
 
     let primfunc_expr: ir::Expr = post_parse_direct_varname(
-        func_name, loc, parse_ctx, depth, num_locals, filename, ir_program,
+        func_name, parse_ctx, depth, num_locals, filename, ir_program,
     )?;
 
     post_parse_call_func_with_params_helper(
         primfunc_expr,
+        loc,
         Vec::from(params).into_iter(),
         parse_ctx,
         depth,
@@ -2169,7 +2171,7 @@ fn as_ir_sl(opt_es_sl: &Option<SourceLocation>, fileidx: u32) -> ir::SourceLocat
             },
             ir::Position {
                 line: es_sl.end.line as u32,
-                column: es_sl.start.column as u32,
+                column: es_sl.end.column as u32,
             },
         ),
         None => (

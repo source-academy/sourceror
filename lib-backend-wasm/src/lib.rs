@@ -189,16 +189,25 @@ fn encode_program(ir_program: &ir::Program, options: Options) -> wasmgen::WasmMo
     let pre_traverse::TraverseResult {
         string_pool,
         thunk_sv,
+        appl_location_sv,
     } = pre_traverse::pre_traverse_funcs(&ir_program.funcs);
 
-    let (shifted_string_pool, mut pool_data) =
+    let (shifted_string_pool, pool_data) =
         string_pool.into_shifted_and_buffer(MEM_STACK_SIZE << WASM_PAGE_BITS);
-    // round up to multiple of WASM_PAGE_SIZE
-    let required_data_size =
-        ((pool_data.len() as u32) + (WASM_PAGE_SIZE - 1)) & (!(WASM_PAGE_SIZE - 1));
-    pool_data.resize(required_data_size as usize, 0);
-    // in terms of WASM_PAGE_SIZE
-    let globals_num_pages: u32 = required_data_size >> WASM_PAGE_BITS;
+
+    assert!(pool_data.len() & 3 == 0); // assert that it is at 4-byte boundary
+
+    // make static data for appl locations
+    let (appl_data, appl_data_encoder) = pre_traverse::make_appl_location_static_data(
+        appl_location_sv,
+        (MEM_STACK_SIZE << WASM_PAGE_BITS) + pool_data.len() as u32,
+    );
+
+    assert!(appl_data.len() & 3 == 0); // assert that it is at 4-byte boundary
+
+    // in terms of WASM_PAGE_SIZE (rounded up to nearest page boundary)
+    let globals_num_pages: u32 =
+        ((pool_data.len() + appl_data.len()) as u32 + (WASM_PAGE_SIZE - 1)) >> WASM_PAGE_BITS;
 
     // add linear memory
     let memidx: wasmgen::MemIdx = encode_mem(
@@ -214,9 +223,17 @@ fn encode_program(ir_program: &ir::Program, options: Options) -> wasmgen::WasmMo
     wasm_module.export_mem(memidx, "linear_memory".to_string());
 
     // initialize pool data
-    encode_pool_data(
+    encode_static_data(
         &pool_data,
         MEM_STACK_SIZE << WASM_PAGE_BITS,
+        memidx,
+        &mut wasm_module,
+    );
+
+    // initialize appl data
+    encode_static_data(
+        &appl_data,
+        (MEM_STACK_SIZE << WASM_PAGE_BITS) + pool_data.len() as u32,
         memidx,
         &mut wasm_module,
     );
@@ -259,6 +276,7 @@ fn encode_program(ir_program: &ir::Program, options: Options) -> wasmgen::WasmMo
         globalidx_stackptr,
         memidx,
         thunk_sv,
+        appl_data_encoder,
         &heap,
         &shifted_string_pool,
         error_func,
@@ -306,7 +324,7 @@ fn encode_mem(num_pages: u32, wasm_module: &mut wasmgen::WasmModule) -> wasmgen:
     wasm_module.add_unbounded_memory(num_pages)
 }
 
-fn encode_pool_data(
+fn encode_static_data(
     pool_data: &[u8],
     offset: u32,
     memidx: wasmgen::MemIdx,
