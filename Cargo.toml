@@ -14,5 +14,8 @@ default-members = [
     "source-compiler",
 ]
 
+# Code is generally not exception-safe, so we do not want to catch any panics
+
 [profile.release]
 lto = true
+panic = "abort"

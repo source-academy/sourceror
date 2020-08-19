@@ -220,7 +220,7 @@ pub enum ExprKind {
     }, // jumps to the end of an enclosing Block or the beginning of an enclosing Loop; Break is noreturn
     Block {
         expr: Box<Expr>,
-    }, // Jump target for Break; type must be at least as wide as expr.vartype and all Breaks that target this block
+    }, // Jump landing for Break; type must be at least as wide as expr.vartype and all Breaks that target this block
     Sequence {
         content: Vec<Expr>,
     }, // returns the value of the last expression, or `undefined` if there are zero expressions
