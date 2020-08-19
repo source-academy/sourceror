@@ -1,5 +1,8 @@
+use super::landing_context::LandingContext;
 use super::relabeller::Relabeller;
 use super::superset::*;
+use super::union_type;
+use super::useful_update;
 use super::*;
 use itertools::Itertools;
 use projstd::iter::*;
@@ -36,13 +39,13 @@ pub fn optimize(mut program: Program) -> (Program, bool) {
 }
 
 #[derive(Copy, Clone)]
-pub struct Context<'a, 'b> {
+struct Context<'a, 'b> {
     param_types: &'a [Box<[VarType]>], // param type of each FuncIdx (including imports)
     result_types: &'b [Option<VarType>], // result type of each FuncIdx (including imports)
 }
 
 /**
- * Optimises the function the function.
+ * Optimises the function.
  * The return value is true if the function got changed, or false otherwise.
  */
 fn optimize_func(func: &mut Func, ctx: Context) -> bool {
@@ -50,6 +53,7 @@ fn optimize_func(func: &mut Func, ctx: Context) -> bool {
         &mut func.expr,
         &mut Relabeller::new_with_identities(0..func.params.len()),
         ctx,
+        &mut LandingContext::for_new_func(),
     )
 }
 
@@ -67,7 +71,16 @@ fn relabel_target(target: &mut TargetExpr, local_map: &mut Relabeller) -> bool {
     }
 }
 
-fn optimize_expr(expr: &mut Expr, local_map: &mut Relabeller, ctx: Context) -> bool {
+/**
+ * Optimises the expr.
+ * The return value is true if the function got changed, or false otherwise.
+ */
+fn optimize_expr(
+    expr: &mut Expr,
+    local_map: &mut Relabeller,
+    ctx: Context,
+    landing_ctx: &mut LandingContext,
+) -> bool {
     // Note: we explicitly list out all possibilities so we will get a compile error if a new exprkind is added.
     match &mut expr.kind {
         ExprKind::PrimUndefined => {
@@ -94,7 +107,7 @@ fn optimize_expr(expr: &mut Expr, local_map: &mut Relabeller, ctx: Context) -> b
             funcidxs: _,
             closure,
         } => {
-            let ret = optimize_expr(&mut **closure, local_map, ctx);
+            let ret = optimize_expr(&mut **closure, local_map, ctx, landing_ctx);
             if closure.vartype.is_none() {
                 let expr_tmp = std::mem::replace(&mut **closure, dummy_expr());
                 *expr = expr_tmp;
@@ -112,7 +125,7 @@ fn optimize_expr(expr: &mut Expr, local_map: &mut Relabeller, ctx: Context) -> b
         } => {
             assert!(*expected != VarType::Any); // expected should never be any, otherwise we shouldn't have emitted this cast
             let cnl = *create_narrow_local;
-            let test_res = optimize_expr(&mut **test, local_map, ctx);
+            let test_res = optimize_expr(&mut **test, local_map, ctx, landing_ctx);
             match test.vartype {
                 None => {
                     // test expr is noreturn
@@ -126,14 +139,16 @@ fn optimize_expr(expr: &mut Expr, local_map: &mut Relabeller, ctx: Context) -> b
                         let ret = test_res
                             | if cnl {
                                 local_map.with_entry(|local_map, _, _| {
-                                    optimize_expr(&mut **true_expr, local_map, ctx)
+                                    optimize_expr(&mut **true_expr, local_map, ctx, landing_ctx)
                                 })
                             } else {
-                                optimize_expr(&mut **true_expr, local_map, ctx)
+                                optimize_expr(&mut **true_expr, local_map, ctx, landing_ctx)
                             }
-                            | optimize_expr(&mut **false_expr, local_map, ctx);
-                        expr.vartype = union_type(true_expr.vartype, false_expr.vartype);
-                        ret
+                            | optimize_expr(&mut **false_expr, local_map, ctx, landing_ctx);
+                        ret | useful_update(
+                            &mut expr.vartype,
+                            union_type(true_expr.vartype, false_expr.vartype),
+                        )
                     } else {
                         fn write_expr(
                             out: &mut Expr,
@@ -166,16 +181,16 @@ fn optimize_expr(expr: &mut Expr, local_map: &mut Relabeller, ctx: Context) -> b
                             // only need the true branch
                             if cnl {
                                 local_map.with_entry(|local_map, _, _| {
-                                    optimize_expr(&mut **true_expr, local_map, ctx);
+                                    optimize_expr(&mut **true_expr, local_map, ctx, landing_ctx);
                                 })
                             } else {
-                                optimize_expr(&mut **true_expr, local_map, ctx);
+                                optimize_expr(&mut **true_expr, local_map, ctx, landing_ctx);
                             }
                             let true_tmp = std::mem::replace(&mut **true_expr, dummy_expr());
                             write_expr(expr, vartype, test_tmp, true_tmp, cnl); // also sets expr.vartype appropriately
                         } else {
                             // only need the false branch
-                            optimize_expr(&mut **false_expr, local_map, ctx);
+                            optimize_expr(&mut **false_expr, local_map, ctx, landing_ctx);
                             let false_tmp = std::mem::replace(&mut **false_expr, dummy_expr());
                             write_expr(expr, vartype, test_tmp, false_tmp, false);
                             // also sets expr.vartype appropriately
@@ -190,7 +205,7 @@ fn optimize_expr(expr: &mut Expr, local_map: &mut Relabeller, ctx: Context) -> b
         ExprKind::PrimAppl { prim_inst: _, args } => {
             let mut ret = false;
             for (i, arg) in args.iter_mut().enumerate() {
-                ret |= optimize_expr(arg, local_map, ctx);
+                ret |= optimize_expr(arg, local_map, ctx, landing_ctx);
                 if arg.vartype.is_none() {
                     let mut tmp_args = std::mem::take(args).into_vec();
                     tmp_args.truncate(i + 1);
@@ -205,14 +220,14 @@ fn optimize_expr(expr: &mut Expr, local_map: &mut Relabeller, ctx: Context) -> b
             args,
             location: _,
         } => {
-            let mut ret = optimize_expr(func, local_map, ctx);
+            let mut ret = optimize_expr(func, local_map, ctx, landing_ctx);
             if func.vartype.is_none() {
                 let tmp_func = std::mem::replace(&mut **func, dummy_expr());
                 *expr = tmp_func;
                 true
             } else {
                 for (i, arg) in args.iter_mut().enumerate() {
-                    ret |= optimize_expr(arg, local_map, ctx);
+                    ret |= optimize_expr(arg, local_map, ctx, landing_ctx);
                     if arg.vartype.is_none() {
                         let tmp_func = std::mem::replace(&mut **func, dummy_expr());
                         let mut tmp_args = std::mem::take(args).into_vec();
@@ -222,13 +237,13 @@ fn optimize_expr(expr: &mut Expr, local_map: &mut Relabeller, ctx: Context) -> b
                         return true;
                     }
                 }
-                ret | try_devirtualize_appl(expr, local_map, ctx) // note: inlining is not done in this optimization, because those heuristics are complicated
+                ret | try_devirtualize_appl(expr, local_map, ctx, landing_ctx) // note: inlining is not done in this optimization, because those heuristics are complicated
             }
         }
         ExprKind::DirectAppl { funcidx, args } => {
             let mut ret = false;
             for (i, arg) in args.iter_mut().enumerate() {
-                ret |= optimize_expr(arg, local_map, ctx);
+                ret |= optimize_expr(arg, local_map, ctx, landing_ctx);
                 if arg.vartype.is_none() {
                     let mut tmp_args = std::mem::take(args).into_vec();
                     tmp_args.truncate(i + 1);
@@ -236,15 +251,14 @@ fn optimize_expr(expr: &mut Expr, local_map: &mut Relabeller, ctx: Context) -> b
                     return true;
                 }
             }
-            expr.vartype = ctx.result_types[*funcidx];
-            ret
+            ret | useful_update(&mut expr.vartype, ctx.result_types[*funcidx])
         }
         ExprKind::Conditional {
             cond,
             true_expr,
             false_expr,
         } => {
-            let cond_res = optimize_expr(&mut **cond, local_map, ctx);
+            let cond_res = optimize_expr(&mut **cond, local_map, ctx, landing_ctx);
             if cond.vartype.is_none() {
                 let expr_tmp = std::mem::replace(&mut **cond, dummy_expr());
                 *expr = expr_tmp;
@@ -255,13 +269,13 @@ fn optimize_expr(expr: &mut Expr, local_map: &mut Relabeller, ctx: Context) -> b
                     // just keep and optimize the reachable branch
                     if cond_val {
                         // true_expr is reachable
-                        optimize_expr(&mut **true_expr, local_map, ctx);
+                        optimize_expr(&mut **true_expr, local_map, ctx, landing_ctx);
                         // just keep the true_expr (since the cond has no side-effects)
                         let expr_tmp = std::mem::replace(&mut **true_expr, dummy_expr());
                         *expr = expr_tmp;
                     } else {
                         // false_expr is reachable
-                        optimize_expr(&mut **false_expr, local_map, ctx);
+                        optimize_expr(&mut **false_expr, local_map, ctx, landing_ctx);
                         // just keep the false_expr (since the cond has no side-effects)
                         let expr_tmp = std::mem::replace(&mut **false_expr, dummy_expr());
                         *expr = expr_tmp;
@@ -271,10 +285,12 @@ fn optimize_expr(expr: &mut Expr, local_map: &mut Relabeller, ctx: Context) -> b
                     // not a constant expr
                     // so we have to optimize both branches
                     let ret = cond_res
-                        | optimize_expr(&mut **true_expr, local_map, ctx)
-                        | optimize_expr(&mut **false_expr, local_map, ctx);
-                    expr.vartype = union_type(true_expr.vartype, false_expr.vartype);
-                    ret
+                        | optimize_expr(&mut **true_expr, local_map, ctx, landing_ctx)
+                        | optimize_expr(&mut **false_expr, local_map, ctx, landing_ctx);
+                    ret | useful_update(
+                        &mut expr.vartype,
+                        union_type(true_expr.vartype, false_expr.vartype),
+                    )
                 }
             }
         }
@@ -284,7 +300,7 @@ fn optimize_expr(expr: &mut Expr, local_map: &mut Relabeller, ctx: Context) -> b
             contained_expr,
         } => {
             let (init_res, init_is_none) = if let Some(init_expr) = init {
-                let res = optimize_expr(&mut **init_expr, local_map, ctx);
+                let res = optimize_expr(&mut **init_expr, local_map, ctx, landing_ctx);
                 (res, init_expr.vartype.is_none())
             } else {
                 (false, false)
@@ -296,10 +312,9 @@ fn optimize_expr(expr: &mut Expr, local_map: &mut Relabeller, ctx: Context) -> b
             } else {
                 let real_res = init_res
                     | local_map.with_entry(|local_map, _, _| {
-                        optimize_expr(&mut **contained_expr, local_map, ctx)
+                        optimize_expr(&mut **contained_expr, local_map, ctx, landing_ctx)
                     });
-                expr.vartype = contained_expr.vartype;
-                real_res
+                real_res | useful_update(&mut expr.vartype, contained_expr.vartype)
             }
         }
         ExprKind::Assign {
@@ -307,8 +322,8 @@ fn optimize_expr(expr: &mut Expr, local_map: &mut Relabeller, ctx: Context) -> b
             expr: expr2,
         } => {
             assert!(expr.vartype == Some(VarType::Undefined));
-            let ret =
-                relabel_target(target, local_map) | optimize_expr(&mut **expr2, local_map, ctx);
+            let ret = relabel_target(target, local_map)
+                | optimize_expr(&mut **expr2, local_map, ctx, landing_ctx);
             // If the RHS of assignment is none, then the assignment can't actually happen,
             // so we are just executing the RHS for its side-effects.
             if expr2.vartype.is_none() {
@@ -322,33 +337,57 @@ fn optimize_expr(expr: &mut Expr, local_map: &mut Relabeller, ctx: Context) -> b
         }
         ExprKind::Return { expr: expr2 } => {
             assert!(expr.vartype == None);
-            let ret = optimize_expr(&mut **expr2, local_map, ctx);
-            if expr2.vartype.is_none() {
-                let expr_tmp = std::mem::replace(&mut **expr2, dummy_expr());
-                *expr = expr_tmp;
-                true
-            } else {
-                ret
+            let ret = optimize_expr(&mut **expr2, local_map, ctx, landing_ctx);
+            match expr2.vartype {
+                None => {
+                    let expr_tmp = std::mem::replace(&mut **expr2, dummy_expr());
+                    *expr = expr_tmp;
+                    true
+                }
+                Some(vartype2) => {
+                    landing_ctx.add_return(vartype2);
+                    ret
+                }
             }
         }
         ExprKind::Break {
-            num_frames: _,
+            num_frames,
             expr: expr2,
         } => {
-            let ret = optimize_expr(&mut **expr2, local_map, ctx);
-            if expr2.vartype.is_none() {
-                let expr_tmp = std::mem::replace(&mut **expr2, dummy_expr());
-                *expr = expr_tmp;
-                true
-            } else {
-                ret
+            assert!(expr.vartype == None);
+            let ret = optimize_expr(&mut **expr2, local_map, ctx, landing_ctx);
+            match expr2.vartype {
+                None => {
+                    let expr_tmp = std::mem::replace(&mut **expr2, dummy_expr());
+                    *expr = expr_tmp;
+                    true
+                }
+                Some(vartype2) => {
+                    *num_frames = landing_ctx.add_break(*num_frames, vartype2);
+                    ret
+                }
             }
         }
         ExprKind::Block { expr: expr2 } => {
-            let ret = optimize_expr(&mut **expr2, local_map, ctx);
-            // todo! actually figure out the union of all the types that can jump to the end of this block
-            // for now we don't optimize the Block
-            ret
+            let (ret, landing_vartype) = landing_ctx.with_landing(|landing_ctx| {
+                optimize_expr(&mut **expr2, local_map, ctx, landing_ctx)
+            });
+            if landing_vartype.is_none() {
+                // todo! reoptimise expr2 without this landing
+                // can't do it for now until LandingContext supports it like local_map
+                //let expr_tmp = std::mem::replace(&mut **expr2, dummy_expr());
+                //*expr = expr_tmp;
+                //true
+                ret | useful_update(
+                    &mut expr.vartype,
+                    union_type(expr2.vartype, landing_vartype),
+                ) // should be removed when we can eliminate unused landings
+            } else {
+                ret | useful_update(
+                    &mut expr.vartype,
+                    union_type(expr2.vartype, landing_vartype),
+                )
+            }
         }
         ExprKind::Sequence { content } => {
             let tmp_content = std::mem::take(content);
@@ -356,7 +395,7 @@ fn optimize_expr(expr: &mut Expr, local_map: &mut Relabeller, ctx: Context) -> b
             let mut new_content = Vec::new();
             let tmp_content_len = tmp_content.len();
             for mut expr2 in tmp_content {
-                changed |= optimize_expr(&mut expr2, local_map, ctx);
+                changed |= optimize_expr(&mut expr2, local_map, ctx, landing_ctx);
                 let is_none = expr2.vartype.is_none();
                 new_content.push(expr2);
                 if is_none {
@@ -374,9 +413,9 @@ fn optimize_expr(expr: &mut Expr, local_map: &mut Relabeller, ctx: Context) -> b
                     true
                 }
                 _ => {
-                    expr.vartype = new_content.last().unwrap().vartype;
+                    let tmp = useful_update(&mut expr.vartype, new_content.last().unwrap().vartype);
                     *content = new_content;
-                    changed
+                    changed | tmp
                 }
             }
         }
@@ -399,9 +438,7 @@ fn optimize_expr(expr: &mut Expr, local_map: &mut Relabeller, ctx: Context) -> b
  */
 fn try_const_eval(expr: &mut Expr) -> bool {
     fn set_vartype(out: &mut Option<VarType>, new: VarType) -> bool {
-        let ret = *out != Some(new);
-        *out = Some(new);
-        ret
+        useful_update(out, Some(new))
     }
     fn try_as_prim_number(expr: &Expr) -> Result<f64, ()> {
         assert!(expr.vartype == Some(VarType::Number));
@@ -701,7 +738,12 @@ fn try_const_eval(expr: &mut Expr) -> bool {
  * This function will also set the expr's vartype to the most specific result type.
  * The return value is true if the expr got changed, or false otherwise.
  */
-fn try_devirtualize_appl(expr: &mut Expr, local_map: &mut Relabeller, ctx: Context) -> bool {
+fn try_devirtualize_appl(
+    expr: &mut Expr,
+    local_map: &mut Relabeller,
+    ctx: Context,
+    landing_ctx: &mut LandingContext,
+) -> bool {
     assert!(expr.vartype == Some(VarType::Any));
     if let ExprKind::Appl {
         func,
@@ -782,6 +824,7 @@ fn try_devirtualize_appl(expr: &mut Expr, local_map: &mut Relabeller, ctx: Conte
                         args: &[Expr],
                         mut it: impl Iterator<Item = OverloadEntry>,
                         ctx: Context,
+                        landing_ctx: &mut LandingContext,
                         location: SourceLocation,
                         out: &mut Vec<Expr>,
                     ) -> Option<VarType> {
@@ -875,6 +918,7 @@ fn try_devirtualize_appl(expr: &mut Expr, local_map: &mut Relabeller, ctx: Conte
                                         args,
                                         boxed_it2,
                                         ctx,
+                                        landing_ctx,
                                         location,
                                         out,
                                     ),
@@ -896,6 +940,7 @@ fn try_devirtualize_appl(expr: &mut Expr, local_map: &mut Relabeller, ctx: Conte
                                         args,
                                         boxed_it2,
                                         ctx,
+                                        landing_ctx,
                                         location,
                                         &mut new_out,
                                     ),
@@ -955,6 +1000,7 @@ fn try_devirtualize_appl(expr: &mut Expr, local_map: &mut Relabeller, ctx: Conte
                                 args,
                                 allowable_overloads.into_iter(),
                                 ctx,
+                                landing_ctx,
                                 *location,
                                 &mut tmp_exprs,
                             );
@@ -969,15 +1015,22 @@ fn try_devirtualize_appl(expr: &mut Expr, local_map: &mut Relabeller, ctx: Conte
                         mut args_it: impl Iterator<Item = Expr>,
                         local_map: &mut Relabeller,
                         ctx: Context,
+                        landing_ctx: &mut LandingContext,
                     ) -> Expr {
                         if let Some(mut arg) = args_it.next() {
                             let inner_expr = local_map.with_skipped_new(|local_map| {
-                                wrap_declarations(wrapped_expr, args_it, local_map, ctx)
+                                wrap_declarations(
+                                    wrapped_expr,
+                                    args_it,
+                                    local_map,
+                                    ctx,
+                                    landing_ctx,
+                                )
                             });
 
                             // reoptimize arg, to get the locals re-numbered
                             // hopefully this is not too slow (since each call can only be converted to direct once)
-                            optimize_expr(&mut arg, local_map, ctx);
+                            optimize_expr(&mut arg, local_map, ctx, landing_ctx);
 
                             Expr {
                                 vartype: inner_expr.vartype,
@@ -991,20 +1044,32 @@ fn try_devirtualize_appl(expr: &mut Expr, local_map: &mut Relabeller, ctx: Conte
                             wrapped_expr
                         }
                     }
-                    // remember to wrap the closure too
-                    // but don't need to renumber the locals for the closure, because it will be the same
-                    let wrapped_declarations_expr = local_map.with_skipped_new(|local_map| {
-                        wrap_declarations(tmp_expr, Vec::from(tmp_args).into_iter(), local_map, ctx)
-                    });
-                    let tmp_closure = std::mem::replace(&mut **closure, dummy_expr());
-                    let wrapped_declarations_with_closure = Expr {
-                        vartype: wrapped_declarations_expr.vartype,
-                        kind: ExprKind::Declaration {
-                            local: closure.vartype.unwrap(),
-                            init: Some(Box::new(tmp_closure)),
-                            contained_expr: Box::new(wrapped_declarations_expr),
-                        },
-                    };
+
+                    // skip a landing level because we are inserting a new Block that previously didn't exist
+                    let wrapped_declarations_with_closure =
+                        landing_ctx.skip_new_landing(|landing_ctx| {
+                            // remember to wrap the closure too
+                            // but don't need to renumber the locals for the closure, because it will be the same
+                            let wrapped_declarations_expr =
+                                local_map.with_skipped_new(|local_map| {
+                                    wrap_declarations(
+                                        tmp_expr,
+                                        Vec::from(tmp_args).into_iter(),
+                                        local_map,
+                                        ctx,
+                                        landing_ctx,
+                                    )
+                                });
+                            let tmp_closure = std::mem::replace(&mut **closure, dummy_expr());
+                            Expr {
+                                vartype: wrapped_declarations_expr.vartype,
+                                kind: ExprKind::Declaration {
+                                    local: closure.vartype.unwrap(),
+                                    init: Some(Box::new(tmp_closure)),
+                                    contained_expr: Box::new(wrapped_declarations_expr),
+                                },
+                            }
+                        });
                     // wrap it in a block so that we can jump here after calling the function
                     *expr = Expr {
                         vartype: unioned_type,
@@ -1063,25 +1128,6 @@ fn intersect_type(first: VarType, second: VarType) -> Option<VarType> {
     } else {
         None
     }
-}
-
-/**
- * Returns the type wide enough to contain both the given two types.
- */
-fn union_type(first: Option<VarType>, second: Option<VarType>) -> Option<VarType> {
-    if first.is_none() {
-        return second;
-    }
-    if second.is_none() {
-        return first;
-    }
-    // now both first and second are not None
-    let u_first = first.unwrap();
-    let u_second = second.unwrap();
-    if u_first == u_second {
-        return Some(u_first);
-    }
-    Some(VarType::Any)
 }
 
 fn dummy_expr() -> Expr {
