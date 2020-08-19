@@ -9,11 +9,13 @@ pub struct LandingContext {
 }
 
 impl LandingContext {
-    pub fn for_new_func() -> Self {
-        Self {
+    pub fn with_new_func<R, F: FnOnce(&mut Self) -> R>(f: F) -> (R, Option<VarType>) {
+        let mut ctx = Self {
             content: vec![(0, None)],
             num_new: 1,
-        }
+        };
+        let ret = f(&mut ctx);
+        (ret, ctx.content[0].1)
     }
     pub fn with_landing<R, F: FnOnce(&mut Self) -> R>(&mut self, f: F) -> (R, Option<VarType>) {
         self.content.push((self.num_new, None));

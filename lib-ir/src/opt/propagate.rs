@@ -49,11 +49,17 @@ struct Context<'a, 'b> {
  * The return value is true if the function got changed, or false otherwise.
  */
 fn optimize_func(func: &mut Func, ctx: Context) -> bool {
-    optimize_expr(
-        &mut func.expr,
-        &mut Relabeller::new_with_identities(0..func.params.len()),
-        ctx,
-        &mut LandingContext::for_new_func(),
+    let (ret, landing_vartype) = LandingContext::with_new_func(|landing_ctx| {
+        optimize_expr(
+            &mut func.expr,
+            &mut Relabeller::new_with_identities(0..func.params.len()),
+            ctx,
+            landing_ctx,
+        )
+    });
+    ret | useful_update(
+        &mut func.result,
+        union_type(func.expr.vartype, landing_vartype),
     )
 }
 
