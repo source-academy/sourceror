@@ -1,3 +1,6 @@
+mod relabel;
+pub use relabel::*;
+
 /**
  * Struct used for relabelling local variables.
  * It maps between an "old" and "new" id.

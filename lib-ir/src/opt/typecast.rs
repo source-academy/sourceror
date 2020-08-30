@@ -1,6 +1,6 @@
-use super::*;
-
+use super::relabeller::relabel_target;
 use super::relabeller::Relabeller;
+use super::*;
 
 /**
  * Removes unnecessary typecasts from the program.
@@ -49,20 +49,6 @@ fn write_new_expr(
                 content: vec![test, then],
             },
         }
-    }
-}
-
-fn relabel_target(target: &mut TargetExpr, local_map: &mut Relabeller) -> bool {
-    if let TargetExpr::Local { localidx, next: _ } = target {
-        let new_localidx: usize = local_map.map_old_to_new(*localidx).unwrap();
-        if new_localidx != *localidx {
-            *localidx = new_localidx;
-            true
-        } else {
-            false
-        }
-    } else {
-        false
     }
 }
 
