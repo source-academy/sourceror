@@ -108,7 +108,7 @@ pub struct Func {
                                                                    // (because there is no use for a self-reference)
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Expr {
     pub vartype: Option<VarType>, // the type set that this Expr is guaranteed to evaluate to (if unknown, just use ValType::Any).  Users of this expression will generate code that only works on this type.  It may also affect the memory layout of the expr.  Use `None` if this function is guaranteed to never return (aka it returns Void).
     pub kind: ExprKind,           // the variant kind of this expression
@@ -143,7 +143,7 @@ pub struct OverloadEntry {
                                  // (the first parameter of a function that has closure must be the static type of PrimFunc::closure)
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum ExprKind {
     PrimUndefined, // also functions as a "no-op"
     PrimNumber {

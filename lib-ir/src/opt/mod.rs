@@ -1,3 +1,4 @@
+mod inline;
 mod landing_context;
 mod propagate;
 mod relabeller;
@@ -47,13 +48,35 @@ pub fn optimize_mandatory(mut program: Program) -> Program {
  * Main function to do discretionary optimizations for a program.
  */
 pub fn optimize_all(mut program: Program) -> Program {
+    let mut n: usize = 0;
+    const TOTAL: usize = 2;
     loop {
-        let (new_program, changed) = propagate::optimize(program);
-        program = new_program;
-        if !changed {
-            break;
+        {
+            let (new_program, changed) = propagate::optimize(program);
+            program = new_program;
+            if changed {
+                n = 0;
+            } else {
+                n += 1;
+            }
+            if n == TOTAL {
+                break;
+            }
+        }
+        {
+            let (new_program, changed) = inline::optimize(program);
+            program = new_program;
+            if changed {
+                n = 0;
+            } else {
+                n += 1;
+            }
+            if n == TOTAL {
+                break;
+            }
         }
     }
+
     program
 }
 
