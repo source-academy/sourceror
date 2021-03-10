@@ -22,10 +22,7 @@ pub trait SubsliceOffset {
 impl SubsliceOffset for str {
     fn subslice_offset_range(&self, inner: &Self) -> Range<usize> {
         let self_beg = self.as_ptr() as usize;
-        let Range { start, end } = Range {
-            start: inner.as_ptr(),
-            end: unsafe { inner.as_ptr().add(inner.len()) },
-        }; // todo!: use this when stable: inner.as_ptr_range();
+        let Range { start, end } = inner.as_bytes().as_ptr_range();
         Range {
             start: (start as usize) - self_beg,
             end: (end as usize) - self_beg,
