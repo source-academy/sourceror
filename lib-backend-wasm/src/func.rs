@@ -760,12 +760,14 @@ fn encode_expr<H: HeapManager>(
             true
         }
         ir::ExprKind::Appl {
+            is_tail,
             func,
             args,
             location,
         } => {
             // encodes an indirect function call
             encode_appl(
+                is_tail,
                 expr.vartype,
                 func,
                 args,
@@ -776,9 +778,9 @@ fn encode_expr<H: HeapManager>(
             );
             true
         }
-        ir::ExprKind::DirectAppl { funcidx, args } => {
+        ir::ExprKind::DirectAppl { is_tail,  funcidx, args } => {
             // encodes a function call
-            encode_direct_appl(expr.vartype, *funcidx, args, ctx, mutctx, expr_builder);
+            encode_direct_appl(is_tail, expr.vartype, *funcidx, args, ctx, mutctx, expr_builder);
             true
         }
         ir::ExprKind::Conditional {
@@ -1238,6 +1240,7 @@ fn encode_prim_inst<H: HeapManager>(
 // (to use more specific types, we must know the target function at compilation time, and hence use the DirectAppl)
 // net wasm stack: [] -> [<return_type>]
 fn encode_appl<H: HeapManager>(
+    is_tail: bool,
     return_type: Option<ir::VarType>,
     func_expr: &ir::Expr,
     args: &[ir::Expr],

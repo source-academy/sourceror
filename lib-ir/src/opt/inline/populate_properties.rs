@@ -68,6 +68,7 @@ fn populate_properties(
             }
         }
         ExprKind::Appl {
+            is_tail,
             func,
             args,
             location: _,
@@ -79,6 +80,7 @@ fn populate_properties(
             }
         }
         ExprKind::DirectAppl {
+            is_tail,
             funcidx: target_funcidx,
             args,
         } => {

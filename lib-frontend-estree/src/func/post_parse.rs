@@ -2036,6 +2036,7 @@ fn post_parse_call_func_with_params_helper(
     Ok(ir::Expr {
         vartype: Some(ir::VarType::Any),
         kind: ir::ExprKind::Appl {
+            is_tail: false,
             func: Box::new(func_expr),
             args: args,
             location: as_ir_sl(&loc, 0 /*FILE*/),
