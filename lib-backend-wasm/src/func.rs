@@ -1240,7 +1240,7 @@ fn encode_prim_inst<H: HeapManager>(
 // (to use more specific types, we must know the target function at compilation time, and hence use the DirectAppl)
 // net wasm stack: [] -> [<return_type>]
 fn encode_appl<H: HeapManager>(
-    is_tail: bool,
+    is_tail: &bool,
     return_type: Option<ir::VarType>,
     func_expr: &ir::Expr,
     args: &[ir::Expr],
@@ -1303,7 +1303,42 @@ fn encode_appl<H: HeapManager>(
             // call the function with gc prologue and epilogue
             mutctx.heap_encode_prologue_epilogue(ctx.heap, expr_builder, |mutctx, expr_builder| {
                 // call the function (indirectly, using uniform calling convention)
-                expr_builder.call_indirect(
+                if *is_tail {
+                    return expr_builder.return_call_indirect(
+                        mutctx
+                            .module_wrapper()
+                            .add_wasm_type(wasmgen::FuncType::new(
+                                Box::new([
+                                    wasmgen::ValType::I32,
+                                    wasmgen::ValType::I32,
+                                    wasmgen::ValType::I32,
+                                ]),
+                                encode_result(Some(ir::VarType::Any), ctx.options.wasm_multi_value),
+                            )),
+                        wasmgen::TableIdx { idx: 0 },
+                    );
+                } else {
+                    return expr_builder.call_indirect(
+                        mutctx
+                            .module_wrapper()
+                            .add_wasm_type(wasmgen::FuncType::new(
+                                Box::new([
+                                    wasmgen::ValType::I32,
+                                    wasmgen::ValType::I32,
+                                    wasmgen::ValType::I32,
+                                ]),
+                                encode_result(Some(ir::VarType::Any), ctx.options.wasm_multi_value),
+                            )),
+                        wasmgen::TableIdx { idx: 0 },
+                    );
+                }
+            });
+        } else {
+            // This function is guaranteed not to allocate memory, so we don't need to put the locals on the gc_roots stack.
+
+            // call the function (indirectly)
+            if *is_tail {
+                return expr_builder.return_call_indirect(
                     mutctx
                         .module_wrapper()
                         .add_wasm_type(wasmgen::FuncType::new(
@@ -1316,24 +1351,22 @@ fn encode_appl<H: HeapManager>(
                         )),
                     wasmgen::TableIdx { idx: 0 },
                 );
-            });
-        } else {
-            // This function is guaranteed not to allocate memory, so we don't need to put the locals on the gc_roots stack.
+            } else {
+                return expr_builder.call_indirect(
+                    mutctx
+                        .module_wrapper()
+                        .add_wasm_type(wasmgen::FuncType::new(
+                            Box::new([
+                                wasmgen::ValType::I32,
+                                wasmgen::ValType::I32,
+                                wasmgen::ValType::I32,
+                            ]),
+                            encode_result(Some(ir::VarType::Any), ctx.options.wasm_multi_value),
+                        )),
+                    wasmgen::TableIdx { idx: 0 },
+                );
+            }
 
-            // call the function (indirectly)
-            expr_builder.call_indirect(
-                mutctx
-                    .module_wrapper()
-                    .add_wasm_type(wasmgen::FuncType::new(
-                        Box::new([
-                            wasmgen::ValType::I32,
-                            wasmgen::ValType::I32,
-                            wasmgen::ValType::I32,
-                        ]),
-                        encode_result(Some(ir::VarType::Any), ctx.options.wasm_multi_value),
-                    )),
-                wasmgen::TableIdx { idx: 0 },
-            );
         }
 
         // fetch return values from the location prescribed by the calling convention back to the stack
@@ -1352,6 +1385,7 @@ fn encode_appl<H: HeapManager>(
 // and the return type of the callee is exactly return_type.
 // net wasm stack: [] -> [<return_type>]
 fn encode_direct_appl<H: HeapManager>(
+    is_tail: &bool,
     return_type: Option<ir::VarType>,
     funcidx: ir::FuncIdx,
     args: &[ir::Expr],
@@ -1378,13 +1412,21 @@ fn encode_direct_appl<H: HeapManager>(
         // call the function with gc prologue and epilogue
         mutctx.heap_encode_prologue_epilogue(ctx.heap, expr_builder, |_mutctx, expr_builder| {
             // call the function
-            expr_builder.call(ctx.wasm_funcidxs[funcidx]);
+            if *is_tail {
+                expr_builder.return_call(ctx.wasm_funcidxs[funcidx]);
+            } else {
+                expr_builder.call(ctx.wasm_funcidxs[funcidx]);
+            }
         });
     } else {
         // This function is guaranteed not to allocate memory, so we don't need to put the locals on the gc_roots stack.
 
         // call the function
-        expr_builder.call(ctx.wasm_funcidxs[funcidx]);
+        if *is_tail {
+            expr_builder.return_call(ctx.wasm_funcidxs[funcidx]);
+        } else {
+            expr_builder.call(ctx.wasm_funcidxs[funcidx]);
+        }
     }
 
     // fetch return values from the location prescribed by the calling convention back to the stack

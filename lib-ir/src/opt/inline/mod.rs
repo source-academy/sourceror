@@ -326,7 +326,7 @@ fn wrap_declarations<F: FnOnce(SiteProperties) -> Expr>(
 }
 
 fn as_direct_appl_args(expr: &mut Expr) -> &mut Box<[Expr]> {
-    if let ExprKind::DirectAppl { is_tail,  funcidx: _, args } = &mut expr.kind {
+    if let ExprKind::DirectAppl { is_tail, funcidx: _, args } = &mut expr.kind {
         args
     } else {
         panic!("Not a DirectAppl");
