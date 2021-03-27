@@ -35,7 +35,7 @@ extern "C" {
     pub fn fetch_dep(context: i32, name: String) -> js_sys::Promise;
 }
 
-async fn fetch_dep_proxy(context: i32, name: String) -> Option<String> {
+pub async fn fetch_dep_proxy(context: i32, name: String) -> Option<String> {
     JsFuture::from(fetch_dep(context, name))
         .await
         .ok()
