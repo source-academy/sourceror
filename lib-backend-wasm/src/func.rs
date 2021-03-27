@@ -1297,75 +1297,42 @@ fn encode_appl<H: HeapManager>(
 
         // todo!(For optimisation, heap_encode_prologue_epilogue should only be called if the callee might allocate)
         // Note: encode_args_to_call_function should be *before* encode_local_roots_prologue, since the args themselves might make function calls.
-        if true {
+        if *is_tail {
             // This function might allocate memory, so we need to store the locals in the gc_roots stack first.
 
             // call the function with gc prologue and epilogue
-            mutctx.heap_encode_prologue_epilogue(ctx.heap, expr_builder, |mutctx, expr_builder| {
-                // call the function (indirectly, using uniform calling convention)
-                if *is_tail {
-                    return expr_builder.return_call_indirect(
-                        mutctx
-                            .module_wrapper()
-                            .add_wasm_type(wasmgen::FuncType::new(
-                                Box::new([
-                                    wasmgen::ValType::I32,
-                                    wasmgen::ValType::I32,
-                                    wasmgen::ValType::I32,
-                                ]),
-                                encode_result(Some(ir::VarType::Any), ctx.options.wasm_multi_value),
-                            )),
+            // call the function (indirectly, using uniform calling convention)
+            return expr_builder.return_call_indirect(
+                mutctx
+                .module_wrapper()
+                .add_wasm_type(wasmgen::FuncType::new(
+                        Box::new([
+                                 wasmgen::ValType::I32,
+                                 wasmgen::ValType::I32,
+                                 wasmgen::ValType::I32,
+                        ]),
+                        encode_result(Some(ir::VarType::Any), ctx.options.wasm_multi_value),
+                        )),
                         wasmgen::TableIdx { idx: 0 },
-                    );
-                } else {
-                    return expr_builder.call_indirect(
-                        mutctx
-                            .module_wrapper()
-                            .add_wasm_type(wasmgen::FuncType::new(
-                                Box::new([
-                                    wasmgen::ValType::I32,
-                                    wasmgen::ValType::I32,
-                                    wasmgen::ValType::I32,
-                                ]),
-                                encode_result(Some(ir::VarType::Any), ctx.options.wasm_multi_value),
-                            )),
-                        wasmgen::TableIdx { idx: 0 },
-                    );
-                }
-            });
+                        );
         } else {
             // This function is guaranteed not to allocate memory, so we don't need to put the locals on the gc_roots stack.
-
-            // call the function (indirectly)
-            if *is_tail {
-                return expr_builder.return_call_indirect(
-                    mutctx
-                        .module_wrapper()
-                        .add_wasm_type(wasmgen::FuncType::new(
-                            Box::new([
-                                wasmgen::ValType::I32,
-                                wasmgen::ValType::I32,
-                                wasmgen::ValType::I32,
-                            ]),
-                            encode_result(Some(ir::VarType::Any), ctx.options.wasm_multi_value),
-                        )),
-                    wasmgen::TableIdx { idx: 0 },
-                );
-            } else {
+                // call the function (indirectly, using uniform calling convention)
+            mutctx.heap_encode_prologue_epilogue(ctx.heap, expr_builder, |mutctx, expr_builder| {
                 return expr_builder.call_indirect(
                     mutctx
-                        .module_wrapper()
-                        .add_wasm_type(wasmgen::FuncType::new(
+                    .module_wrapper()
+                    .add_wasm_type(wasmgen::FuncType::new(
                             Box::new([
-                                wasmgen::ValType::I32,
-                                wasmgen::ValType::I32,
-                                wasmgen::ValType::I32,
+                                     wasmgen::ValType::I32,
+                                     wasmgen::ValType::I32,
+                                     wasmgen::ValType::I32,
                             ]),
                             encode_result(Some(ir::VarType::Any), ctx.options.wasm_multi_value),
-                        )),
-                    wasmgen::TableIdx { idx: 0 },
-                );
-            }
+                            )),
+                            wasmgen::TableIdx { idx: 0 },
+                            );
+            });
 
         }
 
