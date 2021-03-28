@@ -1,19 +1,16 @@
 {
   "author": "You <you@example.com>",
-  "name": "rust-webpack-template",
+  "name": "e2e",
   "version": "0.1.0",
   "scripts": {
     "build": "rimraf dist pkg && webpack",
     "start": "rimraf dist pkg && webpack-dev-server --open -d",
-    "test": "cargo test && wasm-pack test --chrome --headless",
-    "e2e": "jest"
+    "test": "cargo test && wasm-pack test --chrome --headless"
   },
   "devDependencies": {
     "@wasm-tool/wasm-pack-plugin": "^1.1.0",
     "acorn": "^6.4.2",
     "copy-webpack-plugin": "^5.0.3",
-    "jest": "^26.6.3",
-    "jest-puppeteer": "^4.4.0",
     "puppeteer": "^2.1.1",
     "rimraf": "^3.0.0",
     "webpack": "^4.42.0",

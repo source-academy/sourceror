@@ -1,6 +1,6 @@
 import { parseCode } from "./utils";
 
-export function compileAndRun(name, index, code, expected) {
+export function compileAndRun(code, logger) {
   import("../pkg").then(module => {
     const parsed = parseCode(code);
 
@@ -63,19 +63,10 @@ export function compileAndRun(name, index, code, expected) {
             }
           };
           const result = ret.__read_js_result(ret.main());
-          console.log("%c" + name + " " + index + ": ", "color: orange");
-          if (result == expected) {
-            console.log("%cPASS", "color: green")
-          } else {
-            console.log("%cFAIL", "color: red")
-            console.log(`%coutput: ${result}`, "color: red");
-            console.log(`%cexpected: ${expected}`, "color: red");
-          }
+          console.log(result);
+          logger(result, undefined);
         }).catch(err => {
-          console.log("%c" + name + " " + index + ": ", "color: orange");
-          console.log("%cFAIL", "color: red")
-          console.error(err)
-          console.log(`%cexpected: ${expected}`, "color: red");
+          logger(undefined, err);
         });
     });
   }).catch(console.error)

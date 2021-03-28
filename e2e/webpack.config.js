@@ -7,7 +7,8 @@ const dist = path.resolve(__dirname, "dist");
 module.exports = {
   mode: "production",
   entry: {
-    index: "./js/index.js"
+    index: "./js/index.js",
+    test: "./js/test.js"
   },
   output: {
     path: dist,
@@ -23,6 +24,6 @@ module.exports = {
 
     new WasmPackPlugin({
       crateDirectory: __dirname,
-    }),
+    })
   ]
 };
