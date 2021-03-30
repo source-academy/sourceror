@@ -7,3 +7,4 @@ Cargo.lock
 /dist
 /*.ir
 /*.wasm
+dump
