@@ -1373,27 +1373,19 @@ fn encode_direct_appl<H: HeapManager>(
 
     // todo!(For optimisation, heap_encode_prologue_epilogue should only be called if the callee might allocate)
     // Note: encode_args_to_call_function should be *before* encode_local_roots_prologue, since the args themselves might make function calls.
-    if true {
+    if *is_tail {
         // This function might allocate memory, so we need to store the locals in the gc_roots stack first.
 
         // call the function with gc prologue and epilogue
-        mutctx.heap_encode_prologue_epilogue(ctx.heap, expr_builder, |_mutctx, expr_builder| {
-            // call the function
-            if *is_tail {
-                expr_builder.return_call(ctx.wasm_funcidxs[funcidx]);
-            } else {
-                expr_builder.call(ctx.wasm_funcidxs[funcidx]);
-            }
-        });
+        expr_builder.return_call(ctx.wasm_funcidxs[funcidx]);
     } else {
         // This function is guaranteed not to allocate memory, so we don't need to put the locals on the gc_roots stack.
 
         // call the function
-        if *is_tail {
-            expr_builder.return_call(ctx.wasm_funcidxs[funcidx]);
-        } else {
+        mutctx.heap_encode_prologue_epilogue(ctx.heap, expr_builder, |_mutctx, expr_builder| {
+            // call the function
             expr_builder.call(ctx.wasm_funcidxs[funcidx]);
-        }
+        });
     }
 
     // fetch return values from the location prescribed by the calling convention back to the stack
