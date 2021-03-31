@@ -1257,7 +1257,7 @@ fn encode_prim_inst<H: HeapManager>(
     }
 }
 
-// Stores [args, num_args, funcid, is_tail] onto the unprotected stack. The return call
+// Stores [args, tableid, funcid, is_tail] onto the unprotected stack. The return call
 // will pop is_tail and return. After returning if is_tail, then pop func_id and
 // execute the indirect call with the args stored in the unprotected stack. If !is_tail,
 // then do nothing
@@ -1296,42 +1296,46 @@ fn encode_tail_appl<H: HeapManager>(
         expr_builder.i32_const(*ctx.appl_data_encoder.get(location).unwrap() as i32);
 
         // net wasm stack: [] -> [tableidx]
+        expr_builder.global_get(ctx.stackptr);
+        expr_builder.i32_const(4);
+        expr_builder.i32_sub();
+
         expr_builder.local_get(mutctx.wasm_local_slice(localidx_func)[0]);
+        expr_builder.i32_store(wasmgen::MemArg::new1(0));
 
         // net wasm stack: [] -> [is_tail]
-        expr_builder.i32_const(0);
+        expr_builder.i32_const(1);
     });
 }
 
 // Pop from unprotected stack. Perform tail call or do nothing if no call.
-fn post_return_call_conv<H: HeapManager>(
+fn encode_tail_calling_conv<H: HeapManager>(
     expr_builder: &mut wasmgen::ExprBuilder,
-    stackptr: wasmgen::GlobalIdx,
     ctx: EncodeContext<H>,
     mutctx: &mut MutContext,
-) {
+    ) {
     // net wasm stack: []
     // TODO: Pop is_tail from the stack and perform tail call.
     // Pop funcid and perform call.
-    let is_tail = false;
+    expr_builder.global_get(ctx.stackptr);
+    expr_builder.i32_load(wasmgen::MemArg::new1(4));
 
-    if is_tail {
-        mutctx.heap_encode_prologue_epilogue(ctx.heap, expr_builder, |mutctx, expr_builder| {
-            return expr_builder.call_indirect(
-                mutctx
-                    .module_wrapper()
-                    .add_wasm_type(wasmgen::FuncType::new(
-                        Box::new([
-                            wasmgen::ValType::I32,
-                            wasmgen::ValType::I32,
-                            wasmgen::ValType::I32,
-                        ]),
-                        encode_result(Some(ir::VarType::Any), ctx.options.wasm_multi_value),
+
+    mutctx.heap_encode_prologue_epilogue(ctx.heap, expr_builder, |mutctx, expr_builder| {
+        return expr_builder.call_indirect(
+            mutctx
+            .module_wrapper()
+            .add_wasm_type(wasmgen::FuncType::new(
+                    Box::new([
+                             wasmgen::ValType::I32,
+                             wasmgen::ValType::I32,
+                             wasmgen::ValType::I32,
+                    ]),
+                    encode_result(Some(ir::VarType::Any), ctx.options.wasm_multi_value),
                     )),
-                wasmgen::TableIdx { idx: 0 },
-            );
-        });
-    }
+                    wasmgen::TableIdx { idx: 0 },
+                    );
+    });
 }
 
 // Requires: the callee actually has the correct number of parameters,
@@ -1426,6 +1430,19 @@ fn encode_appl<H: HeapManager>(
             mutctx.scratch_mut(),
             expr_builder,
         );
+
+        expr_builder.global_get(ctx.stackptr);
+        expr_builder.i32_const(size_in_memory(return_type.unwrap()) as i32);
+        expr_builder.i32_sub();
+        encode_store_memory(
+            0,
+            return_type.unwrap(),
+            return_type.unwrap(),
+            mutctx.scratch_mut(),
+            expr_builder,
+        );
+
+        expr_builder.i32_const(0);
     });
 }
 
@@ -2057,9 +2074,12 @@ fn encode_return_calling_conv(
 ) {
     if encode_vartype(target_type).len() <= 1 || use_wasm_multi_value_feature {
         // Should put on stack
+        encode_load_memory(0, source_type, source_type, scratch, expr_builder);
 
         // net wasm stack: [source_type] -> [target_type]
         encode_widening_operation(target_type, source_type, scratch, expr_builder);
+
+        // Store the widened result onto the unprotected stack
     } else {
         // Should put on unprotected stack
         // Recall that the unprotected stack grows downward
