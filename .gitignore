@@ -8,3 +8,5 @@ Cargo.lock
 /*.ir
 /*.wasm
 dump
+source.js
+ast
