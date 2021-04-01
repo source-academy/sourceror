@@ -926,23 +926,39 @@ fn encode_expr<H: HeapManager>(
                             // net wasm stack: [] -> [<expr.vartype>]
                             encode_expr(inner_expr, ctx, mutctx, expr_builder);
 
-                            // net wasm stack: [<expr.vartype>] -> [<return_calling_conv(ctx.return_type.unwrap())>]
-                            encode_return_calling_conv(
-                                ret_type,
-                                inner_type,
-                                ctx.options.wasm_multi_value,
-                                ctx.stackptr,
-                                mutctx.scratch_mut(),
-                                expr_builder,
+                            mutctx.with_unused_landing(|mutctx| {
+                                multi_value_polyfill::if_with_opt_else(
+                                    encode_opt_vartype(expr.vartype),
+                                    ctx.options.wasm_multi_value,
+                                    mutctx,
+                                    expr_builder,
+                                    |mutctx, expr_builder| {
+                                        expr_builder.return_();
+                                        encode_tail_calling_conv(
+                                            expr_builder,
+                                            ctx,
+                                            mutctx
+                                        );
+                                    },
+                                    Some(
+                                        |mutctx: &mut MutContext, expr_builder: &mut wasmgen::ExprBuilder| {
+                                            encode_return_calling_conv(
+                                                ret_type,
+                                                inner_type,
+                                                ctx.options.wasm_multi_value,
+                                                ctx.stackptr,
+                                                mutctx.scratch_mut(),
+                                                expr_builder,
+                                                );
+                                            expr_builder.return_();
+                                    }),
                                 );
-                            // return the value on the stack (or in the unprotected stack) (which now has the correct type)
-                            expr_builder.return_();
+                            });
+                            // returns false, because WebAssembly knows that anything after a return instruction is unreachable
                         }
-                    };
+                    }
                 }
-            };
-
-            // returns false, because WebAssembly knows that anything after a return instruction is unreachable
+            }
             false
         }
         ir::ExprKind::Break {
@@ -1313,28 +1329,27 @@ fn encode_tail_calling_conv<H: HeapManager>(
     expr_builder: &mut wasmgen::ExprBuilder,
     ctx: EncodeContext<H>,
     mutctx: &mut MutContext,
-    ) {
+) {
     // net wasm stack: []
     // TODO: Pop is_tail from the stack and perform tail call.
     // Pop funcid and perform call.
     expr_builder.global_get(ctx.stackptr);
     expr_builder.i32_load(wasmgen::MemArg::new1(4));
 
-
     mutctx.heap_encode_prologue_epilogue(ctx.heap, expr_builder, |mutctx, expr_builder| {
         return expr_builder.call_indirect(
             mutctx
-            .module_wrapper()
-            .add_wasm_type(wasmgen::FuncType::new(
+                .module_wrapper()
+                .add_wasm_type(wasmgen::FuncType::new(
                     Box::new([
-                             wasmgen::ValType::I32,
-                             wasmgen::ValType::I32,
-                             wasmgen::ValType::I32,
+                        wasmgen::ValType::I32,
+                        wasmgen::ValType::I32,
+                        wasmgen::ValType::I32,
                     ]),
                     encode_result(Some(ir::VarType::Any), ctx.options.wasm_multi_value),
-                    )),
-                    wasmgen::TableIdx { idx: 0 },
-                    );
+                )),
+            wasmgen::TableIdx { idx: 0 },
+        );
     });
 }
 
