@@ -30,7 +30,7 @@ fn generate_binary_operator_primitive(
     result_type: VarType,
 ) -> Func {
     // create new Func with params and result
-    let mut func = Func::new_with_params_and_result(&[param1_type, param2_type], result_type);
+    let mut func = Func::new_with_params_and_result(&[param1_type, param2_type], result_type, false);
 
     // set the statements to just the PrimAppl with the given PrimInst
     // Equivalent code:
@@ -79,7 +79,7 @@ fn generate_unary_operator_primitive(
     result_type: VarType,
 ) -> Func {
     // create new Func with params and result
-    let mut func = Func::new_with_params_and_result(&[param_type], result_type);
+    let mut func = Func::new_with_params_and_result(&[param_type], result_type, false);
 
     // set the statements to just the PrimAppl with the given PrimInst
     // Equivalent code:
@@ -116,7 +116,7 @@ fn generate_unary_operator_primitive(
 fn generate_number_binary_operator_wrapper(prim_funcidx: FuncIdx) -> Func {
     // create new Func with params and result
     // Note: we set the 'number' return type (because if this function ever returns, it must return a number)
-    let mut func = Func::new_with_params_and_result(&[VarType::Any, VarType::Any], VarType::Number);
+    let mut func = Func::new_with_params_and_result(&[VarType::Any, VarType::Any], VarType::Number, false);
 
     // set the statements to check the type
     // Equivalent code:
@@ -222,7 +222,7 @@ fn generate_boolean_binary_operator_wrapper(prim_funcidx: FuncIdx) -> Func {
     // create new Func with params and result
     // Note: we set the 'boolean' return type (because if this function ever returns, it must return a boolean)
     let mut func =
-        Func::new_with_params_and_result(&[VarType::Any, VarType::Any], VarType::Boolean);
+        Func::new_with_params_and_result(&[VarType::Any, VarType::Any], VarType::Boolean, false);
 
     // set the statements to check the type
     // Equivalent code:
@@ -332,7 +332,7 @@ fn generate_number_string_binary_operator_wrapper(
     result_type: VarType,
 ) -> Func {
     // create new Func with params and result
-    let mut func = Func::new_with_params_and_result(&[VarType::Any, VarType::Any], result_type);
+    let mut func = Func::new_with_params_and_result(&[VarType::Any, VarType::Any], result_type, false);
 
     // set the statements to check the type
     // Equivalent code:
@@ -527,7 +527,7 @@ fn generate_boolean_number_string_binary_operator_wrapper(
     result_type: VarType,
 ) -> Func {
     // create new Func with params and result
-    let mut func = Func::new_with_params_and_result(&[VarType::Any, VarType::Any], result_type);
+    let mut func = Func::new_with_params_and_result(&[VarType::Any, VarType::Any], result_type, false);
 
     // set the statements to check the type
     // Equivalent code:
@@ -788,7 +788,7 @@ fn generate_boolean_number_string_binary_operator_wrapper(
 
 fn generate_unary_operator_wrapper(prim_funcidx: FuncIdx, vartype: VarType) -> Func {
     // create new Func with params and result
-    let mut func = Func::new_with_params_and_result(&[VarType::Any], vartype);
+    let mut func = Func::new_with_params_and_result(&[VarType::Any], vartype, false);
 
     // set the statements to check the type
     // Equivalent code:

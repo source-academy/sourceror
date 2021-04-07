@@ -24,6 +24,11 @@ module.exports = {
 
     new WasmPackPlugin({
       crateDirectory: __dirname,
+      watchDirectories: [
+        path.resolve(__dirname, "../lib-backend-wasm"),
+        path.resolve(__dirname, "../lib-ir"),
+        path.resolve(__dirname, "../lib-frontend-estree")
+      ]
     })
   ]
 };

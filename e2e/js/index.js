@@ -2,9 +2,9 @@ import Harness from './harness';
 
 const harness = new Harness;
 const code = `
-function f(x) {
-  return x;
+function x() {
+  return 2;
 }
-2;
+x();
 `;
-harness.runCode(code, 1);
+harness.runCode(code, 2);

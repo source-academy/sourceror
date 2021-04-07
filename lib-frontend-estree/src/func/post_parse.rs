@@ -849,6 +849,7 @@ fn post_parse_function<Func: Function>(
         result: Some(ir::VarType::Any),
         expr: ir_func_body,
         signature_filter: Default::default(),
+        is_tail_callable: true
     });
 
     // add the primfunc expr that will be returned (since it's the last item in the sequence)

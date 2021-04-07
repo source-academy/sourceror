@@ -43,7 +43,7 @@ pub struct Program {
     pub entry_point: FuncIdx, // index of function to run when the program is started
 }
 
-#[derive(Eq, PartialEq, Copy, Clone, Debug)]
+#[derive(Eq, PartialEq, Copy, Clone, Hash, Debug)]
 pub enum VarType {
     Any, // used if we don't know the type contained in the variable.  Most of the time we will use this.  Generates a variant in the output program unless it gets optimised away.
     Unassigned, // unassigned (due to hoisting)
@@ -106,6 +106,7 @@ pub struct Func {
                                                                    // then it can emit code to call the constrained_func instead of the current one)
                                                                    // this list should not contain the entry where all the param types and return type are identical to the current one
                                                                    // (because there is no use for a self-reference)
+    pub is_tail_callable: bool
 }
 
 #[derive(Debug, Clone)]
@@ -371,9 +372,10 @@ impl Func {
                 kind: ExprKind::PrimUndefined,
             },
             signature_filter: Default::default(),
+            is_tail_callable: false
         }
     }
-    pub fn new_with_params_and_result(params: &[VarType], result: VarType) -> Func {
+    pub fn new_with_params_and_result(params: &[VarType], result: VarType, is_tail_callable: bool) -> Func {
         Func {
             params: params.into(),
             result: Some(result),
@@ -382,6 +384,7 @@ impl Func {
                 kind: ExprKind::PrimUndefined,
             },
             signature_filter: Default::default(),
+            is_tail_callable 
         }
     }
     pub fn signature(&self) -> (&[VarType], Option<VarType>) {

@@ -2,8 +2,130 @@ use projstd::log;
 use std::process;
 use std::io::{self, BufRead};
 
+// const SOURCE_CODE: &'static str = r#"
+// {
+//   "type": "Program",
+//   "start": 0,
+//   "end": 39,
+//   "body": [
+//     {
+//       "type": "FunctionDeclaration",
+//       "start": 0,
+//       "end": 32,
+//       "id": {
+//         "type": "Identifier",
+//         "start": 9,
+//         "end": 10,
+//         "name": "x"
+//       },
+//       "expression": false,
+//       "generator": false,
+//       "async": false,
+//       "params": [],
+//       "body": {
+//         "type": "BlockStatement",
+//         "start": 13,
+//         "end": 32,
+//         "body": [
+//           {
+//             "type": "ReturnStatement",
+//             "start": 17,
+//             "end": 30,
+//             "argument": {
+//               "type": "Literal",
+//               "start": 24,
+//               "end": 29,
+//               "value": false,
+//               "raw": "false"
+//             }
+//           }
+//         ]
+//       }
+//     },
+//     {
+//       "type": "ExpressionStatement",
+//       "start": 33,
+//       "end": 37,
+//       "expression": {
+//         "type": "CallExpression",
+//         "start": 33,
+//         "end": 36,
+//         "callee": {
+//           "type": "Identifier",
+//           "start": 33,
+//           "end": 34,
+//           "name": "x"
+//         },
+//         "arguments": [],
+//         "optional": false
+//       }
+//     }
+//   ],
+//   "sourceType": "script"
+// }
+// "#;
+
 const SOURCE_CODE: &'static str = r#"
-{ "type": "Program", "start": 0, "end": 66, "body": [ { "type": "FunctionDeclaration", "start": 0, "end": 56, "id": { "type": "Identifier", "start": 9, "end": 13, "name": "zero" }, "expression": false, "generator": false, "async": false, "params": [ { "type": "Identifier", "start": 14, "end": 15, "name": "n" } ], "body": { "type": "BlockStatement", "start": 17, "end": 56, "body": [ { "type": "ReturnStatement", "start": 21, "end": 54, "argument": { "type": "ConditionalExpression", "start": 28, "end": 53, "test": { "type": "BinaryExpression", "start": 28, "end": 35, "left": { "type": "Identifier", "start": 28, "end": 29, "name": "n" }, "operator": "===", "right": { "type": "Literal", "start": 34, "end": 35, "value": 0, "raw": "0" } }, "consequent": { "type": "Literal", "start": 38, "end": 39, "value": 0, "raw": "0" }, "alternate": { "type": "CallExpression", "start": 42, "end": 53, "callee": { "type": "Identifier", "start": 42, "end": 46, "name": "zero" }, "arguments": [ { "type": "BinaryExpression", "start": 47, "end": 52, "left": { "type": "Identifier", "start": 47, "end": 48, "name": "n" }, "operator": "-", "right": { "type": "Literal", "start": 51, "end": 52, "value": 1, "raw": "1" } } ], "optional": false } } } ] } }, { "type": "ExpressionStatement", "start": 57, "end": 65, "expression": { "type": "CallExpression", "start": 57, "end": 64, "callee": { "type": "Identifier", "start": 57, "end": 61, "name": "zero" }, "arguments": [ { "type": "Literal", "start": 62, "end": 63, "value": 2, "raw": "2" } ], "optional": false } } ], "sourceType": "script" }
+{
+  "type": "Program",
+  "start": 0,
+  "end": 35,
+  "body": [
+    {
+      "type": "FunctionDeclaration",
+      "start": 0,
+      "end": 28,
+      "id": {
+        "type": "Identifier",
+        "start": 9,
+        "end": 10,
+        "name": "x"
+      },
+      "expression": false,
+      "generator": false,
+      "async": false,
+      "params": [],
+      "body": {
+        "type": "BlockStatement",
+        "start": 13,
+        "end": 28,
+        "body": [
+          {
+            "type": "ReturnStatement",
+            "start": 17,
+            "end": 26,
+            "argument": {
+              "type": "Literal",
+              "start": 24,
+              "end": 25,
+              "value": 1,
+              "raw": "1"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "type": "ExpressionStatement",
+      "start": 29,
+      "end": 33,
+      "expression": {
+        "type": "CallExpression",
+        "start": 29,
+        "end": 32,
+        "callee": {
+          "type": "Identifier",
+          "start": 29,
+          "end": 30,
+          "name": "x"
+        },
+        "arguments": [],
+        "optional": false
+      }
+    }
+  ],
+  "sourceType": "script"
+}
 "#;
 
 const IMPORT_MATH_FFI: &'static str = r#"@SourceImports
