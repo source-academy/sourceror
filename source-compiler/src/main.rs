@@ -2,79 +2,16 @@ use projstd::log;
 use std::process;
 use std::io::{self, BufRead};
 
-// const SOURCE_CODE: &'static str = r#"
-// {
-//   "type": "Program",
-//   "start": 0,
-//   "end": 39,
-//   "body": [
-//     {
-//       "type": "FunctionDeclaration",
-//       "start": 0,
-//       "end": 32,
-//       "id": {
-//         "type": "Identifier",
-//         "start": 9,
-//         "end": 10,
-//         "name": "x"
-//       },
-//       "expression": false,
-//       "generator": false,
-//       "async": false,
-//       "params": [],
-//       "body": {
-//         "type": "BlockStatement",
-//         "start": 13,
-//         "end": 32,
-//         "body": [
-//           {
-//             "type": "ReturnStatement",
-//             "start": 17,
-//             "end": 30,
-//             "argument": {
-//               "type": "Literal",
-//               "start": 24,
-//               "end": 29,
-//               "value": false,
-//               "raw": "false"
-//             }
-//           }
-//         ]
-//       }
-//     },
-//     {
-//       "type": "ExpressionStatement",
-//       "start": 33,
-//       "end": 37,
-//       "expression": {
-//         "type": "CallExpression",
-//         "start": 33,
-//         "end": 36,
-//         "callee": {
-//           "type": "Identifier",
-//           "start": 33,
-//           "end": 34,
-//           "name": "x"
-//         },
-//         "arguments": [],
-//         "optional": false
-//       }
-//     }
-//   ],
-//   "sourceType": "script"
-// }
-// "#;
-
 const SOURCE_CODE: &'static str = r#"
 {
   "type": "Program",
   "start": 0,
-  "end": 35,
+  "end": 39,
   "body": [
     {
       "type": "FunctionDeclaration",
       "start": 0,
-      "end": 28,
+      "end": 32,
       "id": {
         "type": "Identifier",
         "start": 9,
@@ -88,18 +25,31 @@ const SOURCE_CODE: &'static str = r#"
       "body": {
         "type": "BlockStatement",
         "start": 13,
-        "end": 28,
+        "end": 32,
         "body": [
           {
             "type": "ReturnStatement",
             "start": 17,
-            "end": 26,
+            "end": 30,
             "argument": {
-              "type": "Literal",
+              "type": "BinaryExpression",
               "start": 24,
-              "end": 25,
-              "value": 1,
-              "raw": "1"
+              "end": 29,
+              "left": {
+                "type": "Literal",
+                "start": 24,
+                "end": 25,
+                "value": 1,
+                "raw": "1"
+              },
+              "operator": "+",
+              "right": {
+                "type": "Literal",
+                "start": 28,
+                "end": 29,
+                "value": 1,
+                "raw": "1"
+              }
             }
           }
         ]
@@ -107,16 +57,16 @@ const SOURCE_CODE: &'static str = r#"
     },
     {
       "type": "ExpressionStatement",
-      "start": 29,
-      "end": 33,
+      "start": 33,
+      "end": 37,
       "expression": {
         "type": "CallExpression",
-        "start": 29,
-        "end": 32,
+        "start": 33,
+        "end": 36,
         "callee": {
           "type": "Identifier",
-          "start": 29,
-          "end": 30,
+          "start": 33,
+          "end": 34,
           "name": "x"
         },
         "arguments": [],

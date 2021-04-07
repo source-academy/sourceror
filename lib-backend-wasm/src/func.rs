@@ -865,13 +865,27 @@ fn encode_expr<H: HeapManager>(
                         let wasm_reachable =
                             encode_expr(true_expr, ctx, mutctx, expr_builder, is_return);
                         // net wasm stack: [<true_expr.vartype>] -> [<expr.vartype>]
-                        encode_opt_result_widening_operation(
-                            expr.vartype,
-                            true_expr.vartype,
-                            wasm_reachable,
-                            mutctx.scratch_mut(),
-                            expr_builder,
-                        );
+                        if is_return {
+                            mutctx.with_scratch_i32(|mutctx, local_is_tail_idx| {
+                                expr_builder.local_set(local_is_tail_idx);
+                                encode_opt_result_widening_operation(
+                                    expr.vartype,
+                                    true_expr.vartype,
+                                    wasm_reachable,
+                                    mutctx.scratch_mut(),
+                                    expr_builder,
+                                );
+                                expr_builder.local_get(local_is_tail_idx);
+                            });
+                        } else {
+                            encode_opt_result_widening_operation(
+                                expr.vartype,
+                                true_expr.vartype,
+                                wasm_reachable,
+                                mutctx.scratch_mut(),
+                                expr_builder,
+                            );
+                        }
                     },
                     (!false_expr.is_prim_undefined()).as_some(
                         |mutctx: &mut MutContext, expr_builder: &mut wasmgen::ExprBuilder| {
@@ -879,13 +893,27 @@ fn encode_expr<H: HeapManager>(
                             let wasm_reachable =
                                 encode_expr(false_expr, ctx, mutctx, expr_builder, is_return);
                             // net wasm stack: [<false_expr.vartype>] -> [<expr.vartype>]
-                            encode_opt_result_widening_operation(
-                                expr.vartype,
-                                false_expr.vartype,
-                                wasm_reachable,
-                                mutctx.scratch_mut(),
-                                expr_builder,
-                            );
+                            if is_return {
+                                mutctx.with_scratch_i32(|mutctx, local_is_tail_idx| {
+                                    expr_builder.local_set(local_is_tail_idx);
+                                    encode_opt_result_widening_operation(
+                                        expr.vartype,
+                                        false_expr.vartype,
+                                        wasm_reachable,
+                                        mutctx.scratch_mut(),
+                                        expr_builder,
+                                    );
+                                    expr_builder.local_get(local_is_tail_idx);
+                                });
+                            } else {
+                                encode_opt_result_widening_operation(
+                                    expr.vartype,
+                                    false_expr.vartype,
+                                    wasm_reachable,
+                                    mutctx.scratch_mut(),
+                                    expr_builder,
+                                );
+                            }
                         },
                     ),
                 );
@@ -959,14 +987,14 @@ fn encode_expr<H: HeapManager>(
                             // net wasm stack: [] -> [<expr.vartype>]
                             encode_expr(inner_expr, ctx, mutctx, expr_builder, true);
 
-                            encode_return_calling_conv2(
-                                ret_type,
-                                inner_type,
-                                ctx.options.wasm_multi_value,
-                                ctx.stackptr,
-                                mutctx.scratch_mut(),
-                                expr_builder,
-                                );
+                                encode_return_calling_conv2(
+                                    ret_type,
+                                    inner_type,
+                                    ctx.options.wasm_multi_value,
+                                    ctx.stackptr,
+                                    mutctx.scratch_mut(),
+                                    expr_builder,
+                                    );
 
                             expr_builder.return_();
                             // returns false, because WebAssembly knows that anything after a return instruction is unreachable
@@ -1024,6 +1052,10 @@ fn encode_expr<H: HeapManager>(
                     })
                 },
             );
+
+            if is_return {
+                expr_builder.i32_const(0);
+            }
 
             // returns true, because WebAssembly never regards a block as stack-polymorphic even if it is actually the case
             true
@@ -1451,15 +1483,15 @@ fn encode_appl<H: HeapManager>(
             );
         });
         // encode_widening_operation
-                // expr_builder.i64_extend_i32_u(); // convert i32 to i64
-                // expr_builder.i32_const(2);
-                    // encode_post_appl_calling_conv2(
-                    //     Some(ir::VarType::Any),
-                    //     ctx.options.wasm_multi_value,
-                    //     ctx.stackptr,
-                    //     mutctx.scratch_mut(),
-                    //     expr_builder,
-                    // );
+        // expr_builder.i64_extend_i32_u(); // convert i32 to i64
+        // expr_builder.i32_const(2);
+        // encode_post_appl_calling_conv2(
+        //     Some(ir::VarType::Any),
+        //     ctx.options.wasm_multi_value,
+        //     ctx.stackptr,
+        //     mutctx.scratch_mut(),
+        //     expr_builder,
+        // );
 
         mutctx.with_unused_landing(|mutctx| {
             multi_value_polyfill::if_(
@@ -2185,51 +2217,61 @@ fn encode_return_calling_conv2(
 
     //     // Store the widened result onto the unprotected stack
     // } else {
-        // Should put on unprotected stack
-        // Recall that the unprotected stack grows downward
-        // The convention is to put the data at [stackptr-size, stackptr) where `size` is the size of the target type
+    // Should put on unprotected stack
+    // Recall that the unprotected stack grows downward
+    // The convention is to put the data at [stackptr-size, stackptr) where `size` is the size of the target type
 
-        // We need to retrieve the source value(s) into locals so that we can put the pointer under it on the stack.
+    // We need to retrieve the source value(s) into locals so that we can put the pointer under it on the stack.
 
-        // temporary storage for source value
-        let localidx_is_tail_call = scratch.push_i32();
-        expr_builder.local_set(localidx_is_tail_call);
+    // temporary storage for source value
+    let localidx_is_tail_call = scratch.push_i32();
+    expr_builder.local_set(localidx_is_tail_call);
 
-        encode_widening_operation(ir::VarType::Any, source_type, scratch, expr_builder);
-        let source_val: Box<[wasmgen::LocalIdx]> = encode_vartype(ir::VarType::Any)
-            .iter()
-            .copied()
-            .map(|valtype| scratch.push(valtype))
-            .collect();
+    encode_widening_operation(ir::VarType::Any, source_type, scratch, expr_builder);
+    let source_val: Box<[wasmgen::LocalIdx]> = encode_vartype(ir::VarType::Any)
+        .iter()
+        .copied()
+        .map(|valtype| scratch.push(valtype))
+        .collect();
 
-        // pop the source value from the stack
-        // net wasm stack: [source_type] -> []
-        encode_store_local(&source_val, ir::VarType::Any, ir::VarType::Any, expr_builder);
+    // pop the source value from the stack
+    // net wasm stack: [source_type] -> []
+    encode_store_local(
+        &source_val,
+        ir::VarType::Any,
+        ir::VarType::Any,
+        expr_builder,
+    );
 
-        // return_ptr = stackptr - size
-        // net wasm stack: [] -> [return_ptr]
-        expr_builder.global_get(stackptr);
-        expr_builder.i32_const(size_in_memory(ir::VarType::Any) as i32);
-        expr_builder.i32_sub();
+    // return_ptr = stackptr - size
+    // net wasm stack: [] -> [return_ptr]
+    expr_builder.global_get(stackptr);
+    expr_builder.i32_const(size_in_memory(ir::VarType::Any) as i32);
+    expr_builder.i32_sub();
 
-        // push the source value back onto the stack
-        // net wasm stack: [] -> [source_type]
-        encode_load_local(&source_val, ir::VarType::Any, ir::VarType::Any, expr_builder);
+    // push the source value back onto the stack
+    // net wasm stack: [] -> [source_type]
+    encode_load_local(
+        &source_val,
+        ir::VarType::Any,
+        ir::VarType::Any,
+        expr_builder,
+    );
 
-        // delete temporary storage for source value... (backwards because it is a stack)
-        encode_vartype(ir::VarType::Any)
-            .iter()
-            .copied()
-            .rev()
-            .for_each(|valtype| scratch.pop(valtype));
+    // delete temporary storage for source value... (backwards because it is a stack)
+    encode_vartype(ir::VarType::Any)
+        .iter()
+        .copied()
+        .rev()
+        .for_each(|valtype| scratch.pop(valtype));
 
-        // write the source value to memory
-        // net wasm stack: [return_ptr, source_type] -> []
-        encode_store_memory(0, ir::VarType::Any, ir::VarType::Any, scratch, expr_builder);
-        expr_builder.local_get(localidx_is_tail_call);
-        scratch.pop_i32();
-        // let localidx_is_tail_call = scratch.push_i32();
-        // });
+    // write the source value to memory
+    // net wasm stack: [return_ptr, source_type] -> []
+    encode_store_memory(0, ir::VarType::Any, ir::VarType::Any, scratch, expr_builder);
+    expr_builder.local_get(localidx_is_tail_call);
+    scratch.pop_i32();
+    // let localidx_is_tail_call = scratch.push_i32();
+    // });
     // }
 }
 
