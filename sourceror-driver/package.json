@@ -1,6 +1,6 @@
 {
   "name": "sourceror",
-  "version": "0.7.1",
+  "version": "0.7.2",
   "description": "Compiler toolchain from Source to WebAssembly",
   "dependencies": {
     "acorn": "^8.1.0",
