@@ -1,4 +1,4 @@
-on: [pull_request]
+on: [push, pull_request]
 
 name: CI
 
@@ -16,3 +16,5 @@ jobs:
         with:
           command: test
           args: --release --all-features
+      - name: Yarn install and build
+        run: cd sourceror-driver && yarn install && yarn run build
