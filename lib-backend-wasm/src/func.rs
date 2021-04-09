@@ -797,7 +797,7 @@ fn encode_expr<H: HeapManager>(
             location,
         } => {
             // encodes an indirect function call
-            if *is_tail {
+            if false {
                 encode_tail_appl(
                     expr.vartype,
                     func,
@@ -1352,41 +1352,62 @@ fn encode_tail_appl<H: HeapManager>(
 
     mutctx.with_uninitialized_shadow_local(ir::VarType::Func, |mutctx, localidx_func| {
         // net wasm stack: [<Func>] -> []
-        // encode_store_local(
-        //     mutctx.wasm_local_slice(localidx_func),
-        //     ir::VarType::Func,
-        //     ir::VarType::Func,
-        //     expr_builder,
-        // );
+        encode_store_local(
+            mutctx.wasm_local_slice(localidx_func),
+            ir::VarType::Func,
+            ir::VarType::Func,
+            expr_builder,
+        );
 
         // // net wasm stack: [] -> [i32(closure), i32(num_args)]
-        // encode_args_to_call_indirect_function(
-        //     args,
-        //     mutctx.wasm_local_slice(localidx_func)[1],
-        //     ctx,
-        //     mutctx,
-        //     expr_builder,
-        // );
+        encode_args_to_call_indirect_function(
+            args,
+            mutctx.wasm_local_slice(localidx_func)[1],
+            ctx,
+            mutctx,
+            expr_builder,
+            true,
+        );
 
-        // // net wasm stack: [] -> [i32(callerid)]
-        // expr_builder.i32_const(*ctx.appl_data_encoder.get(location).unwrap() as i32);
+        mutctx.with_scratch_i32(|mutctx, stackptr_local_idx| {
+            expr_builder.global_get(ctx.stackptr);
+            expr_builder.i32_const(
+                ((args.len() as u32 * size_in_memory(ir::VarType::Any))
+                    + 4 as u32 * size_in_memory(ir::VarType::Boolean)) as i32,
+            );
+            expr_builder.i32_sub();
+            expr_builder.local_tee(stackptr_local_idx);
 
-        // // net wasm stack: [] -> [tableidx]
-        // expr_builder.global_get(ctx.stackptr);
-        // expr_builder.i32_const(4);
-        // expr_builder.i32_sub();
+            // encode the proper caller id (which is the memory location of the SourceLocation)
+            // net wasm stack: [] -> [i32(callerid)]
+            expr_builder.i32_const(*ctx.appl_data_encoder.get(location).unwrap() as i32);
 
-        // expr_builder.local_get(mutctx.wasm_local_slice(localidx_func)[0]);
-        // expr_builder.i32_store(wasmgen::MemArg::new1(0));
+            encode_store_memory(
+                0,
+                ir::VarType::Boolean,
+                ir::VarType::Boolean,
+                mutctx.scratch_mut(),
+                expr_builder,
+            );
+
+            expr_builder.local_get(stackptr_local_idx);
+
+            // push the tableidx onto the stack
+            // net wasm stack: [] -> [tableidx]
+            expr_builder.local_get(mutctx.wasm_local_slice(localidx_func)[0]);
+
+            encode_store_memory(
+                size_in_memory(ir::VarType::Boolean),
+                ir::VarType::Boolean,
+                ir::VarType::Boolean,
+                mutctx.scratch_mut(),
+                expr_builder,
+            );
+        });
 
         // net wasm stack: [] -> [is_tail]
-        // expr_builder.f64_const(4.0);
-        // expr_builder.i32_const(1);
-    });
-        expr_builder.f64_const(15.0);
-        expr_builder.i64_reinterpret_f64();
-        expr_builder.i32_const(2);
         expr_builder.i32_const(1);
+    });
 }
 
 // Pop from unprotected stack. Perform tail call or do nothing if no call.
@@ -1468,6 +1489,7 @@ fn encode_appl<H: HeapManager>(
             ctx,
             mutctx,
             expr_builder,
+            false,
         );
 
         // encode the proper caller id (which is the memory location of the SourceLocation)
@@ -1642,6 +1664,7 @@ fn encode_args_to_call_indirect_function<H: HeapManager>(
     ctx: EncodeContext<H>,
     mutctx: &mut MutContext,
     expr_builder: &mut wasmgen::ExprBuilder,
+    is_tail: bool,
 ) {
     // encode the args
     // (we do some things that only work when there is at least one arg)
@@ -1649,7 +1672,7 @@ fn encode_args_to_call_indirect_function<H: HeapManager>(
         // load the adjusted stackptr
         // net wasm stack: [] -> [i32(stackptr)]
         expr_builder.global_get(ctx.stackptr);
-        expr_builder.i32_const((args.len() as u32 * size_in_memory(ir::VarType::Any)) as i32);
+        expr_builder.i32_const((args.len() as u32 * size_in_memory(ir::VarType::Any) + size_in_memory(ir::VarType::Boolean)) as i32);
         expr_builder.i32_sub();
 
         // net wasm stack: [stackptr] -> []
@@ -1744,11 +1767,43 @@ fn encode_args_to_call_indirect_function<H: HeapManager>(
         }
     }
 
-    // net wasm stack: [] -> [i32(closure)]
-    expr_builder.local_get(closure_local);
+    if is_tail {
+        mutctx.with_scratch_i32(|mutctx, stackptr_local_idx| {
+            expr_builder.global_get(ctx.stackptr);
+            expr_builder.i32_const(
+                (args.len() as u32 * size_in_memory(ir::VarType::Any)
+                    + 2 * size_in_memory(ir::VarType::Boolean)) as i32,
+            );
+            expr_builder.i32_sub();
+            expr_builder.local_tee(stackptr_local_idx);
+            // net wasm stack: [] -> [i32(closure)]
+            expr_builder.local_get(closure_local);
 
-    // net wasm stack: [] -> [i32(num_params)]
-    expr_builder.i32_const(args.len() as i32);
+            encode_store_memory(
+                0,
+                ir::VarType::Boolean,
+                ir::VarType::Boolean,
+                mutctx.scratch_mut(),
+                expr_builder,
+            );
+            expr_builder.local_get(stackptr_local_idx);
+            // net wasm stack: [] -> [i32(num_params)]
+            expr_builder.i32_const(args.len() as i32);
+            encode_store_memory(
+                size_in_memory(ir::VarType::Boolean),
+                ir::VarType::Boolean,
+                ir::VarType::Boolean,
+                mutctx.scratch_mut(),
+                expr_builder,
+            );
+        });
+    } else {
+        // net wasm stack: [] -> [i32(closure)]
+        expr_builder.local_get(closure_local);
+
+        // net wasm stack: [] -> [i32(num_params)]
+        expr_builder.i32_const(args.len() as i32);
+    }
 }
 
 // Encodes a small function that uses uniform calling convention and
