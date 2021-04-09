@@ -58,10 +58,10 @@ export function compileAndRun(code, logger) {
               end_line,
               end_column,
             ) => {
-              throw "Oh crap"; // to stop the webassembly binary immediately
+              throw "Core error"; // to stop the webassembly binary immediately
             },
             abort: () => {
-              throw "Oh crap"; // to stop the webassembly binary immediately
+              throw "Aborting"; // to stop the webassembly binary immediately
             }
           }
         };

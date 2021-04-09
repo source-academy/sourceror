@@ -2,9 +2,12 @@ import Harness from './harness';
 
 const harness = new Harness;
 const code = `
-function x() {
-  return 4 ? 1 : 2;
+function y() {
+  return 10;
 }
-x();
+function x(n) {
+  return n ? y() + 1 : y();
+}
+x(false);
 `;
 harness.runCode(code, 2);

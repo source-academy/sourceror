@@ -6,17 +6,17 @@ const SOURCE_CODE: &'static str = r#"
 {
   "type": "Program",
   "start": 0,
-  "end": 39,
+  "end": 77,
   "body": [
     {
       "type": "FunctionDeclaration",
       "start": 0,
-      "end": 32,
+      "end": 28,
       "id": {
         "type": "Identifier",
         "start": 9,
         "end": 10,
-        "name": "x"
+        "name": "y"
       },
       "expression": false,
       "generator": false,
@@ -25,30 +25,76 @@ const SOURCE_CODE: &'static str = r#"
       "body": {
         "type": "BlockStatement",
         "start": 13,
-        "end": 32,
+        "end": 28,
         "body": [
           {
             "type": "ReturnStatement",
             "start": 17,
-            "end": 30,
+            "end": 26,
             "argument": {
-              "type": "BinaryExpression",
+              "type": "Literal",
               "start": 24,
-              "end": 29,
-              "left": {
+              "end": 25,
+              "value": 1,
+              "raw": "1"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "type": "FunctionDeclaration",
+      "start": 29,
+      "end": 71,
+      "id": {
+        "type": "Identifier",
+        "start": 38,
+        "end": 39,
+        "name": "x"
+      },
+      "expression": false,
+      "generator": false,
+      "async": false,
+      "params": [],
+      "body": {
+        "type": "BlockStatement",
+        "start": 42,
+        "end": 71,
+        "body": [
+          {
+            "type": "ReturnStatement",
+            "start": 46,
+            "end": 69,
+            "argument": {
+              "type": "ConditionalExpression",
+              "start": 53,
+              "end": 68,
+              "test": {
                 "type": "Literal",
-                "start": 24,
-                "end": 25,
-                "value": 1,
-                "raw": "1"
+                "start": 53,
+                "end": 58,
+                "value": false,
+                "raw": "false"
               },
-              "operator": "+",
-              "right": {
+              "consequent": {
+                "type": "CallExpression",
+                "start": 61,
+                "end": 64,
+                "callee": {
+                  "type": "Identifier",
+                  "start": 61,
+                  "end": 62,
+                  "name": "y"
+                },
+                "arguments": [],
+                "optional": false
+              },
+              "alternate": {
                 "type": "Literal",
-                "start": 28,
-                "end": 29,
-                "value": 1,
-                "raw": "1"
+                "start": 67,
+                "end": 68,
+                "value": 2,
+                "raw": "2"
               }
             }
           }
@@ -57,16 +103,16 @@ const SOURCE_CODE: &'static str = r#"
     },
     {
       "type": "ExpressionStatement",
-      "start": 33,
-      "end": 37,
+      "start": 72,
+      "end": 76,
       "expression": {
         "type": "CallExpression",
-        "start": 33,
-        "end": 36,
+        "start": 72,
+        "end": 75,
         "callee": {
           "type": "Identifier",
-          "start": 33,
-          "end": 34,
+          "start": 72,
+          "end": 73,
           "name": "x"
         },
         "arguments": [],
@@ -76,6 +122,7 @@ const SOURCE_CODE: &'static str = r#"
   ],
   "sourceType": "script"
 }
+
 "#;
 
 const IMPORT_MATH_FFI: &'static str = r#"@SourceImports
