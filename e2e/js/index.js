@@ -5,9 +5,9 @@ const code = `
 function y() {
   return 10;
 }
-function x(n) {
-  return n ? y() + 1 : y();
+function x() {
+  return true ? y() : 3;
 }
-x(false);
+x();
 `;
 harness.runCode(code, 2);

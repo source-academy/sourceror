@@ -6,12 +6,12 @@ const SOURCE_CODE: &'static str = r#"
 {
   "type": "Program",
   "start": 0,
-  "end": 77,
+  "end": 39,
   "body": [
     {
       "type": "FunctionDeclaration",
       "start": 0,
-      "end": 28,
+      "end": 33,
       "id": {
         "type": "Identifier",
         "start": 9,
@@ -25,76 +25,30 @@ const SOURCE_CODE: &'static str = r#"
       "body": {
         "type": "BlockStatement",
         "start": 13,
-        "end": 28,
+        "end": 33,
         "body": [
           {
             "type": "ReturnStatement",
             "start": 17,
-            "end": 26,
+            "end": 31,
             "argument": {
-              "type": "Literal",
+              "type": "BinaryExpression",
               "start": 24,
-              "end": 25,
-              "value": 1,
-              "raw": "1"
-            }
-          }
-        ]
-      }
-    },
-    {
-      "type": "FunctionDeclaration",
-      "start": 29,
-      "end": 71,
-      "id": {
-        "type": "Identifier",
-        "start": 38,
-        "end": 39,
-        "name": "x"
-      },
-      "expression": false,
-      "generator": false,
-      "async": false,
-      "params": [],
-      "body": {
-        "type": "BlockStatement",
-        "start": 42,
-        "end": 71,
-        "body": [
-          {
-            "type": "ReturnStatement",
-            "start": 46,
-            "end": 69,
-            "argument": {
-              "type": "ConditionalExpression",
-              "start": 53,
-              "end": 68,
-              "test": {
+              "end": 30,
+              "left": {
                 "type": "Literal",
-                "start": 53,
-                "end": 58,
-                "value": false,
-                "raw": "false"
+                "start": 24,
+                "end": 26,
+                "value": 10,
+                "raw": "10"
               },
-              "consequent": {
-                "type": "CallExpression",
-                "start": 61,
-                "end": 64,
-                "callee": {
-                  "type": "Identifier",
-                  "start": 61,
-                  "end": 62,
-                  "name": "y"
-                },
-                "arguments": [],
-                "optional": false
-              },
-              "alternate": {
+              "operator": "+",
+              "right": {
                 "type": "Literal",
-                "start": 67,
-                "end": 68,
-                "value": 2,
-                "raw": "2"
+                "start": 29,
+                "end": 30,
+                "value": 1,
+                "raw": "1"
               }
             }
           }
@@ -103,17 +57,17 @@ const SOURCE_CODE: &'static str = r#"
     },
     {
       "type": "ExpressionStatement",
-      "start": 72,
-      "end": 76,
+      "start": 34,
+      "end": 38,
       "expression": {
         "type": "CallExpression",
-        "start": 72,
-        "end": 75,
+        "start": 34,
+        "end": 37,
         "callee": {
           "type": "Identifier",
-          "start": 72,
-          "end": 73,
-          "name": "x"
+          "start": 34,
+          "end": 35,
+          "name": "y"
         },
         "arguments": [],
         "optional": false
