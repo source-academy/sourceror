@@ -1458,55 +1458,6 @@ fn encode_tail_calling_conv<H: HeapManager>(
             wasmgen::TableIdx { idx: 0 },
         );
     });
-
-    // expr_builder.i64_extend_i32_u(); // convert i32 to i64
-    // expr_builder.i32_const(2);
-    expr_builder.drop();
-    expr_builder.loop_(&[]);
-    {
-        mutctx.with_scratch_i32(|mutctx, stackptr_localidx| {
-            expr_builder.global_get(ctx.stackptr);
-            expr_builder.i32_const(4 * size_in_memory(ir::VarType::Boolean) as i32);
-            expr_builder.i32_sub();
-            expr_builder.local_set(stackptr_localidx);
-            for i in 0..4 {
-                expr_builder.local_get(stackptr_localidx);
-                encode_load_memory(
-                    size_in_memory(ir::VarType::Boolean) * (3 - i),
-                    ir::VarType::Boolean,
-                    ir::VarType::Boolean,
-                    mutctx.scratch_mut(),
-                    expr_builder,
-                );
-            }
-        });
-
-        mutctx.heap_encode_prologue_epilogue(ctx.heap, expr_builder, |mutctx, expr_builder| {
-            return expr_builder.call_indirect(
-                mutctx
-                    .module_wrapper()
-                    .add_wasm_type(wasmgen::FuncType::new(
-                        Box::new([
-                            wasmgen::ValType::I32,
-                            wasmgen::ValType::I32,
-                            wasmgen::ValType::I32,
-                        ]),
-                        encode_result(Some(ir::VarType::Boolean), ctx.options.wasm_multi_value),
-                    )),
-                wasmgen::TableIdx { idx: 0 },
-            );
-        });
-        expr_builder.drop();
-    }
-    expr_builder.end();
-
-    encode_post_appl_calling_conv2(
-        Some(ir::VarType::Any),
-        ctx.options.wasm_multi_value,
-        ctx.stackptr,
-        mutctx.scratch_mut(),
-        expr_builder,
-    );
 }
 
 // Requires: the callee actually has the correct number of parameters,
@@ -1601,6 +1552,24 @@ fn encode_appl<H: HeapManager>(
                 |mutctx, expr_builder| {
                     // net wasm stack: [] -> [<true_expr.vartype>]
                     encode_tail_calling_conv(return_type, ctx, mutctx, expr_builder);
+                    expr_builder.if_(&[]);
+                    {
+                        expr_builder.loop_(&[]);
+                        {
+                            encode_tail_calling_conv(return_type, ctx, mutctx, expr_builder);
+                            expr_builder.br_if(0);
+                        }
+                        expr_builder.end();
+                    }
+                    expr_builder.end();
+
+                    encode_post_appl_calling_conv2(
+                        Some(ir::VarType::Any),
+                        ctx.options.wasm_multi_value,
+                        ctx.stackptr,
+                        mutctx.scratch_mut(),
+                        expr_builder,
+                    );
                 },
                 |mutctx, expr_builder| {
                     // net wasm stack: [] -> [<false_expr.vartype>]
