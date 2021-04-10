@@ -1496,7 +1496,7 @@ fn encode_tail_calling_conv<H: HeapManager>(
                 wasmgen::TableIdx { idx: 0 },
             );
         });
-    // expr_builder.drop();
+        expr_builder.drop();
     }
     expr_builder.end();
 
