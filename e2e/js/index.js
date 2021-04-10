@@ -10,7 +10,6 @@ function factorial(n) {
     }
     return facloop(n, 1); 
 }
-factorial(100000);
-
+factorial(10);
 `;
-harness.runCode(code, 2);
+harness.runCode(code, eval(code));
