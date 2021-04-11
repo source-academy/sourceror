@@ -72,8 +72,12 @@ export function compileAndRun(code, logger) {
             }
           }
         };
+        const t0 = Date.now();
         WebAssembly.instantiate(arr, config)
           .then(({ instance, module }) => {
+            const t1 = Date.now() 
+            const result = t1 - t0;
+            console.log(`Log: time: ${result}`)
             const transcoder = new Transcoder();
             transcoder.setMem(new DataView((instance.exports.linear_memory).buffer));
             transcoder.setAllocateStringFunc(instance.exports.allocate_string);
