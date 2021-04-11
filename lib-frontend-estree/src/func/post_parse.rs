@@ -1922,7 +1922,7 @@ fn post_parse_cond_expr(
                 vartype: Some(ir::VarType::Boolean),
                 kind: ir::ExprKind::TypeCast {
                     test: Box::new(post_parse_expr(
-                        is_tail,
+                        &false,
                         *es_cond_expr.test,
                         parse_ctx,
                         depth,
@@ -2049,7 +2049,7 @@ fn post_parse_call_func_with_params_helper(
     ir_program: &mut ir::Program,
 ) -> Result<ir::Expr, CompileMessage<ParseProgramError>> {
     let args: Box<[ir::Expr]> = args_iter
-        .map(|arg| post_parse_expr(is_tail, arg, parse_ctx, depth, num_locals, filename, ir_program))
+        .map(|arg| post_parse_expr(&false, arg, parse_ctx, depth, num_locals, filename, ir_program))
         .collect::<Result<Box<[ir::Expr]>, CompileMessage<ParseProgramError>>>()?;
     Ok(ir::Expr {
         vartype: Some(ir::VarType::Any),
