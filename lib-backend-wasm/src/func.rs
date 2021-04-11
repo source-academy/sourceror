@@ -138,6 +138,8 @@ pub fn encode_funcs<'a, Heap: HeapManager>(
                 let (wasm_param_valtypes, wasm_param_map, param_map) =
                     encode_param_list(&ir_func.params);
 
+                // in case of !options.wasm_tail_call use trampolining which returns boolean
+                // (is_tail) for all user defined functions.
                 let result_type = if ir_func.is_tail_callable && !options.wasm_tail_call {
                     encode_result(Some(ir::VarType::Boolean), options.wasm_multi_value)
                 } else {
@@ -179,6 +181,8 @@ pub fn encode_funcs<'a, Heap: HeapManager>(
                     wasmgen::ValType::I32,
                     wasmgen::ValType::I32,
                 ]),
+                // in case of !options.wasm_tail_call use trampolining which returns boolean
+                // (is_tail) for all user defined functions.
                 if options.wasm_tail_call {
                     encode_result(Some(ir::VarType::Any), options.wasm_multi_value)
                 } else {
@@ -772,7 +776,12 @@ fn encode_expr<H: HeapManager>(
             is_tail,
         } => {
             // encodes an indirect function call
+
+            // Use trampolining when is_tail and !ctx.options.wasm_tail_call
             if *is_tail && !ctx.options.wasm_tail_call {
+                // Stores [closure_ptr, num_args, callerid, table_idx] on the
+                // unprotected stack starting from ctx.stackptr.
+                // net wasm stack: [] -> [i32(is_tail == 1)]
                 encode_tail_appl(
                     expr.vartype,
                     func,
@@ -782,8 +791,14 @@ fn encode_expr<H: HeapManager>(
                     mutctx,
                     expr_builder,
                 );
+                // Early return
                 expr_builder.return_();
             } else {
+                // Encode indirect call. When ctx.options.wasm_tail_call,
+                // use wasm return_indirect_call opcode when is_tail and indirect_call
+                // when !is_tail. When !ctx.options.wasm_tail_call, call trampolining
+                // until ir return on unprotected stack.
+                // [] -> [any(ir_return)]
                 encode_appl(
                     expr.vartype,
                     func,
@@ -937,7 +952,15 @@ fn encode_expr<H: HeapManager>(
                         Some(ret_type) => {
                             // net wasm stack: [] -> [<expr.vartype>]
                             encode_expr(inner_expr, ctx, mutctx, expr_builder);
+
+                            // If ctx.options.wasm_tail_call then return the ir_return from
+                            // the stack if len(ret_type) <= 1 else store on unprotected stack.
+                            // If !ctx.options.wasm_tail_call, then always store inner_type result on
+                            // unprotected stack and return i32(is_tail === 0) implying no inner
+                            // tail_call. (This is because in case of tail call, function would
+                            // ahev already returned before reaching this stage).
                             if ctx.options.wasm_tail_call {
+                                // net wasm stack: [inner_type] -> [ret_type]
                                 encode_return_calling_conv(
                                     ret_type,
                                     inner_type,
@@ -947,22 +970,22 @@ fn encode_expr<H: HeapManager>(
                                     expr_builder,
                                 );
                             } else {
+                                // net wasm stack: [inner_type] -> []
                                 encode_result_return_calling_conv(
-                                    ret_type,
                                     inner_type,
-                                    ctx.options.wasm_multi_value,
                                     ctx.stackptr,
                                     mutctx.scratch_mut(),
                                     expr_builder,
                                 );
+                                // net wasm stack: [] -> [i32(is_tail == 0)]
                                 expr_builder.i32_const(0);
                             }
                             expr_builder.return_();
-                            // returns false, because WebAssembly knows that anything after a return instruction is unreachable
                         }
                     }
                 }
             }
+            // returns false, because WebAssembly knows that anything after a return instruction is unreachable
             false
         }
         ir::ExprKind::Break {
@@ -1277,6 +1300,7 @@ fn encode_prim_inst<H: HeapManager>(
     }
 }
 
+// !ctx.options.wasm_tail_call
 // Stores [args, tableid, funcid, is_tail] onto the unprotected stack. The return call
 // will pop is_tail and return. After returning if is_tail, then pop func_id and
 // execute the indirect call with the args stored in the unprotected stack. If !is_tail,
@@ -1305,7 +1329,7 @@ fn encode_tail_appl<H: HeapManager>(
             expr_builder,
         );
 
-        // // net wasm stack: [] -> [i32(closure), i32(num_args)]
+        // net wasm stack: [] -> [i32(closure), i32(num_args)]
         encode_args_to_call_indirect_function(
             args,
             mutctx.wasm_local_slice(localidx_func)[1],
@@ -1315,6 +1339,9 @@ fn encode_tail_appl<H: HeapManager>(
             true,
         );
 
+        // Store [closure_ptr, num_params, callerid, tableidx] on unprotected stack for tail call
+        // trampolining.
+        // net wasm stack: [] -> []
         mutctx.with_scratch_i32(|mutctx, stackptr_localidx| {
             expr_builder.global_get(ctx.stackptr);
             expr_builder.i32_const(4 * size_in_memory(ir::VarType::Boolean) as i32);
@@ -1351,15 +1378,15 @@ fn encode_tail_appl<H: HeapManager>(
     });
 }
 
-// Pop from unprotected stack. Perform tail call or do nothing if no call.
+// Pop tail call details [closure_ptr, num_params, callerid, tableidx] from unprotected stack
+// and perform and an indirect call.
+// net wasm stack: [] -> [i32(is_tail)]
 fn encode_tail_calling_conv<H: HeapManager>(
     ctx: EncodeContext<H>,
     mutctx: &mut MutContext,
     expr_builder: &mut wasmgen::ExprBuilder,
 ) {
-    // net wasm stack: []
-    // TODO: Pop is_tail from the stack and perform tail call.
-    // Pop funcid and perform call.
+    // net wasm stack: [] -> [closure_ptr, num_params, callerid, tableidx]
     mutctx.with_scratch_i32(|mutctx, stackptr_localidx| {
         expr_builder.global_get(ctx.stackptr);
         expr_builder.i32_const(4 * size_in_memory(ir::VarType::Boolean) as i32);
@@ -1456,16 +1483,18 @@ fn encode_appl<H: HeapManager>(
         // net wasm stack: [] -> [tableidx]
         expr_builder.local_get(mutctx.wasm_local_slice(localidx_func)[0]);
 
-        // todo!(For optimisation, heap_encode_prologue_epilogue should only be called if the callee might allocate)
-        // Note: encode_args_to_call_function should be *before* encode_local_roots_prologue, since the args themselves might make function calls.
-        // This function might allocate memory, so we need to store the locals in the gc_roots stack first.
-
-        // call the function with gc prologue and epilogue
-        // call the function (indirectly, using uniform calling convention)
-
+        // When ctx.options.tail_call, use return_call_appl to call with return_indirect_call
+        // opcode in case of is_tail and call_indirect in case of !is_tail.
         if ctx.options.wasm_tail_call {
+            // net wasm: [<Func details>] -> [ir_return_type]
             encode_return_call_appl(ctx, mutctx, expr_builder, is_tail);
         } else {
+            // todo!(For optimisation, heap_encode_prologue_epilogue should only be called if the callee might allocate)
+            // Note: encode_args_to_call_function should be *before* encode_local_roots_prologue, since the args themselves might make function calls.
+            // This function might allocate memory, so we need to store the locals in the gc_roots stack first.
+
+            // call the function with gc prologue and epilogue
+            // net wasm: [<Func details>] -> [i32(is_tail)]
             mutctx.heap_encode_prologue_epilogue(ctx.heap, expr_builder, |mutctx, expr_builder| {
                 return expr_builder.call_indirect(
                     mutctx
@@ -1476,6 +1505,8 @@ fn encode_appl<H: HeapManager>(
                                 wasmgen::ValType::I32,
                                 wasmgen::ValType::I32,
                             ]),
+                            // When !ctx.options.wasm_tail_call, functions always return
+                            // i32(is_tail)
                             encode_result(Some(ir::VarType::Boolean), ctx.options.wasm_multi_value),
                         )),
                     wasmgen::TableIdx { idx: 0 },
@@ -1483,7 +1514,10 @@ fn encode_appl<H: HeapManager>(
             });
         }
 
+        // Run post appl calling convention when ctx.options.wasm_tail_call. Else
+        // encode trampolining until ir_return on the stack.
         if ctx.options.wasm_tail_call {
+            // net wasm stack: [vartype] -> [ir_return_type]
             encode_post_appl_calling_conv(
                 Some(ir::VarType::Any),
                 ctx.options.wasm_multi_value,
@@ -1492,12 +1526,15 @@ fn encode_appl<H: HeapManager>(
                 expr_builder,
             );
         } else {
+            // net wasm stack: [i32(is_tail)] -> [ir_return_type]
             encode_trampoline(return_type, ctx, mutctx, expr_builder);
         }
         // fetch return values from the location prescribed by the calling convention back to the stack
     });
 }
 
+// Run when ctx.options.wasm_tail_call. Use return_call_indirect when is_tail and
+// call_indirect when !is_tail.
 fn encode_return_call_appl<H: HeapManager>(
     ctx: EncodeContext<H>,
     mutctx: &mut MutContext,
@@ -1505,6 +1542,7 @@ fn encode_return_call_appl<H: HeapManager>(
     is_tail: bool,
 ) {
     if is_tail {
+        // no need for prologue_epilogue as tail call do not need to retain caller locals.
         expr_builder.return_call_indirect(
             mutctx
                 .module_wrapper()
@@ -1519,6 +1557,12 @@ fn encode_return_call_appl<H: HeapManager>(
             wasmgen::TableIdx { idx: 0 },
         );
     } else {
+        // todo!(For optimisation, heap_encode_prologue_epilogue should only be called if the callee might allocate)
+        // Note: encode_args_to_call_function should be *before* encode_local_roots_prologue, since the args themselves might make function calls.
+        // This function might allocate memory, so we need to store the locals in the gc_roots stack first.
+
+        // call the function with gc prologue and epilogue
+        // net wasm: [<Func details>] -> [ir_return_type]
         mutctx.heap_encode_prologue_epilogue(ctx.heap, expr_builder, |mutctx, expr_builder| {
             return expr_builder.call_indirect(
                 mutctx
@@ -1537,12 +1581,18 @@ fn encode_return_call_appl<H: HeapManager>(
     }
 }
 
+// Trampolining implemented using loops. Keep making making indirect calls
+// until [i32(is_tail == 1)] -> [i32(is_tail == 0)] implying no further tail calls.
+// Pop result values from unprotected stack that were stored by the tail call.
+// net wasm stack: [i32(is_tail)] -> [ir_return_type]
 fn encode_trampoline<H: HeapManager>(
     return_type: Option<ir::VarType>,
     ctx: EncodeContext<H>,
     mutctx: &mut MutContext,
     expr_builder: &mut wasmgen::ExprBuilder,
 ) {
+    // If [i32(is_tail == 1)] run tail_calling conv again. If [i32(is_tail == 0)]
+    // then run post_appl_calling_conv already as no further tail calls.
     mutctx.with_unused_landing(|mutctx| {
         multi_value_polyfill::if_(
             encode_opt_vartype(return_type),
@@ -1550,10 +1600,12 @@ fn encode_trampoline<H: HeapManager>(
             mutctx,
             expr_builder,
             |mutctx, expr_builder| {
-                // net wasm stack: [] -> [<true_expr.vartype>]
+                // net wasm stack: [i32(is_tail == 1)] -> [i32(is_tail == 1)] or
+                // net wasm stack: [i32(is_tail == 1)] -> [i32(is_tail === 0)]
                 encode_tail_calling_conv(ctx, mutctx, expr_builder);
                 expr_builder.if_(&[]);
                 {
+                    // Keep looping until the i32 value on the stack is 0.
                     expr_builder.loop_(&[]);
                     {
                         encode_tail_calling_conv(ctx, mutctx, expr_builder);
@@ -1563,6 +1615,10 @@ fn encode_trampoline<H: HeapManager>(
                 }
                 expr_builder.end();
 
+                // Now that no other tail calls need to be run, we can retreive
+                // the result from the unprotected stack.
+
+                // net wasm stack: [] -> [ir_return_type]
                 encode_post_appl_calling_conv(
                     Some(ir::VarType::Any),
                     ctx.options.wasm_multi_value,
@@ -1572,7 +1628,7 @@ fn encode_trampoline<H: HeapManager>(
                 );
             },
             |mutctx, expr_builder| {
-                // net wasm stack: [] -> [<false_expr.vartype>]
+                // net wasm stack: [] -> [ir_return_type]
                 encode_post_appl_calling_conv(
                     Some(ir::VarType::Any),
                     ctx.options.wasm_multi_value,
@@ -1693,8 +1749,12 @@ fn encode_args_to_call_indirect_function<H: HeapManager>(
         // net wasm stack: [] -> [i32(stackptr)]
         expr_builder.global_get(ctx.stackptr);
         if ctx.options.wasm_tail_call {
+            // When ctx.options.wasm_tail_call, then store arguments starting from ctx.stackptr
             expr_builder.i32_const((args.len() as u32 * size_in_memory(ir::VarType::Any)) as i32);
         } else {
+            // When !ctx.options.wasm_tail_call, then store arguments starting from ctx.stackptr + 4 * size(i32)
+            // The first 4 values are occupied by [closure_ptr, num_params, callerid,
+            // tableidx] in case of tail calls.
             expr_builder.i32_const(
                 (args.len() as u32 * size_in_memory(ir::VarType::Any)
                     + 4 * size_in_memory(ir::VarType::Boolean)) as i32,
@@ -1968,9 +2028,14 @@ fn encode_thunk<H: HeapManager>(
             if num_params > 0 {
                 // net wasm stack: [] -> [i32(localidx_stackptr)]
                 expr_builder.global_get(ctx.stackptr);
+
                 if ctx.options.wasm_tail_call {
+                    // When ctx.options.wasm_tail_call, then emit arguments starting from ctx.stackptr
                     expr_builder.i32_const((size_in_memory(ir::VarType::Any) * num_params) as i32);
                 } else {
+                    // When !ctx.options.wasm_tail_call, then emit arguments starting from ctx.stackptr + 4 * size(i32)
+                    // The first 4 values are occupied by [closure_ptr, num_params, callerid,
+                    // tableidx] in case of tail calls.
                     expr_builder.i32_const(
                         (num_params * size_in_memory(ir::VarType::Any)
                             + 4 * size_in_memory(ir::VarType::Boolean))
@@ -2195,8 +2260,10 @@ fn encode_thunk<H: HeapManager>(
             } else {
                 // need to do a type conversion
                 if let Some(res) = result {
-                    // net wasm stack: [return_calling_conv(vartype)] -> [vartype]
+                    // in case of !options.wasm_tail_call the functions always return
+                    // i32 (is_tail) which does not need to widened
                     if ctx.options.wasm_tail_call {
+                        // net wasm stack: [return_calling_conv(vartype)] -> [vartype]
                         encode_post_appl_calling_conv(
                             result,
                             ctx.options.wasm_multi_value,
@@ -2309,10 +2376,15 @@ fn encode_return_calling_conv(
     }
 }
 
+// Return convention for !ctx.wasm_tail_call trampolining when returning a literal
+// instead of a tailcall details. All functions return i32 is_tail after storing
+// the result or (closure_ptr, num_params, callerid, tableidx in case of is_tail = 1) onto
+// the unprotected stack. This function handles case is_tail = 0.
+// Widens the ir value on the stack into the value for returning and store it on
+// the unprotected stack starting at ctx.stackptr.
+// net wasm stack: [source_type] -> []
 fn encode_result_return_calling_conv(
-    target_type: ir::VarType,
     source_type: ir::VarType,
-    use_wasm_multi_value_feature: bool,
     stackptr: wasmgen::GlobalIdx,
     scratch: &mut Scratch,
     expr_builder: &mut wasmgen::ExprBuilder,
