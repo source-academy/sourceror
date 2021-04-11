@@ -58,7 +58,14 @@ export function compileAndRun(code, logger) {
               end_line,
               end_column,
             ) => {
-              throw "Core error"; // to stop the webassembly binary immediately
+              console.error(code);
+              console.error(detail);
+              console.error(file);
+              console.error(start_line);
+              console.error(start_column);
+              console.error(end_line);
+              console.error(end_column);
+              throw 'Error'; // to stop the webassembly binary immediately
             },
             abort: () => {
               throw "Aborting"; // to stop the webassembly binary immediately

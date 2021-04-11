@@ -699,7 +699,7 @@ fn main() {
                 .unwrap();
         }
         let wasm_module =
-            backend_wasm::run_backend(&ir_program_opt, backend_wasm::Options::default());
+            backend_wasm::run_backend(&ir_program_opt, backend_wasm::Options {wasm_bulk_memory: false, wasm_multi_value: false, wasm_tail_call: true});
         let mut receiver = std::vec::Vec::<u8>::new();
         wasm_module.wasm_serialize(&mut receiver);
         {

@@ -1134,13 +1134,13 @@ fn post_parse_expr_statement(
     // pre_parse() would have already ensured that there are no nested AssignmentExpressions.
 
     post_parse_expr(
-        &false,
         *es_expr_stmt.expression,
         parse_ctx,
         depth,
         num_locals,
         filename,
         ir_program,
+        &false,
     )
 }
 
@@ -1159,13 +1159,13 @@ fn post_parse_return_statement(
         vartype: None, // return statements produce Void
         kind: ir::ExprKind::Return {
             expr: Box::new(post_parse_expr(
-                          &true,
                           *es_return.argument.unwrap(),
                           parse_ctx,
                           depth,
                           num_locals,
                           filename,
                           ir_program,
+                          &true,
                           )?),
         },
     };
@@ -1196,13 +1196,13 @@ fn post_parse_if_statement(
                 vartype: Some(ir::VarType::Boolean),
                 kind: ir::ExprKind::TypeCast {
                     test: Box::new(post_parse_expr(
-                        &false,
                         *es_if.test,
                         parse_ctx,
                         depth,
                         num_locals,
                         filename,
                         ir_program,
+                        &false,
                     )?),
                     expected: ir::VarType::Boolean,
                     create_narrow_local: true,
@@ -1386,7 +1386,7 @@ fn post_parse_var_decr_recurse<
         varlocid,
         move |parse_ctx, depth, num_locals, filename, ir_program| {
             post_parse_expr(
-                &false, init_expr, parse_ctx, depth, num_locals, filename, ir_program,
+                init_expr, parse_ctx, depth, num_locals, filename, ir_program, &false
             )
         },
         (more_var_decr_iter, more_stmt_attr_iter),
@@ -1538,13 +1538,13 @@ fn post_parse_toplevel_var_decl(
             let es_var_decr: VariableDeclarator = as_var_decr(decr_node);
             let varlocid = as_varlocid(as_id(*es_var_decr.id).prevar.unwrap());
             let rhs_expr: ir::Expr = post_parse_expr(
-                &false,
                 *es_var_decr.init.unwrap(),
                 parse_ctx,
                 0,
                 0,
                 filename,
                 ir_program,
+                &false,
             )?;
             Ok(ir::Expr {
                 vartype: Some(ir::VarType::Undefined),
@@ -1576,13 +1576,13 @@ fn post_parse_toplevel_var_decl(
 }
 
 fn post_parse_expr(
-    is_tail: &bool,
     es_expr: Node,
     parse_ctx: &mut ParseState,
     depth: usize,
     num_locals: usize, // current number of IR locals
     filename: Option<&str>,
     ir_program: &mut ir::Program,
+    is_tail: &bool,
 ) -> Result<ir::Expr, CompileMessage<ParseProgramError>> {
     match es_expr.kind {
         NodeKind::Identifier(es_id) => post_parse_varname(
@@ -1885,13 +1885,13 @@ fn post_parse_assign_expr(
         kind: ir::ExprKind::Assign {
             target: parse_ctx.get_target(&varlocid).unwrap().clone(),
             expr: Box::new(post_parse_expr(
-                &false,
                 *es_assign_expr.right,
                 parse_ctx,
                 depth,
                 num_locals,
                 filename,
                 ir_program,
+                &false,
             )?),
         },
     })
@@ -1922,13 +1922,13 @@ fn post_parse_cond_expr(
                 vartype: Some(ir::VarType::Boolean),
                 kind: ir::ExprKind::TypeCast {
                     test: Box::new(post_parse_expr(
-                        &false,
                         *es_cond_expr.test,
                         parse_ctx,
                         depth,
                         num_locals,
                         filename,
                         ir_program,
+                        &false,
                     )?),
                     expected: ir::VarType::Boolean,
                     create_narrow_local: true,
@@ -1951,22 +1951,22 @@ fn post_parse_cond_expr(
                 },
             }),
             true_expr: Box::new(post_parse_expr(
-                is_tail,
                 *es_cond_expr.consequent,
                 parse_ctx,
                 depth,
                 num_locals,
                 filename,
                 ir_program,
+                is_tail,
             )?),
             false_expr: Box::new(post_parse_expr(
-                is_tail,
                 *es_cond_expr.alternate,
                 parse_ctx,
                 depth,
                 num_locals,
                 filename,
                 ir_program,
+                is_tail,
             )?),
         },
     })
@@ -1992,13 +1992,13 @@ fn post_parse_call_expr(
     // We synthesise the typecheck to ensure that the func is a Func.
 
     let func_any: ir::Expr = post_parse_expr(
-        is_tail,
         *es_call_expr.callee,
         parse_ctx,
         depth,
         num_locals,
         filename,
         ir_program,
+        is_tail,
     )?;
     let func = ir::Expr {
         vartype: Some(ir::VarType::Func),
@@ -2049,7 +2049,7 @@ fn post_parse_call_func_with_params_helper(
     ir_program: &mut ir::Program,
 ) -> Result<ir::Expr, CompileMessage<ParseProgramError>> {
     let args: Box<[ir::Expr]> = args_iter
-        .map(|arg| post_parse_expr(&false, arg, parse_ctx, depth, num_locals, filename, ir_program))
+        .map(|arg| post_parse_expr(arg, parse_ctx, depth, num_locals, filename, ir_program, &false))
         .collect::<Result<Box<[ir::Expr]>, CompileMessage<ParseProgramError>>>()?;
     Ok(ir::Expr {
         vartype: Some(ir::VarType::Any),

@@ -190,15 +190,15 @@ pub enum ExprKind {
         args: Box<[Expr]>,
     }, // primitive operations (e.g. number+number) hardcoded into the compiler.  Expr must have the correct VarType.  Should not be added directly by semantic analyser, because parser is not type-aware.
     Appl {
-        is_tail: bool,
         func: Box<Expr>,
         args: Box<[Expr]>,
         location: SourceLocation, // will be displayed in the error message if the signature mismatches
+        is_tail: bool,
     }, // function application (operators are functions too).  Closure parameter is implicitly prepended to the argument list.  Called using Source indirect calling convention (closure, length, and callerid as i32 params; others are Any and on unprotected stack). Static type of func must be func.
     DirectAppl {
-        is_tail: bool,
         funcidx: FuncIdx,
         args: Box<[Expr]>,
+        is_tail: bool,
     }, // direct function application (operators are functions too).  No closure will be prepended.
     Conditional {
         cond: Box<Expr>,

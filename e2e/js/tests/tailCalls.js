@@ -79,5 +79,21 @@ export default {
       `,
       expect: `Infinity`,
     },
+    {
+      code: `
+      function factorial(n) { 
+        function facloop(n, acc) {
+          return n === 2 
+            ? facloop(n - 1, 1)
+            : n === 1
+            ? acc
+            : facloop(n - 1, acc * n);
+        }
+        return facloop(n, 1); 
+      }
+      factorial(1000000);
+      `,
+      expect: `1`,
+    },
   ],
 };
