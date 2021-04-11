@@ -93,7 +93,7 @@ pub async fn compile(context: i32, source_code: String) -> js_sys::Uint8Array {
         .await?;
         let ir_program_opt = ir::opt::optimize_all(ir_program);
         let wasm_module =
-            backend_wasm::run_backend(&ir_program_opt, backend_wasm::Options {wasm_bulk_memory: false, wasm_multi_value: false, wasm_tail_call: true});
+            backend_wasm::run_backend(&ir_program_opt, backend_wasm::Options {wasm_bulk_memory: false, wasm_multi_value: false, wasm_tail_call: false});
         let mut receiver = std::vec::Vec::<u8>::new();
         wasm_module.wasm_serialize(&mut receiver);
         Ok(js_sys::Uint8Array::from(receiver.as_slice()))

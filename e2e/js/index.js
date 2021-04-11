@@ -19,7 +19,10 @@ function sqrt(x) {
     return average(guess, x / guess);
   }
   function sqrt_iter(guess, x) {
-    return 10;
+    return good_enough(guess, x)
+      ? guess
+      : sqrt_iter(improve(
+        guess, x), x);
   }
   return sqrt_iter(1.0, x);
 }

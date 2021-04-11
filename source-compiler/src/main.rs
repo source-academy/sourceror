@@ -604,7 +604,6 @@ const SOURCE_CODE: &'static str = r#"
   ],
   "sourceType": "script"
 }
-
 "#;
 
 const IMPORT_MATH_FFI: &'static str = r#"@SourceImports

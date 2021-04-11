@@ -1969,7 +1969,7 @@ fn encode_thunk<H: HeapManager>(
                 // net wasm stack: [] -> [i32(localidx_stackptr)]
                 expr_builder.global_get(ctx.stackptr);
                 if ctx.options.wasm_tail_call {
-                    expr_builder.i32_const((num_params * size_in_memory(ir::VarType::Any)) as i32);
+                    expr_builder.i32_const((size_in_memory(ir::VarType::Any) * num_params) as i32);
                 } else {
                     expr_builder.i32_const(
                         (num_params * size_in_memory(ir::VarType::Any)
@@ -2189,33 +2189,31 @@ fn encode_thunk<H: HeapManager>(
             expr_builder.return_call(ctx.wasm_funcidxs[oe.funcidx]);
         } else {
             expr_builder.call(ctx.wasm_funcidxs[oe.funcidx]);
-            if !ctx.options.wasm_multi_value {
-                if let Some(_res) = result {
-                    // we don't need to do conversion so just let it return back
-                    expr_builder.return_();
-                } else {
-                    expr_builder.unreachable();
-                }
+            if result == Some(ir::VarType::Any) {
+                // we don't need to do conversion so just let it return back
+                expr_builder.return_();
             } else {
                 // need to do a type conversion
                 if let Some(res) = result {
                     // net wasm stack: [return_calling_conv(vartype)] -> [vartype]
-                    encode_post_appl_calling_conv(
-                        result,
-                        ctx.options.wasm_multi_value,
-                        ctx.stackptr,
-                        mutctx.scratch_mut(),
-                        expr_builder,
-                    );
-                    // net wasm stack: [vartype] -> [return_callin_conv(Any)]
-                    encode_return_calling_conv(
-                        ir::VarType::Any,
-                        res,
-                        ctx.options.wasm_multi_value,
-                        ctx.stackptr,
-                        mutctx.scratch_mut(),
-                        expr_builder,
-                    );
+                    if ctx.options.wasm_tail_call {
+                        encode_post_appl_calling_conv(
+                            result,
+                            ctx.options.wasm_multi_value,
+                            ctx.stackptr,
+                            mutctx.scratch_mut(),
+                            expr_builder,
+                        );
+                        // net wasm stack: [vartype] -> [return_callin_conv(Any)]
+                        encode_return_calling_conv(
+                            ir::VarType::Any,
+                            res,
+                            ctx.options.wasm_multi_value,
+                            ctx.stackptr,
+                            mutctx.scratch_mut(),
+                            expr_builder,
+                        );
+                    }
                     // return it
                     expr_builder.return_();
                 } else {
