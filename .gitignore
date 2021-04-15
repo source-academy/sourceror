@@ -10,3 +10,4 @@ Cargo.lock
 dump
 source.js
 ast
+.vimspector.json
