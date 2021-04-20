@@ -819,6 +819,7 @@ fn encode_expr<H: HeapManager>(
             is_tail,
         } => {
             // encodes a function call
+            expr_builder.i32_const(1);
             encode_direct_appl(
                 expr.vartype,
                 *funcidx,
