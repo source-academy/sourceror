@@ -363,7 +363,7 @@ impl Func {
     /**
      * Creates a dummy function that should be replaced later.
      */
-    pub fn new() -> Func {
+    pub fn new(is_tail_callable: bool) -> Func {
         Func {
             params: Box::new([]),
             result: None,
@@ -372,7 +372,7 @@ impl Func {
                 kind: ExprKind::PrimUndefined,
             },
             signature_filter: Default::default(),
-            is_tail_callable: false
+            is_tail_callable: is_tail_callable
         }
     }
     pub fn new_with_params_and_result(params: &[VarType], result: VarType, is_tail_callable: bool) -> Func {

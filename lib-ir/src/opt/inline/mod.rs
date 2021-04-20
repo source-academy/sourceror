@@ -111,7 +111,7 @@ pub fn optimize(mut program: Program) -> (Program, bool) {
                     inline_by_destructive_move(
                         unsafe { direct_call_expr.as_mut() },
                         site,
-                        std::mem::replace(program.get_func_mut(og_item.funcidx), Func::new()),
+                        std::mem::replace(program.get_func_mut(og_item.funcidx), Func::new(false)),
                     );
                     changed = true;
                     update_caller_func(

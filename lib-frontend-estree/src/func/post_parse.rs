@@ -154,7 +154,7 @@ pub fn post_parse_program(
     // reserve ir::FuncIdx and generate the overload sets for all the directs
     let direct_entries: Box<[(String, (Box<[ir::VarType]>, ir::FuncIdx))]> = direct_funcs
         .into_iter()
-        .map(|(s, signature)| (s, (signature, ir_program.add_func(ir::Func::new()))))
+        .map(|(s, signature)| (s, (signature, ir_program.add_func(ir::Func::new(true)))))
         .collect();
 
     // give the ir::FuncIdx to each direct FunctionDeclaration
@@ -287,7 +287,7 @@ fn post_parse_scope<S: Scope, PE: ScopePrefixEmitter>(
     // reserve ir::FuncIdx and generate the overload sets for all the directs
     let direct_entries: Box<[(String, (Box<[ir::VarType]>, ir::FuncIdx))]> = direct_funcs
         .into_iter()
-        .map(|(s, signature)| (s, (signature, ir_program.add_func(ir::Func::new()))))
+        .map(|(s, signature)| (s, (signature, ir_program.add_func(ir::Func::new(true)))))
         .collect();
 
     // give the ir::FuncIdx to each direct FunctionDeclaration
