@@ -1,5 +1,6 @@
 import { compile, run } from "./utils";
 import Transcoder from "./transcoder";
+import { makePlatformImports } from  "./platform";
 
 export function compileAndRun(code, logger) {
   const context = {
@@ -7,8 +8,10 @@ export function compileAndRun(code, logger) {
   }
 
   compile(code, context)
-    .then((wasm_module) => run(wasm_module, {}, new Transcoder(), context))
-    .then((result) => logger(result, undefined))
+    .then((wasm_module) => {
+      const transcoder = new Transcoder();
+      return run(wasm_module, makePlatformImports(context, transcoder), transcoder, context)
+    }) .then((result) => logger(result, undefined))
     .catch((err) => logger(undefined, err));
 
   // compile(code, context).then(arr => {

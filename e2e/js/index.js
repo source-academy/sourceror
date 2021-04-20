@@ -6,6 +6,6 @@ import {math_sin, math_PI} from "https://btzy.github.io/libsourceror/std/math.so
 function x(n) {
   return n === 0 ? 0 : ((t) => { return x(n - t); })(1);
 }
-x(3);
+x(1000000);
 `;
 harness.runCode(code, 1);
