@@ -205,6 +205,7 @@ export async function run(wasm_module, platform, transcoder, context) {
         explain: () => explain,
         elaborate: () => elaborate,
       });
+      console.error(context.errors);
       throw propagationToken; // to stop the webassembly binary immediately
     },
     abort: () => {
@@ -225,6 +226,7 @@ export async function run(wasm_module, platform, transcoder, context) {
         explain: () => "Execution aborted by call to error()",
         elaborate: () => "",
       });
+      console.error(context.errors);
       throw propagationToken; // to stop the webassembly binary immediately
     },
   };
@@ -256,6 +258,7 @@ export async function run(wasm_module, platform, transcoder, context) {
             explain: () => e.toString(),
             elaborate: () => e.toString(),
           });
+          console.error(context.errors);
           throw e;
         }
       }
@@ -279,6 +282,7 @@ export async function run(wasm_module, platform, transcoder, context) {
         elaborate: () =>
           "Your browser's WebAssembly engine is unable to instantiate the WebAssembly module.",
       });
+      console.error(context.errors);
       throw new CompileError("WebAssembly instantiation error");
     }
   );
