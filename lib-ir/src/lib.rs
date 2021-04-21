@@ -142,6 +142,7 @@ pub struct OverloadEntry {
     pub funcidx: FuncIdx,
     pub has_closure_param: bool, // true if the closure value shall be passed into this overload
                                  // (the first parameter of a function that has closure must be the static type of PrimFunc::closure)
+    pub is_imported: bool 
 }
 
 #[derive(Debug, Clone)]
@@ -372,7 +373,7 @@ impl Func {
                 kind: ExprKind::PrimUndefined,
             },
             signature_filter: Default::default(),
-            is_tail_callable: is_tail_callable
+            is_tail_callable
         }
     }
     pub fn new_with_params_and_result(params: &[VarType], result: VarType, is_tail_callable: bool) -> Func {

@@ -54,7 +54,7 @@ export function compile(code, context) {
   let estree = parseImports(code);
   if (!estree) {
     return Promise.reject(
-      new CompileError("js-slang cannot parse the program")
+      new Error("js-slang cannot parse the program")
     );
   }
   let es_str = JSON.stringify(estree);
@@ -130,8 +130,7 @@ export function compile(code, context) {
             elaborate: () =>
               "Your browser's WebAssembly engine is unable to compile the WebAssembly binary produced by Sourceror.  This is probably a bug in Sourceror; please report it.",
           });
-          console.error(err);
-          throw new Error("WebAssembly compilation error");
+          throw new Error("WebAssembly compilation error: " + err);
         });
       } else {
         throw new Error("Syntax error");
@@ -226,7 +225,6 @@ export async function run(wasm_module, platform, transcoder, context) {
         explain: () => "Execution aborted by call to error()",
         elaborate: () => "",
       });
-      console.error(context.errors);
       throw propagationToken; // to stop the webassembly binary immediately
     },
   };
@@ -258,7 +256,6 @@ export async function run(wasm_module, platform, transcoder, context) {
             explain: () => e.toString(),
             elaborate: () => e.toString(),
           });
-          console.error(context.errors);
           throw e;
         }
       }
@@ -282,8 +279,7 @@ export async function run(wasm_module, platform, transcoder, context) {
         elaborate: () =>
           "Your browser's WebAssembly engine is unable to instantiate the WebAssembly module.",
       });
-      console.error(context.errors);
-      throw new CompileError("WebAssembly instantiation error");
+      throw new Error("WebAssembly instantiation error");
     }
   );
 }

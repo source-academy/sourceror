@@ -37,10 +37,10 @@ pub fn relabel(expr: &mut Expr, relabeller: &mut Relabeller) -> bool {
             .iter_mut()
             .fold(false, |prev, arg| prev | relabel(arg, relabeller)),
         ExprKind::Appl {
-            is_tail,
             func,
             args,
             location: _,
+            is_tail,
         } => {
             relabel(func, relabeller)
                 | args

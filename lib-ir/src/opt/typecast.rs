@@ -126,10 +126,10 @@ fn optimize_expr(expr: &mut Expr, local_map: &mut Relabeller) -> bool {
             .iter_mut()
             .fold(false, |prev, arg| prev | optimize_expr(arg, local_map)),
         ExprKind::Appl {
-            is_tail,
             func,
             args,
             location: _,
+            is_tail,
         } => {
             optimize_expr(func, local_map)
                 | args

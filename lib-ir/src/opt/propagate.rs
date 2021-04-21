@@ -222,10 +222,10 @@ fn optimize_expr(
             ret | try_const_eval(expr)
         }
         ExprKind::Appl {
-            is_tail,
             func,
             args,
             location: _,
+            is_tail,
         } => {
             let mut ret = optimize_expr(func, local_map, ctx, landing_ctx);
             if func.vartype.is_none() {
@@ -753,10 +753,10 @@ fn try_devirtualize_appl(
 ) -> bool {
     assert!(expr.vartype == Some(VarType::Any));
     if let ExprKind::Appl {
-        is_tail,
         func,
         args,
         location,
+        is_tail,
     } = &mut expr.kind
     {
         if let ExprKind::PrimFunc { funcidxs, closure } = &mut func.kind {

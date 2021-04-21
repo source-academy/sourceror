@@ -773,7 +773,7 @@ fn encode_expr<H: HeapManager>(
             func,
             args,
             location,
-            is_tail,
+            is_tail
         } => {
             // encodes an indirect function call
 
@@ -819,7 +819,6 @@ fn encode_expr<H: HeapManager>(
             is_tail,
         } => {
             // encodes a function call
-            expr_builder.i32_const(1);
             encode_direct_appl(
                 expr.vartype,
                 *funcidx,
@@ -2133,7 +2132,7 @@ fn encode_thunk<H: HeapManager>(
                         &ctx.ir_signature_list[oe.funcidx].params[1..]
                     };
                     if params.len() as u32 == num_params {
-                        if ctx.options.wasm_tail_call {
+                        if ctx.options.wasm_tail_call || overload_entries[0].is_imported {
                             Some((params, ctx.ir_signature_list[oe.funcidx].result, oe))
                         } else {
                             Some((params, Some(ir::VarType::Boolean), oe))
@@ -2263,7 +2262,7 @@ fn encode_thunk<H: HeapManager>(
                 if let Some(res) = result {
                     // in case of !options.wasm_tail_call the functions always return
                     // i32 (is_tail) which does not need to widened
-                    if ctx.options.wasm_tail_call {
+                    if ctx.options.wasm_tail_call || oe.is_imported {
                         // net wasm stack: [return_calling_conv(vartype)] -> [vartype]
                         encode_post_appl_calling_conv(
                             result,
@@ -2281,6 +2280,9 @@ fn encode_thunk<H: HeapManager>(
                             mutctx.scratch_mut(),
                             expr_builder,
                         );
+                    }
+                    if !ctx.options.wasm_tail_call && oe.is_imported {
+                        expr_builder.i32_const(0);
                     }
                     // return it
                     expr_builder.return_();

@@ -859,6 +859,7 @@ fn post_parse_function<Func: Function>(
             funcidxs: Box::new([ir::OverloadEntry {
                 funcidx: ir_funcidx,
                 has_closure_param: true,
+                is_imported: false
             }]),
             closure: Box::new(ir::Expr {
                 vartype: Some(ir::VarType::StructT {
@@ -1659,7 +1660,6 @@ fn post_parse_expr(
             ir_program,
         ),
         NodeKind::CallExpression(call_expr) => post_parse_call_expr(
-            is_tail,
             call_expr,
             es_expr.loc,
             parse_ctx,
@@ -1667,6 +1667,7 @@ fn post_parse_expr(
             num_locals,
             filename,
             ir_program,
+            is_tail,
         ),
         _ => pppanic(),
     }
@@ -1731,6 +1732,7 @@ fn post_parse_direct_varname(
         .map(|(_, funcidx)| ir::OverloadEntry {
             funcidx: *funcidx,
             has_closure_param: false,
+            is_imported: true
         })
         .collect();
     Ok(ir::Expr {
@@ -1973,7 +1975,6 @@ fn post_parse_cond_expr(
 }
 
 fn post_parse_call_expr(
-    is_tail: &bool,
     es_call_expr: CallExpression,
     loc: Option<esSL>,
     parse_ctx: &mut ParseState,
@@ -1981,6 +1982,7 @@ fn post_parse_call_expr(
     num_locals: usize, // current number of IR locals
     filename: Option<&str>,
     ir_program: &mut ir::Program,
+    is_tail: &bool,
 ) -> Result<ir::Expr, CompileMessage<ParseProgramError>> {
     // We do not need to differentiate between direct and indirect calls,
     // the IR knows how to do the optimisation.
@@ -2025,7 +2027,6 @@ fn post_parse_call_expr(
         },
     };
     post_parse_call_func_with_params_helper(
-        is_tail,
         func,
         loc,
         es_call_expr.arguments.into_iter(),
@@ -2034,11 +2035,11 @@ fn post_parse_call_expr(
         num_locals,
         filename,
         ir_program,
+        is_tail,
     )
 }
 
 fn post_parse_call_func_with_params_helper(
-    is_tail: &bool,
     func_expr: ir::Expr,
     loc: Option<esSL>,
     args_iter: impl ExactSizeIterator<Item = Node> + DoubleEndedIterator<Item = Node>,
@@ -2047,6 +2048,7 @@ fn post_parse_call_func_with_params_helper(
     num_locals: usize, // current number of IR locals
     filename: Option<&str>,
     ir_program: &mut ir::Program,
+    is_tail: &bool,
 ) -> Result<ir::Expr, CompileMessage<ParseProgramError>> {
     let args: Box<[ir::Expr]> = args_iter
         .map(|arg| post_parse_expr(arg, parse_ctx, depth, num_locals, filename, ir_program, &false))
@@ -2080,7 +2082,6 @@ fn post_parse_direct_call_helper(
     )?;
 
     post_parse_call_func_with_params_helper(
-        &false,
         primfunc_expr,
         loc,
         Vec::from(params).into_iter(),
@@ -2089,6 +2090,7 @@ fn post_parse_direct_call_helper(
         num_locals,
         filename,
         ir_program,
+        &false
     )
 }
 

@@ -82,10 +82,10 @@ fn pre_traverse_expr_kind(expr_kind: &ir::ExprKind, res: &mut TraverseResult) {
         ir::ExprKind::VarName { source: _ } => {}
         ir::ExprKind::PrimAppl { prim_inst: _, args } => pre_traverse_exprs(args, res),
         ir::ExprKind::Appl {
-            is_tail,
             func,
             args,
             location,
+            is_tail,
         } => {
             pre_traverse_expr(func, res);
             pre_traverse_exprs(args, res);
