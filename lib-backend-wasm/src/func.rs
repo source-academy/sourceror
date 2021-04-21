@@ -140,7 +140,7 @@ pub fn encode_funcs<'a, Heap: HeapManager>(
 
                 // in case of !options.wasm_tail_call use trampolining which returns boolean
                 // (is_tail) for all user defined functions.
-                let result_type = if ir_func.is_tail_callable && !options.wasm_tail_call {
+                let result_type = if ir_func.is_tail_callable && !options.wasm_tail_call && ir_func.result != Some(ir::VarType::Undefined) {
                     encode_result(Some(ir::VarType::Boolean), options.wasm_multi_value)
                 } else {
                     encode_result(ir_func.result, options.wasm_multi_value)
@@ -2132,7 +2132,7 @@ fn encode_thunk<H: HeapManager>(
                         &ctx.ir_signature_list[oe.funcidx].params[1..]
                     };
                     if params.len() as u32 == num_params {
-                        if ctx.options.wasm_tail_call || overload_entries[0].is_imported {
+                        if ctx.options.wasm_tail_call || oe.is_imported || ctx.ir_signature_list[oe.funcidx].result == Some(ir::VarType::Undefined) {
                             Some((params, ctx.ir_signature_list[oe.funcidx].result, oe))
                         } else {
                             Some((params, Some(ir::VarType::Boolean), oe))
@@ -2262,7 +2262,7 @@ fn encode_thunk<H: HeapManager>(
                 if let Some(res) = result {
                     // in case of !options.wasm_tail_call the functions always return
                     // i32 (is_tail) which does not need to widened
-                    if ctx.options.wasm_tail_call || oe.is_imported {
+                    if ctx.options.wasm_tail_call || oe.is_imported || res == ir::VarType::Undefined {
                         // net wasm stack: [return_calling_conv(vartype)] -> [vartype]
                         encode_post_appl_calling_conv(
                             result,
@@ -2281,7 +2281,7 @@ fn encode_thunk<H: HeapManager>(
                             expr_builder,
                         );
                     }
-                    if !ctx.options.wasm_tail_call && oe.is_imported {
+                    if !ctx.options.wasm_tail_call && oe.is_imported || res == ir::VarType::Undefined{
                         expr_builder.i32_const(0);
                     }
                     // return it

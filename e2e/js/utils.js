@@ -54,7 +54,7 @@ export function compile(code, context) {
   let estree = parseImports(code);
   if (!estree) {
     return Promise.reject(
-      new Error("js-slang cannot parse the program")
+      new Error("acorn cannot parse the program")
     );
   }
   let es_str = JSON.stringify(estree);
