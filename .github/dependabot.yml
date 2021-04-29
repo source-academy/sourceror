@@ -1,0 +1,22 @@
+version: 2
+updates:
+- package-ecosystem: cargo
+  directory: "/"
+  schedule:
+    interval: daily
+    time: "07:00"
+  open-pull-requests-limit: 10
+- package-ecosystem: npm
+  directory: "/sourceror-driver"
+  schedule:
+    interval: daily
+    time: "07:00"
+  open-pull-requests-limit: 10
+  versioning-strategy: increase-if-necessary
+  ignore:
+  - dependency-name: "@types/node"
+    versions:
+    - 15.0.0
+  - dependency-name: js-slang
+    versions:
+    - 0.4.77
