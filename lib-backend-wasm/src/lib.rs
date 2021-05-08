@@ -163,7 +163,11 @@ fn encode_program(ir_program: &ir::Program, options: Options) -> wasmgen::WasmMo
         .iter()
         .map(|ir_import| func::Signature {
             params: translate_import_params(&ir_import.params),
-            result: Some(ir::VarType::Boolean),
+            result: if !options.wasm_tail_call {
+                Some(ir::VarType::Boolean)
+            } else {
+                Some(translate_import_param(ir_import.result))
+            }
         })
         .chain(ir_program.funcs.iter().map(|ir_func| func::Signature {
             params: ir_func.params.clone(),

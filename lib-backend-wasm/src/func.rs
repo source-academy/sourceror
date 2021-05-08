@@ -2199,8 +2199,8 @@ fn encode_thunk<H: HeapManager>(
                     };
                     if params.len() as u32 == num_params {
                         if ctx.options.wasm_tail_call
-                            || ctx.ir_signature_list[oe.funcidx].result
-                                == Some(ir::VarType::Undefined)
+                            || (!ctx.options.wasm_tail_call && ctx.ir_signature_list[oe.funcidx].result
+                                == Some(ir::VarType::Undefined))
                         {
                             Some((params, ctx.ir_signature_list[oe.funcidx].result, oe))
                         } else {
@@ -2331,7 +2331,7 @@ fn encode_thunk<H: HeapManager>(
                 if let Some(res) = result {
                     // in case of !options.wasm_tail_call the functions always return
                     // i32 (is_tail) which does not need to widened
-                    if ctx.options.wasm_tail_call || res == ir::VarType::Undefined {
+                    if ctx.options.wasm_tail_call || (!ctx.options.wasm_tail_call && res == ir::VarType::Undefined) {
                         // net wasm stack: [return_calling_conv(vartype)] -> [vartype]
                         encode_post_appl_calling_conv(
                             result,
