@@ -1919,13 +1919,7 @@ pub fn wrap_import(
         // let local = wasmgen::LocalIdx { idx: 0 };
         // expr_builder.local_get(local);
 
-        for (i, _) in imported_func
-            .func_type
-            .param_types
-            .iter()
-            .copied()
-            .enumerate()
-        {
+        for (i, _) in imported_func.func_type.param_types.iter().copied().enumerate() {
             expr_builder.local_get(wasmgen::LocalIdx { idx: i as u32 });
         }
 
