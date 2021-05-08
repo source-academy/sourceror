@@ -163,12 +163,16 @@ pub fn encode_funcs<'a, Heap: HeapManager>(
             })
             .unzip();
 
+    // Wrap the import inside a wrapper function to pushes the result on the unprotected
+    // stack to follow the trampolining calling convention.
     let wrapped_imported_funcs: Box<[wasmgen::FuncIdx]> = imported_funcs
         .into_iter()
         .map(|(imported_func, result_type)| {
             if !options.wasm_tail_call {
+                // If browser does not support return_call, wrap the import inside a wrapper
                 wrap_import(imported_func, result_type, wasm_module, globalidx_stackptr)
             } else {
+                // If browser supports return_call return the original import function_idx
                 imported_func.func_idx
             }
         })
@@ -1924,14 +1928,20 @@ pub fn wrap_import(
         let mut scratch: Scratch = Scratch::new(locals_builder);
 
         // net wasm stack: [] -> [<num_args>]
-        for (i, _) in imported_func.func_type.param_types.iter().copied().enumerate() {
+        for (i, _) in imported_func
+            .func_type
+            .param_types
+            .iter()
+            .copied()
+            .enumerate()
+        {
             expr_builder.local_get(wasmgen::LocalIdx { idx: i as u32 });
         }
 
         // call the real imported function
         expr_builder.call(imported_func.func_idx);
 
-        // Store the result of the function call on the unprotected stack with type any. 
+        // Store the result of the function call on the unprotected stack with type any.
         // net wasm stack: [<result_type>] -> []
         encode_result_return_calling_conv(*result_type, stackptr, &mut scratch, expr_builder);
 
