@@ -1905,33 +1905,43 @@ fn encode_args_to_call_indirect_function<H: HeapManager>(
     }
 }
 
+// Call imported ffi functions directly and store result on the unprotected stack.
+// Allows imported functions to follow the trampoline calling convention with thunks.
+// The wrapper function is called instead of the imported function.
 pub fn wrap_import(
     imported_func: &wasmgen::ImportedFunc,
     result_type: &ir::VarType,
     wasm_module: &mut wasmgen::WasmModule,
     stackptr: wasmgen::GlobalIdx,
 ) -> wasmgen::FuncIdx {
+    // register the wrapper function to ge the local function id
     let (_, wasm_funcidx) = wasm_module.register_func(&imported_func.func_type);
+
+    // Code for the wrapper function
     let mut code_builder = wasmgen::CodeBuilder::new(imported_func.func_type.clone());
     {
         let (locals_builder, expr_builder) = code_builder.split();
         let mut scratch: Scratch = Scratch::new(locals_builder);
-        // let local = wasmgen::LocalIdx { idx: 0 };
-        // expr_builder.local_get(local);
 
+        // net wasm stack: [] -> [<num_args>]
         for (i, _) in imported_func.func_type.param_types.iter().copied().enumerate() {
             expr_builder.local_get(wasmgen::LocalIdx { idx: i as u32 });
         }
 
+        // call the real imported function
         expr_builder.call(imported_func.func_idx);
 
+        // Store the result of the function call on the unprotected stack with type any. 
+        // net wasm stack: [<result_type>] -> []
         encode_result_return_calling_conv(*result_type, stackptr, &mut scratch, expr_builder);
+
+        // net wasm stack: [] -> [i32(is_tail = 0)]
         expr_builder.i32_const(0);
         expr_builder.return_();
 
         expr_builder.end();
     }
-    // commit the function:
+    // commit the wrapper function function
     wasm_module.commit_func(wasm_funcidx, code_builder);
 
     wasm_funcidx
