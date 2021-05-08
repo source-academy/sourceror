@@ -101,7 +101,7 @@ pub fn encode_funcs<'a, Heap: HeapManager>(
     ir_funcs: &[ir::Func],
     ir_struct_types: &[Box<[ir::VarType]>],
     ir_struct_field_byte_offsets: &[Box<[u32]>],
-    imported_funcs: Box<[wasmgen::FuncIdx]>,
+    imported_funcs: Box<[(wasmgen::ImportedFunc, ir::VarType)]>,
     ir_entry_point_funcidx: ir::FuncIdx,
     global_var_manager: GlobalVarManagerRef<'a>,
     globalidx_stackptr: wasmgen::GlobalIdx,
@@ -140,7 +140,10 @@ pub fn encode_funcs<'a, Heap: HeapManager>(
 
                 // in case of !options.wasm_tail_call use trampolining which returns boolean
                 // (is_tail) for all user defined functions.
-                let result_type = if ir_func.is_tail_callable && !options.wasm_tail_call && ir_func.result != Some(ir::VarType::Undefined) {
+                let result_type = if ir_func.is_tail_callable
+                    && !options.wasm_tail_call
+                    && ir_func.result != Some(ir::VarType::Undefined)
+                {
                     encode_result(Some(ir::VarType::Boolean), options.wasm_multi_value)
                 } else {
                     encode_result(ir_func.result, options.wasm_multi_value)
@@ -160,7 +163,18 @@ pub fn encode_funcs<'a, Heap: HeapManager>(
             })
             .unzip();
 
-    let wasm_funcidxs: Box<[wasmgen::FuncIdx]> = imported_funcs
+    let wrapped_imported_funcs: Box<[wasmgen::FuncIdx]> = imported_funcs
+        .into_iter()
+        .map(|(imported_func, result_type)| {
+            if !options.wasm_tail_call {
+                wrap_import(imported_func, result_type, wasm_module, globalidx_stackptr)
+            } else {
+                imported_func.func_idx
+            }
+        })
+        .collect();
+
+    let wasm_funcidxs: Box<[wasmgen::FuncIdx]> = wrapped_imported_funcs
         .into_iter()
         .copied()
         .chain(registry_list.iter().map(|x| x.funcidx))
@@ -773,7 +787,7 @@ fn encode_expr<H: HeapManager>(
             func,
             args,
             location,
-            is_tail
+            is_tail,
         } => {
             // encodes an indirect function call
 
@@ -1891,6 +1905,44 @@ fn encode_args_to_call_indirect_function<H: HeapManager>(
     }
 }
 
+pub fn wrap_import(
+    imported_func: &wasmgen::ImportedFunc,
+    result_type: &ir::VarType,
+    wasm_module: &mut wasmgen::WasmModule,
+    stackptr: wasmgen::GlobalIdx,
+) -> wasmgen::FuncIdx {
+    let (_, wasm_funcidx) = wasm_module.register_func(&imported_func.func_type);
+    let mut code_builder = wasmgen::CodeBuilder::new(imported_func.func_type.clone());
+    {
+        let (locals_builder, expr_builder) = code_builder.split();
+        let mut scratch: Scratch = Scratch::new(locals_builder);
+        // let local = wasmgen::LocalIdx { idx: 0 };
+        // expr_builder.local_get(local);
+
+        for (i, _) in imported_func
+            .func_type
+            .param_types
+            .iter()
+            .copied()
+            .enumerate()
+        {
+            expr_builder.local_get(wasmgen::LocalIdx { idx: i as u32 });
+        }
+
+        expr_builder.call(imported_func.func_idx);
+
+        encode_result_return_calling_conv(*result_type, stackptr, &mut scratch, expr_builder);
+        expr_builder.i32_const(0);
+        expr_builder.return_();
+
+        expr_builder.end();
+    }
+    // commit the function:
+    wasm_module.commit_func(wasm_funcidx, code_builder);
+
+    wasm_funcidx
+}
+
 // Encodes a small function that uses uniform calling convention and
 // determines the correct function to actually call based on the signature.
 // The correct function is called using a direct call.
@@ -2132,7 +2184,10 @@ fn encode_thunk<H: HeapManager>(
                         &ctx.ir_signature_list[oe.funcidx].params[1..]
                     };
                     if params.len() as u32 == num_params {
-                        if ctx.options.wasm_tail_call || oe.is_imported || ctx.ir_signature_list[oe.funcidx].result == Some(ir::VarType::Undefined) {
+                        if ctx.options.wasm_tail_call
+                            || ctx.ir_signature_list[oe.funcidx].result
+                                == Some(ir::VarType::Undefined)
+                        {
                             Some((params, ctx.ir_signature_list[oe.funcidx].result, oe))
                         } else {
                             Some((params, Some(ir::VarType::Boolean), oe))
@@ -2262,7 +2317,7 @@ fn encode_thunk<H: HeapManager>(
                 if let Some(res) = result {
                     // in case of !options.wasm_tail_call the functions always return
                     // i32 (is_tail) which does not need to widened
-                    if ctx.options.wasm_tail_call || oe.is_imported || res == ir::VarType::Undefined {
+                    if ctx.options.wasm_tail_call || res == ir::VarType::Undefined {
                         // net wasm stack: [return_calling_conv(vartype)] -> [vartype]
                         encode_post_appl_calling_conv(
                             result,
@@ -2281,7 +2336,7 @@ fn encode_thunk<H: HeapManager>(
                             expr_builder,
                         );
                     }
-                    if !ctx.options.wasm_tail_call && oe.is_imported || res == ir::VarType::Undefined{
+                    if !ctx.options.wasm_tail_call && res == ir::VarType::Undefined {
                         expr_builder.i32_const(0);
                     }
                     // return it

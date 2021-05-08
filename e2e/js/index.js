@@ -2,11 +2,8 @@ import Harness from './harness';
 
 const harness = new Harness;
 const code = `
-import {math_sin, math_PI } from "https://btzy.github.io/libsourceror/std/math.source";
+import {math_log2} from "https://btzy.github.io/libsourceror/std/math.source";
 
-function x() {
-  return math_sin(1);
-}
-x();
+math_log2(4);
 `;
 harness.runCode(code, 1);

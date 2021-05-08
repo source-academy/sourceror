@@ -859,7 +859,6 @@ fn post_parse_function<Func: Function>(
             funcidxs: Box::new([ir::OverloadEntry {
                 funcidx: ir_funcidx,
                 has_closure_param: true,
-                is_imported: false
             }]),
             closure: Box::new(ir::Expr {
                 vartype: Some(ir::VarType::StructT {
@@ -1732,7 +1731,6 @@ fn post_parse_direct_varname(
         .map(|(_, funcidx)| ir::OverloadEntry {
             funcidx: *funcidx,
             has_closure_param: false,
-            is_imported: true
         })
         .collect();
     Ok(ir::Expr {
