@@ -1,7 +1,7 @@
 import { compileAndRun } from './interface';
 
 function Harness() {
-  this.testSuites = ['tailCalls', 'functions'];
+  this.testSuites = ['functions'];
 
   this.runSuite = (suite) => {
     suite.testCases.forEach((testCase, index) => {
