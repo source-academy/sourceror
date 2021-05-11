@@ -15,6 +15,7 @@ module.exports = {
     filename: "[name].js"
   },
   devServer: {
+    open: true,
     contentBase: dist,
   },
   plugins: [
