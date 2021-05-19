@@ -3,17 +3,18 @@
  * This is needed because we can only transmit numbers directly through the FFI.
  */
 
-export class Transcoder {
-  mem: DataView;
-  allocate_string: (len: number) => number;
-  constructor() {}
-  setMem(mem: DataView) {
+export default class Transcoder {
+  constructor() {
+    this.mem = null;
+    this.allocate_string = null;
+  }
+  setMem(mem) {
     this.mem = mem;
   }
-  setAllocateStringFunc(func: (len: number) => number) {
+  setAllocateStringFunc(func) {
     this.allocate_string = func;
   }
-  decodeString(handle: number): string {
+  decodeString(handle) {
     const len = this.mem.getUint32(handle, true);
     const decoder = new TextDecoder();
     return decoder.decode(new Uint8Array(this.mem.buffer, handle + 4, len));
@@ -23,7 +24,7 @@ export class Transcoder {
    * Otherwise the GC might reclaim those unregistered strings!
    * Returns a handle to the string in the memory.
    */
-  encodeString(s: string): number {
+  encodeString(s) {
     const encoder = new TextEncoder();
     const bytes = encoder.encode(s);
     const handle = this.allocate_string(bytes.length);
@@ -32,3 +33,4 @@ export class Transcoder {
     return handle;
   }
 }
+

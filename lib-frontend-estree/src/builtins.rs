@@ -112,6 +112,7 @@ fn register_unary_op(
         result: Some(ir_vartype),
         expr: ir_expr,
         signature_filter: Default::default(),
+        is_tail_callable: false
     });
 
     // insert the necessary things into name_ctx and parse_ctx
@@ -161,6 +162,7 @@ fn make_binary_op_impl(
         result: Some(ir_result_vartype),
         expr: ir_expr,
         signature_filter: Default::default(),
+        is_tail_callable: false
     });
 
     funcidx
@@ -178,6 +180,7 @@ fn make_trivial_func_undefined_impl(ret: bool, ir_program: &mut ir::Program) -> 
         result: Some(ir::VarType::Boolean),
         expr: ir_expr,
         signature_filter: Default::default(),
+        is_tail_callable: false
     });
 
     funcidx

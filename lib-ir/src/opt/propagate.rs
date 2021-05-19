@@ -225,6 +225,7 @@ fn optimize_expr(
             func,
             args,
             location: _,
+            is_tail,
         } => {
             let mut ret = optimize_expr(func, local_map, ctx, landing_ctx);
             if func.vartype.is_none() {
@@ -246,7 +247,7 @@ fn optimize_expr(
                 ret | try_devirtualize_appl(expr, local_map, ctx, landing_ctx) // note: inlining is not done in this optimization, because those heuristics are complicated
             }
         }
-        ExprKind::DirectAppl { funcidx, args } => {
+        ExprKind::DirectAppl { is_tail, funcidx, args } => {
             let mut ret = false;
             for (i, arg) in args.iter_mut().enumerate() {
                 ret |= optimize_expr(arg, local_map, ctx, landing_ctx);
@@ -755,6 +756,7 @@ fn try_devirtualize_appl(
         func,
         args,
         location,
+        is_tail,
     } = &mut expr.kind
     {
         if let ExprKind::PrimFunc { funcidxs, closure } = &mut func.kind {
@@ -843,6 +845,7 @@ fn try_devirtualize_appl(
                             let direct_appl = Expr {
                                 vartype: ctx.result_types[oe.funcidx],
                                 kind: ExprKind::DirectAppl {
+                                    is_tail: false,
                                     funcidx: oe.funcidx,
                                     args: (if oe.has_closure_param {
                                         Some((closure_vartype, closure_localidx))

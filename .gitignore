@@ -5,3 +5,9 @@ Cargo.lock
 /stage-wasmtest
 /node_modules
 /dist
+/*.ir
+/*.wasm
+dump
+source.js
+ast
+.vimspector.json

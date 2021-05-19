@@ -29,7 +29,8 @@
     "build": "yarn run build:wasm && tsc && node postbuild.js",
     "format": "prettier --write \"src/**/*.{ts,tsx}\"",
     "format:ci": "prettier --list-different \"src/**/*.{ts,tsx}\"",
-    "prepublishOnly": "yarn run build"
+    "prepublishOnly": "yarn run build",
+    "cli": "node --experimental-wasm-modules dist/cli.js"
   },
   "repository": {
     "type": "git",

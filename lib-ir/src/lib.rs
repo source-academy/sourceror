@@ -43,7 +43,7 @@ pub struct Program {
     pub entry_point: FuncIdx, // index of function to run when the program is started
 }
 
-#[derive(Eq, PartialEq, Copy, Clone, Debug)]
+#[derive(Eq, PartialEq, Copy, Clone, Hash, Debug)]
 pub enum VarType {
     Any, // used if we don't know the type contained in the variable.  Most of the time we will use this.  Generates a variant in the output program unless it gets optimised away.
     Unassigned, // unassigned (due to hoisting)
@@ -106,6 +106,7 @@ pub struct Func {
                                                                    // then it can emit code to call the constrained_func instead of the current one)
                                                                    // this list should not contain the entry where all the param types and return type are identical to the current one
                                                                    // (because there is no use for a self-reference)
+    pub is_tail_callable: bool
 }
 
 #[derive(Debug, Clone)]
@@ -192,10 +193,12 @@ pub enum ExprKind {
         func: Box<Expr>,
         args: Box<[Expr]>,
         location: SourceLocation, // will be displayed in the error message if the signature mismatches
+        is_tail: bool,
     }, // function application (operators are functions too).  Closure parameter is implicitly prepended to the argument list.  Called using Source indirect calling convention (closure, length, and callerid as i32 params; others are Any and on unprotected stack). Static type of func must be func.
     DirectAppl {
         funcidx: FuncIdx,
         args: Box<[Expr]>,
+        is_tail: bool,
     }, // direct function application (operators are functions too).  No closure will be prepended.
     Conditional {
         cond: Box<Expr>,
@@ -360,7 +363,7 @@ impl Func {
     /**
      * Creates a dummy function that should be replaced later.
      */
-    pub fn new() -> Func {
+    pub fn new(is_tail_callable: bool) -> Func {
         Func {
             params: Box::new([]),
             result: None,
@@ -369,9 +372,10 @@ impl Func {
                 kind: ExprKind::PrimUndefined,
             },
             signature_filter: Default::default(),
+            is_tail_callable
         }
     }
-    pub fn new_with_params_and_result(params: &[VarType], result: VarType) -> Func {
+    pub fn new_with_params_and_result(params: &[VarType], result: VarType, is_tail_callable: bool) -> Func {
         Func {
             params: params.into(),
             result: Some(result),
@@ -380,6 +384,7 @@ impl Func {
                 kind: ExprKind::PrimUndefined,
             },
             signature_filter: Default::default(),
+            is_tail_callable 
         }
     }
     pub fn signature(&self) -> (&[VarType], Option<VarType>) {

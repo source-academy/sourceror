@@ -85,12 +85,13 @@ fn pre_traverse_expr_kind(expr_kind: &ir::ExprKind, res: &mut TraverseResult) {
             func,
             args,
             location,
+            is_tail,
         } => {
             pre_traverse_expr(func, res);
             pre_traverse_exprs(args, res);
             res.appl_location_sv.insert_copy(location);
         }
-        ir::ExprKind::DirectAppl { funcidx: _, args } => pre_traverse_exprs(args, res),
+        ir::ExprKind::DirectAppl { is_tail, funcidx: _, args } => pre_traverse_exprs(args, res),
         ir::ExprKind::Conditional {
             cond,
             true_expr,

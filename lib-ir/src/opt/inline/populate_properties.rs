@@ -71,6 +71,7 @@ fn populate_properties(
             func,
             args,
             location: _,
+            is_tail,
         } => {
             purge_func(funcidx, func_props);
             populate_properties(funcidx, func, func_props, site);
@@ -79,6 +80,7 @@ fn populate_properties(
             }
         }
         ExprKind::DirectAppl {
+            is_tail,
             funcidx: target_funcidx,
             args,
         } => {

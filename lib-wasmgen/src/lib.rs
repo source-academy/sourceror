@@ -40,8 +40,8 @@ pub struct TypeSection {
 
 #[derive(Eq, PartialEq, Clone, Hash)]
 pub struct FuncType {
-    param_types: Box<[ValType]>,
-    result_types: Box<[ValType]>,
+    pub param_types: Box<[ValType]>,
+    pub result_types: Box<[ValType]>,
 }
 
 #[derive(Eq, PartialEq, Copy, Clone, Hash)]
@@ -62,6 +62,11 @@ pub struct Import {
     module_name: String,
     entity_name: String,
     desc: ImportDesc,
+}
+
+pub struct ImportedFunc {
+    pub func_idx: FuncIdx,
+    pub func_type: FuncType
 }
 
 #[derive(Eq, PartialEq, Copy, Clone, Hash)]

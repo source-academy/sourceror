@@ -54,13 +54,14 @@ fn optimize_expr(expr: &mut Expr) -> bool {
             func,
             args,
             location: _,
+            is_tail,
         } => {
             optimize_expr(func)
                 | args
                     .iter_mut()
                     .fold(false, |prev, arg| prev | optimize_expr(arg))
         }
-        ExprKind::DirectAppl { funcidx: _, args } => args
+        ExprKind::DirectAppl { is_tail, funcidx: _, args } => args
             .iter_mut()
             .fold(false, |prev, arg| prev | optimize_expr(arg)),
         ExprKind::Conditional {

@@ -84,11 +84,21 @@ const WASM_PAGE_BITS: u32 = WASM_PAGE_SIZE.trailing_zeros();
 const MEM_STACK_SIZE: u32 = 1 << 4; // 1 MiB of stack space
 
 // Struct containing compilation options
-#[derive(Default, Copy, Clone)]
+#[derive(Copy, Clone)]
 pub struct Options {
-    wasm_multi_value: bool, // Whether we can generate code that uses the WebAssembly multi-valued returns proposal
-    wasm_bulk_memory: bool, // Whether we can generate code that uses the WebAssembly bulk memory proposal
-    wasm_tail_call: bool, // Whether we can generate code that uses the WebAssembly tail call proposal
+    pub wasm_multi_value: bool, // Whether we can generate code that uses the WebAssembly multi-valued returns proposal
+    pub wasm_bulk_memory: bool, // Whether we can generate code that uses the WebAssembly bulk memory proposal
+    pub wasm_tail_call: bool, // Whether we can generate code that uses the WebAssembly tail call proposal
+}
+
+impl Default for Options {
+    fn default() -> Self {
+        return Options {
+            wasm_multi_value: false, // Whether we can generate code that uses the WebAssembly multi-valued returns proposal
+            wasm_bulk_memory: false, // Whether we can generate code that uses the WebAssembly bulk memory proposal
+            wasm_tail_call: false, // Whether we can generate code that uses the WebAssembly tail call proposal
+        };
+    }
 }
 
 /**
@@ -124,16 +134,23 @@ fn encode_program(ir_program: &ir::Program, options: Options) -> wasmgen::WasmMo
     );
 
     // import all the other functions
-    let imported_funcs: Box<[wasmgen::FuncIdx]> = ir_program
+    let imported_funcs: Box<[(wasmgen::ImportedFunc, ir::VarType)]> = ir_program
         .imports
         .iter()
         .map(|ir_import| {
             let import_param_list = encode_import_params(&ir_import.params);
             let import_result = encode_import_param(ir_import.result);
-            wasm_module_builder.import_func(
-                ir_import.module_name.clone(),
-                ir_import.entity_name.clone(),
-                &wasmgen::FuncType::new(import_param_list, import_result.into()),
+            let wrapper_func_type = wasmgen::FuncType::new(import_param_list.clone(), Box::new([wasmgen::ValType::I32]));
+            (
+                wasmgen::ImportedFunc {
+                    func_idx: wasm_module_builder.import_func(
+                        ir_import.module_name.clone(),
+                        ir_import.entity_name.clone(),
+                        &wasmgen::FuncType::new(import_param_list, import_result.into()),
+                    ),
+                    func_type: wrapper_func_type,
+                },
+                translate_import_param(ir_import.result),
             )
         })
         .collect();
@@ -146,7 +163,11 @@ fn encode_program(ir_program: &ir::Program, options: Options) -> wasmgen::WasmMo
         .iter()
         .map(|ir_import| func::Signature {
             params: translate_import_params(&ir_import.params),
-            result: Some(translate_import_param(ir_import.result)),
+            result: if !options.wasm_tail_call {
+                Some(ir::VarType::Boolean)
+            } else {
+                Some(translate_import_param(ir_import.result))
+            }
         })
         .chain(ir_program.funcs.iter().map(|ir_func| func::Signature {
             params: ir_func.params.clone(),
