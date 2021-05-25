@@ -28,7 +28,7 @@ export class Transcoder {
     const bytes = encoder.encode(s);
     const handle = this.allocate_string(bytes.length);
     // note: no need to set the length in the string, because allocateString() will already do it
-    (new Uint8Array(this.mem.buffer, handle + 4, bytes.length)).set(bytes);
+    new Uint8Array(this.mem.buffer, handle + 4, bytes.length).set(bytes);
     return handle;
   }
 }

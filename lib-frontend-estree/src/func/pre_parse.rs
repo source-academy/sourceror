@@ -27,12 +27,12 @@ use std::collections::HashSet;
  *
  * name_ctx contains all pre-declared Source names (effectively an auto-import of everything), but are considered to be pre-validated in a separate validation context,
  * and so new variables of the same name will shadow them without any error.
- * name_ctx may be modified, but must be returned to its original state before the function returns (this allows the frontend to have good time complexity guarantees).
+ * name_ctx may be modified, but must be returned to its original state before the function returns if UndoNameCtx is true (this allows the frontend to have good time complexity guarantees).
  *
  * Returns the hash map of exported names.
  * At the top-level, we don't care about the usage of variables (because they are all globals anyway)
  */
-pub fn pre_parse_program(
+pub fn pre_parse_program<const UNDO_NAME_CTX: bool>(
     es_program: &mut Program,
     _loc: &Option<esSL>,
     name_ctx: &mut HashMap<String, PreVar>, // pre-declared Source names
@@ -65,7 +65,9 @@ pub fn pre_parse_program(
 
     es_program.direct_funcs = direct_funcs;
 
-    name_ctx.remove_scope(undo_ctx);
+    if UNDO_NAME_CTX {
+        name_ctx.remove_scope(undo_ctx);
+    }
 
     Ok(exports)
 }

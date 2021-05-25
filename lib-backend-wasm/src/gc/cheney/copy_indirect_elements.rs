@@ -252,8 +252,11 @@ pub fn make_copy_indirect_elements(
         func_idx
     }
 
-    let copy_indirect_table_offset: u32 = wasm_module
-        .reserve_table_elements(tableidx, (ir::NUM_PRIMITIVE_TAG_TYPES + num_structs) as u32);
+    // hack to reserve 4096 table elements so that elem idxs will be stable when adding more structs in REPL later
+    let copy_indirect_table_offset: u32 = wasm_module.reserve_table_elements(
+        tableidx,
+        (ir::NUM_PRIMITIVE_TAG_TYPES + /*num_structs*/ std::cmp::max(num_structs, 4096)) as u32,
+    );
 
     let no_op_funcidx: wasmgen::FuncIdx = make_no_op_function(wasm_module);
     let func_funcidx: wasmgen::FuncIdx =

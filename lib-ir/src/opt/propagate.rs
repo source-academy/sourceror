@@ -12,7 +12,7 @@ use projstd::iter::*;
  * This does a superset of unreachable.rs and typecast.rs, so you don't need to use those if you use this optimization.
  * The second return value is true if the program got changed, or false otherwise.
  */
-pub fn optimize(mut program: Program) -> (Program, bool) {
+pub fn optimize(mut program: Program, start_funcidx: usize) -> (Program, bool) {
     let mut changed = false;
     let param_types: Box<[Box<[VarType]>]> = program
         .imports
@@ -26,13 +26,15 @@ pub fn optimize(mut program: Program) -> (Program, bool) {
         .map(|import| Some(import.result.into()))
         .chain(program.funcs.iter().map(|func| func.result))
         .collect();
-    for func in &mut program.funcs {
+    let entry_point = program.entry_point;
+    for (i, func) in program.funcs.iter_mut().enumerate().skip(start_funcidx) {
         changed |= optimize_func(
             func,
             Context {
                 param_types: &param_types,
                 result_types: &result_types,
             },
+            program.imports.len() + i == entry_point,
         );
     }
     (program, changed)
@@ -48,7 +50,7 @@ struct Context<'a, 'b> {
  * Optimises the function.
  * The return value is true if the function got changed, or false otherwise.
  */
-fn optimize_func(func: &mut Func, ctx: Context) -> bool {
+fn optimize_func(func: &mut Func, ctx: Context, is_entry_point: bool) -> bool {
     let (ret, landing_vartype) = LandingContext::with_new_func(|landing_ctx| {
         optimize_expr(
             &mut func.expr,
@@ -57,10 +59,13 @@ fn optimize_func(func: &mut Func, ctx: Context) -> bool {
             landing_ctx,
         )
     });
-    ret | useful_update(
-        &mut func.result,
-        union_type(func.expr.vartype, landing_vartype),
-    )
+    // Currently the is_entry_point check is a hack to ensure that the main function always returns Any.
+    // This should be removed/generalized when implementing tail calls.
+    ret | (!is_entry_point
+        && useful_update(
+            &mut func.result,
+            union_type(func.expr.vartype, landing_vartype),
+        ))
 }
 
 fn relabel_target(target: &mut TargetExpr, local_map: &mut Relabeller) -> bool {

@@ -94,15 +94,57 @@ pub struct Options {
 /**
  * This is the main function that invokes everything in the backend.
  * Call it, and everything will work.
+ * repl_funcidx_start: The funcidx from which should be compiled in REPL mode (cannot use static part of linear memory)
  */
-pub fn run_backend(ir_program: &ir::Program, options: Options) -> wasmgen::WasmModule {
-    encode_program(ir_program, options)
+pub fn run_backend(
+    ir_program: &ir::Program,
+    repl_funcidx_start: usize,
+    options: Options,
+) -> wasmgen::WasmModule {
+    encode_program(ir_program, repl_funcidx_start, options)
 }
 
-fn encode_program(ir_program: &ir::Program, options: Options) -> wasmgen::WasmModule {
-    // (note: not the same was the wasm entry point!)
+fn encode_program(
+    ir_program: &ir::Program,
+    repl_funcidx_start: usize,
+    options: Options,
+) -> wasmgen::WasmModule {
+    // (note: not the same as the wasm entry point!)
     // By convention, this is a normal function exported as "main")
 
+    // dummy ir::SourceLocation to represent a REPL error SL
+    let repl_sl = ir::SourceLocation {
+        file: u32::MAX,
+        start: ir::Position::default(),
+        end: ir::Position::default(),
+    };
+
+    // make the string pool from all string constants in the program
+    // and the list of addressable funcs and their funcidxs
+    let pre_traverse::TraverseResult {
+        string_pool,
+        thunk_sv,
+        appl_location_sv,
+    } = pre_traverse::pre_traverse_funcs(&ir_program.funcs, repl_sl, repl_funcidx_start);
+
+    let (shifted_string_pool, pool_data) =
+        string_pool.into_shifted_and_buffer(MEM_STACK_SIZE << WASM_PAGE_BITS);
+
+    assert!(pool_data.len() & 3 == 0); // assert that it is at 4-byte boundary
+
+    // make static data for appl locations
+    let (appl_data, appl_data_encoder) = pre_traverse::make_appl_location_static_data(
+        appl_location_sv,
+        (MEM_STACK_SIZE << WASM_PAGE_BITS) + pool_data.len() as u32,
+    );
+
+    assert!(appl_data.len() & 3 == 0); // assert that it is at 4-byte boundary
+
+    // in terms of WASM_PAGE_SIZE (rounded up to nearest page boundary)
+    let globals_num_pages: u32 =
+        ((pool_data.len() + appl_data.len()) as u32 + (WASM_PAGE_SIZE - 1)) >> WASM_PAGE_BITS;
+
+    // start building the wasm module
     let mut wasm_module_builder = wasmgen::WasmModule::new_builder();
 
     // generate the error function
@@ -138,6 +180,16 @@ fn encode_program(ir_program: &ir::Program, options: Options) -> wasmgen::WasmMo
         })
         .collect();
 
+    let mut memidx: wasmgen::MemIdx = wasmgen::MemIdx { idx: u32::MAX }; // initialize to something to prevent warning
+    if repl_funcidx_start != usize::MAX {
+        // we are in REPL mode, so we should import an existing linear memory.
+        memidx = wasm_module_builder.import_unbounded_memory(
+            "core".to_string(),
+            "linear_memory".to_string(),
+            MEM_STACK_SIZE + globals_num_pages + Cheney::initial_heap_size(),
+        );
+    }
+
     let mut wasm_module = wasm_module_builder.build();
 
     // build the signature list (directly maps from ir::FuncIdx)
@@ -158,7 +210,7 @@ fn encode_program(ir_program: &ir::Program, options: Options) -> wasmgen::WasmMo
     let globalidx_stackptr =
         wasm_module.add_i32_global(wasmgen::Mut::Var, (MEM_STACK_SIZE * WASM_PAGE_SIZE) as i32);
 
-    // add ir global vars
+    // add ir global vars (they are exported)
     let global_var_manager =
         global_var::GlobalVarManager::make_from_ir_globals(&ir_program.globals, &mut wasm_module);
 
@@ -184,61 +236,39 @@ fn encode_program(ir_program: &ir::Program, options: Options) -> wasmgen::WasmMo
         .unzip()
         .into_boxed_slices();
 
-    // make the string pool from all string constants in the program
-    // and the list of addressable funcs and their funcidxs
-    let pre_traverse::TraverseResult {
-        string_pool,
-        thunk_sv,
-        appl_location_sv,
-    } = pre_traverse::pre_traverse_funcs(&ir_program.funcs);
+    if repl_funcidx_start == usize::MAX {
+        // add linear memory (if we are not in REPL)
+        memidx = encode_mem(
+            MEM_STACK_SIZE + globals_num_pages + Cheney::initial_heap_size(),
+            &mut wasm_module,
+        );
+        /*let memidx: wasmgen::MemIdx = encode_mem(
+            MEM_STACK_SIZE + globals_num_pages + Cheney::initial_heap_size(),
+            &mut wasm_module,
+        );*/
 
-    let (shifted_string_pool, pool_data) =
-        string_pool.into_shifted_and_buffer(MEM_STACK_SIZE << WASM_PAGE_BITS);
+        // export the memory (so that the host can read the return value)
+        wasm_module.export_mem(memidx, "linear_memory".to_string());
 
-    assert!(pool_data.len() & 3 == 0); // assert that it is at 4-byte boundary
+        // initialize pool data
+        encode_static_data(
+            &pool_data,
+            MEM_STACK_SIZE << WASM_PAGE_BITS,
+            memidx,
+            &mut wasm_module,
+        );
 
-    // make static data for appl locations
-    let (appl_data, appl_data_encoder) = pre_traverse::make_appl_location_static_data(
-        appl_location_sv,
-        (MEM_STACK_SIZE << WASM_PAGE_BITS) + pool_data.len() as u32,
-    );
-
-    assert!(appl_data.len() & 3 == 0); // assert that it is at 4-byte boundary
-
-    // in terms of WASM_PAGE_SIZE (rounded up to nearest page boundary)
-    let globals_num_pages: u32 =
-        ((pool_data.len() + appl_data.len()) as u32 + (WASM_PAGE_SIZE - 1)) >> WASM_PAGE_BITS;
-
-    // add linear memory
-    let memidx: wasmgen::MemIdx = encode_mem(
-        MEM_STACK_SIZE + globals_num_pages + Cheney::initial_heap_size(),
-        &mut wasm_module,
-    );
-    /*let memidx: wasmgen::MemIdx = encode_mem(
-        MEM_STACK_SIZE + globals_num_pages + Cheney::initial_heap_size(),
-        &mut wasm_module,
-    );*/
-
-    // export the memory (so that the host can read the return value)
-    wasm_module.export_mem(memidx, "linear_memory".to_string());
-
-    // initialize pool data
-    encode_static_data(
-        &pool_data,
-        MEM_STACK_SIZE << WASM_PAGE_BITS,
-        memidx,
-        &mut wasm_module,
-    );
-
-    // initialize appl data
-    encode_static_data(
-        &appl_data,
-        (MEM_STACK_SIZE << WASM_PAGE_BITS) + pool_data.len() as u32,
-        memidx,
-        &mut wasm_module,
-    );
+        // initialize appl data
+        encode_static_data(
+            &appl_data,
+            (MEM_STACK_SIZE << WASM_PAGE_BITS) + pool_data.len() as u32,
+            memidx,
+            &mut wasm_module,
+        );
+    }
 
     // garbage collector
+    // hack inside Cheney: Cheney needs to reserve a fixed about of table space otherwise things might break when more structs are added in REPL
     let heap = Cheney::new(
         &ir_program.struct_types,
         &struct_field_byte_offsets,
@@ -280,6 +310,8 @@ fn encode_program(ir_program: &ir::Program, options: Options) -> wasmgen::WasmMo
         &heap,
         &shifted_string_pool,
         error_func,
+        repl_sl,
+        repl_funcidx_start,
         options,
         &mut wasm_module,
     );

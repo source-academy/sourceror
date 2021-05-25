@@ -21,7 +21,7 @@ const INLINING_MAX_ALLOWABLE_COST: usize = 40;
  * 2. Let G be the call graph built from F (add an edge from f to g iff f contains a direct call to g (only actual direct calls, not transitive)).
  * 3. If there is at least one function in G that has zero outgoing edges:
  *   3a. Take any such function f, remove it from G.
- *     3ai. If there is only one direct call and no indirect calls to f, inline the call (at this point we can also remove f from the program).
+ *     3ai. If there is only one direct call and no indirect calls to f, inline the call (at this point we can also remove f from the program - but we don't do this because REPL might still invoke the function later).
  *     3aii. Otherwise, if f has a cost that is less than C, then inline all direct calls to f.
  *     3aiii. Otherwise, do nothing.
  *   3b. Go to step 3.
@@ -32,7 +32,7 @@ const INLINING_MAX_ALLOWABLE_COST: usize = 40;
  *
  * Only these Expr nodes count to the cost: PrimNumber, PrimBoolean, PrimStructT, PrimString, PrimFunc, VarName, Trap
  */
-pub fn optimize(mut program: Program) -> (Program, bool) {
+pub fn optimize(mut program: Program, _start_funcidx: usize) -> (Program, bool) {
     let mut changed = false;
 
     // TODO: collect the FunctionProperties (including imports, which will never be inlining candidates)
@@ -105,7 +105,7 @@ pub fn optimize(mut program: Program) -> (Program, bool) {
                     }
                 }
 
-                if fp.parents.len() == 1 && !fp.has_indirect_calls {
+                /*if fp.parents.len() == 1 && !fp.has_indirect_calls {
                     // 3ai succeeds, we inline by 'moving' the current function into the caller
                     let (caller_funcidx, mut direct_call_expr, site) = fp.parents.pop().unwrap();
                     inline_by_destructive_move(
@@ -121,7 +121,11 @@ pub fn optimize(mut program: Program) -> (Program, bool) {
                         caller_funcidx,
                         fp.cost,
                     );
-                } else if fp.cost <= INLINING_MAX_ALLOWABLE_COST {
+                } else */
+                // To make REPL work, we cannot destruct the function being inlined, even if there is only one direct call and no indirect calls.
+                if fp.cost <= INLINING_MAX_ALLOWABLE_COST
+                    || (fp.parents.len() == 1 && !fp.has_indirect_calls)
+                {
                     // 3aii succeeds, we inline by usual copy
                     for (caller_funcidx, mut direct_call_expr, site) in fp.parents {
                         inline_by_copy(

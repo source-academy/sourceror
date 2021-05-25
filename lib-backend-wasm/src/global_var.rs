@@ -31,6 +31,7 @@ impl GlobalVarManager {
         wasm_module: &mut wasmgen::WasmModule,
     ) -> Self {
         let mut ret = Self::default();
+        let mut exported_global_idx: usize = 0;
         for &ir_vartype in ir_globals {
             ret.global_types.push(ir_vartype);
             ret.global_map.push(ret.wasm_global_map.len());
@@ -38,6 +39,8 @@ impl GlobalVarManager {
             for &wasm_valtype in wasm_valtypes {
                 // todo! Support constexpr globals
                 let globalidx = wasm_module.add_zeroed_global(wasm_valtype, wasmgen::Mut::Var);
+                wasm_module.export_global(globalidx, format!("global_{}", exported_global_idx));
+                exported_global_idx += 1;
                 ret.wasm_global_map.push(globalidx);
             }
         }

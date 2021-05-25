@@ -621,7 +621,7 @@ pub fn encode_string_add<H: HeapManager>(
     mutctx: &mut MutContext,
     expr_builder: &mut ExprBuilder,
 ) {
-    // Algorithm (when we don't have bulk memory:
+    // Algorithm (when we don't have bulk memory):
     // Note that we don't actually encode 'return' instructions, because we are part of the caller function.
     // We simply encode the `break` instruction (with the correct depth parameter) instead.
     // Note: We move 4 bytes at a time because our memory is 4-byte aligned, so it will be faster.

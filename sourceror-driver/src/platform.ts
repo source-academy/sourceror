@@ -9,7 +9,10 @@ import { Transcoder } from "./transcoder";
  * The main function to use.
  * Takes the external context as param, that contains hooks for embedding-specific functions like display().
  */
-export function makePlatformImports(externalContext: any, transcoder: Transcoder) {
+export function makePlatformImports(
+  externalContext: any,
+  transcoder: Transcoder
+) {
   return {
     // MISC library
     misc: {

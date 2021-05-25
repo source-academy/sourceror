@@ -51,6 +51,10 @@ impl WasmModule {
     pub fn export_mem(&mut self, memidx: MemIdx, exported_name: String) {
         self.export_section.push_mem(exported_name, memidx);
     }
+    // Export a global so that the environment (i.e. JavaScript) can read from or write to it
+    pub fn export_global(&mut self, globalidx: GlobalIdx, exported_name: String) {
+        self.export_section.push_global(exported_name, globalidx);
+    }
     pub fn add_bounded_memory(&mut self, initial_num_pages: u32, max_num_pages: u32) -> MemIdx {
         self.mem_section
             .add_bounded(initial_num_pages, max_num_pages)
@@ -135,6 +139,18 @@ impl WasmImportBuilderModule {
         self.num_funcs += 1;
         ret
     }
+    pub fn import_unbounded_memory(
+        &mut self,
+        module_name: String,
+        entity_name: String,
+        initial_num_pages: u32,
+    ) -> MemIdx {
+        self.import_section
+            .add_unbounded_memory(module_name, entity_name, initial_num_pages);
+        let ret = MemIdx { idx: self.num_mems };
+        self.num_mems += 1;
+        ret
+    }
 }
 
 impl TypeSection {
@@ -156,6 +172,22 @@ impl ImportSection {
             module_name: module_name,
             entity_name: entity_name,
             desc: ImportDesc::Func(typeidx),
+        })
+    }
+    fn add_unbounded_memory(
+        &mut self,
+        module_name: String,
+        entity_name: String,
+        initial_num_pages: u32,
+    ) {
+        self.content.push(Import {
+            module_name: module_name,
+            entity_name: entity_name,
+            desc: ImportDesc::Mem(MemType {
+                limits: Limits::Unbounded {
+                    min: initial_num_pages,
+                },
+            }),
         })
     }
 }
@@ -304,6 +336,12 @@ impl ExportSection {
         self.content.push(Export {
             entity_name: exported_name,
             desc: ExportDesc::Mem(memidx),
+        });
+    }
+    fn push_global(&mut self, exported_name: String, globalidx: GlobalIdx) {
+        self.content.push(Export {
+            entity_name: exported_name,
+            desc: ExportDesc::Global(globalidx),
         });
     }
 }

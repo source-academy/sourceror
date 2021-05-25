@@ -35,38 +35,51 @@ Traverses the IR to:
 - put all overload sets (thunks) in a SearchableVec
 - extract all SourceLocations in Appls into a SearchableVec
 */
-pub fn pre_traverse_funcs(funcs: &[ir::Func]) -> TraverseResult {
+pub fn pre_traverse_funcs(
+    funcs: &[ir::Func],
+    repl_sl: ir::SourceLocation,
+    mut repl_funcidx_start: usize,
+) -> TraverseResult {
     let mut res = TraverseResult::default();
-    for func in funcs {
-        pre_traverse_func(func, &mut res);
+    res.appl_location_sv.insert(repl_sl);
+    repl_funcidx_start = std::cmp::min(repl_funcidx_start, funcs.len());
+    for func in &funcs[..repl_funcidx_start] {
+        pre_traverse_func::<false>(func, &mut res);
+    }
+    for func in &funcs[repl_funcidx_start..] {
+        pre_traverse_func::<true>(func, &mut res);
     }
     res
 }
 
-fn pre_traverse_func(func: &ir::Func, res: &mut TraverseResult) {
-    pre_traverse_expr(&func.expr, res);
+fn pre_traverse_func<const IS_REPL: bool>(func: &ir::Func, res: &mut TraverseResult) {
+    pre_traverse_expr::<IS_REPL>(&func.expr, res);
 }
 
-fn pre_traverse_exprs(exprs: &[ir::Expr], res: &mut TraverseResult) {
+fn pre_traverse_exprs<const IS_REPL: bool>(exprs: &[ir::Expr], res: &mut TraverseResult) {
     for expr in exprs {
-        pre_traverse_expr(expr, res);
+        pre_traverse_expr::<IS_REPL>(expr, res);
     }
 }
 
-fn pre_traverse_expr(expr: &ir::Expr, res: &mut TraverseResult) {
-    pre_traverse_expr_kind(&expr.kind, res);
+fn pre_traverse_expr<const IS_REPL: bool>(expr: &ir::Expr, res: &mut TraverseResult) {
+    pre_traverse_expr_kind::<IS_REPL>(&expr.kind, res);
 }
 
-fn pre_traverse_expr_kind(expr_kind: &ir::ExprKind, res: &mut TraverseResult) {
+fn pre_traverse_expr_kind<const IS_REPL: bool>(expr_kind: &ir::ExprKind, res: &mut TraverseResult) {
     match expr_kind {
         ir::ExprKind::PrimUndefined
         | ir::ExprKind::PrimNumber { val: _ }
         | ir::ExprKind::PrimBoolean { val: _ }
         | ir::ExprKind::PrimStructT { typeidx: _ } => {}
-        ir::ExprKind::PrimString { val } => res.string_pool.insert(val),
+        ir::ExprKind::PrimString { val } => {
+            if !IS_REPL {
+                res.string_pool.insert(val)
+            }
+        }
         ir::ExprKind::PrimFunc { funcidxs, closure } => {
             res.thunk_sv.insert_copy(funcidxs);
-            pre_traverse_expr(closure, res);
+            pre_traverse_expr::<IS_REPL>(closure, res);
         }
         ir::ExprKind::TypeCast {
             test,
@@ -75,30 +88,32 @@ fn pre_traverse_expr_kind(expr_kind: &ir::ExprKind, res: &mut TraverseResult) {
             true_expr,
             false_expr,
         } => {
-            pre_traverse_expr(test, res);
-            pre_traverse_expr(true_expr, res);
-            pre_traverse_expr(false_expr, res);
+            pre_traverse_expr::<IS_REPL>(test, res);
+            pre_traverse_expr::<IS_REPL>(true_expr, res);
+            pre_traverse_expr::<IS_REPL>(false_expr, res);
         }
         ir::ExprKind::VarName { source: _ } => {}
-        ir::ExprKind::PrimAppl { prim_inst: _, args } => pre_traverse_exprs(args, res),
+        ir::ExprKind::PrimAppl { prim_inst: _, args } => pre_traverse_exprs::<IS_REPL>(args, res),
         ir::ExprKind::Appl {
             func,
             args,
             location,
         } => {
-            pre_traverse_expr(func, res);
-            pre_traverse_exprs(args, res);
-            res.appl_location_sv.insert_copy(location);
+            pre_traverse_expr::<IS_REPL>(func, res);
+            pre_traverse_exprs::<IS_REPL>(args, res);
+            if !IS_REPL {
+                res.appl_location_sv.insert_copy(location);
+            }
         }
-        ir::ExprKind::DirectAppl { funcidx: _, args } => pre_traverse_exprs(args, res),
+        ir::ExprKind::DirectAppl { funcidx: _, args } => pre_traverse_exprs::<IS_REPL>(args, res),
         ir::ExprKind::Conditional {
             cond,
             true_expr,
             false_expr,
         } => {
-            pre_traverse_expr(cond, res);
-            pre_traverse_expr(true_expr, res);
-            pre_traverse_expr(false_expr, res);
+            pre_traverse_expr::<IS_REPL>(cond, res);
+            pre_traverse_expr::<IS_REPL>(true_expr, res);
+            pre_traverse_expr::<IS_REPL>(false_expr, res);
         }
         ir::ExprKind::Declaration {
             local: _,
@@ -106,9 +121,9 @@ fn pre_traverse_expr_kind(expr_kind: &ir::ExprKind, res: &mut TraverseResult) {
             contained_expr,
         } => {
             if let Some(init_expr) = init {
-                pre_traverse_expr(init_expr, res);
+                pre_traverse_expr::<IS_REPL>(init_expr, res);
             }
-            pre_traverse_expr(contained_expr, res);
+            pre_traverse_expr::<IS_REPL>(contained_expr, res);
         }
         ir::ExprKind::Assign { target: _, expr }
         | ir::ExprKind::Return { expr }
@@ -116,9 +131,9 @@ fn pre_traverse_expr_kind(expr_kind: &ir::ExprKind, res: &mut TraverseResult) {
             num_frames: _,
             expr,
         }
-        | ir::ExprKind::Block { expr } => pre_traverse_expr(expr, res),
+        | ir::ExprKind::Block { expr } => pre_traverse_expr::<IS_REPL>(expr, res),
         ir::ExprKind::Sequence { content } => {
-            pre_traverse_exprs(content, res);
+            pre_traverse_exprs::<IS_REPL>(content, res);
         }
         ir::ExprKind::Trap {
             code: _,

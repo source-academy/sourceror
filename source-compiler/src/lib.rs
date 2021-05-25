@@ -1,11 +1,11 @@
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::JsFuture;
 
-use wasmgen;
+use std::collections::HashMap;
 
 use backend_wasm;
-
 use projstd;
+use wasmgen;
 
 // #[wasm_bindgen]
 // extern {
@@ -69,6 +69,15 @@ impl projstd::log::Logger for MainLogger {
     }
 }
 
+struct ReplContext {
+    frontend_repl_ctx: frontend_estree::ReplContext,
+    ir_program: ir::Program,
+    repl_funcidx_start: usize,
+}
+
+// For storing existing compilation information for use with REPL.
+static mut CONTEXTUAL_STORE: Option<HashMap<i32, ReplContext>> = None;
+
 /**
  * The entry function for compilation.
  * `context` is an opaque value so that the host code can associate our calls to compiler_log() with the correct call to compile().
@@ -81,25 +90,97 @@ pub async fn compile(context: i32, source_code: String) -> js_sys::Uint8Array {
     #[cfg(all(debug_assertions, target_arch = "wasm32"))]
     console_error_panic_hook::set_once();
 
+    unsafe {
+        if CONTEXTUAL_STORE.is_none() {
+            CONTEXTUAL_STORE = Some(HashMap::new());
+        }
+    }
+
     (|| async {
         use wasmgen::WasmSerialize;
 
-        //let ir_imports = frontend_estree::parse_imports(import_spec, MainLogger::new(context))?;
-        let ir_program = frontend_estree::run_frontend(
+        let (frontend_repl_ctx, ir_program) = frontend_estree::run_frontend(
             source_code,
             move |name| fetch_dep_proxy(context, name),
             MainLogger::new(context),
         )
         .await?;
-        let ir_program_opt = ir::opt::optimize_all(ir_program);
-        let wasm_module =
-            backend_wasm::run_backend(&ir_program_opt, backend_wasm::Options::default());
+        let ir_program_opt = ir::opt::optimize_all(ir_program, 0);
+        let wasm_module = backend_wasm::run_backend(
+            &ir_program_opt,
+            usize::MAX,
+            backend_wasm::Options::default(),
+        );
+        let num_funcs = ir_program_opt.funcs.len();
+        unsafe { (&mut CONTEXTUAL_STORE).as_mut().unwrap() }.insert(
+            context,
+            ReplContext {
+                frontend_repl_ctx,
+                ir_program: ir_program_opt,
+                repl_funcidx_start: num_funcs,
+            },
+        );
         let mut receiver = std::vec::Vec::<u8>::new();
         wasm_module.wasm_serialize(&mut receiver);
         Ok(js_sys::Uint8Array::from(receiver.as_slice()))
     })()
     .await
     .unwrap_or_else(|_: ()| js_sys::Uint8Array::new_with_length(0))
+}
+
+/**
+ * The entry function for compilation (for REPL).
+ * `context` must be the an existing value from the previous invocation.
+ * `source_code`: ESTree JSON representation of validated program
+ * `import_spec`: list of imports following the import file format
+ */
+#[wasm_bindgen]
+pub async fn compile_repl(context: i32, source_code: String) -> js_sys::Uint8Array {
+    // nice console errors in debug mode
+    #[cfg(all(debug_assertions, target_arch = "wasm32"))]
+    console_error_panic_hook::set_once();
+
+    assert!(!unsafe { &CONTEXTUAL_STORE }.is_none());
+
+    (|| async {
+        use wasmgen::WasmSerialize;
+
+        let ReplContext {
+            frontend_repl_ctx,
+            ir_program,
+            repl_funcidx_start,
+        } = &mut unsafe { (&mut CONTEXTUAL_STORE).as_mut().unwrap() }
+            .get_mut(&context)
+            .unwrap();
+
+        let (new_frontend_repl_ctx, new_funcidx_start) = frontend_estree::run_frontend_repl(
+            source_code,
+            std::mem::take(frontend_repl_ctx),
+            ir_program,
+            MainLogger::new(context),
+        )?;
+        let ir_program_opt = ir::opt::optimize_all(std::mem::take(ir_program), new_funcidx_start);
+        let wasm_module = backend_wasm::run_backend(
+            &ir_program_opt,
+            *repl_funcidx_start,
+            backend_wasm::Options::default(),
+        );
+        *frontend_repl_ctx = new_frontend_repl_ctx;
+        *ir_program = ir_program_opt;
+        let mut receiver = std::vec::Vec::<u8>::new();
+        wasm_module.wasm_serialize(&mut receiver);
+        Ok(js_sys::Uint8Array::from(receiver.as_slice()))
+    })()
+    .await
+    .unwrap_or_else(|_: ()| js_sys::Uint8Array::new_with_length(0))
+}
+
+/**
+ * Free up resources associated with the context
+ */
+#[wasm_bindgen]
+pub async fn destroy_context(context: i32) {
+    unsafe { (&mut CONTEXTUAL_STORE).as_mut().unwrap() }.remove(&context);
 }
 
 #[cfg(test)]
