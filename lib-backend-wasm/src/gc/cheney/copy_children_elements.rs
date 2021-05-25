@@ -291,9 +291,10 @@ pub fn make_copy_children_elements(
         func_idx
     }
 
+    // hack to limit number of structs to 4096 so that REPL will work (i.e. later elem idxs from the ir program will be stable)
     let copy_children_table_offset: u32 = wasm_module.reserve_table_elements(
         tableidx,
-        (ir::NUM_PRIMITIVE_TAG_TYPES + struct_types.len()) as u32,
+        (ir::NUM_PRIMITIVE_TAG_TYPES + /*struct_types.len()*/ std::cmp::max(struct_types.len(), 4096)) as u32,
     );
 
     // Note: some reserved table elements are left uncommitted.  They will automatically trap if called at runtime.  (If that happens, then the compiler has a bug.)

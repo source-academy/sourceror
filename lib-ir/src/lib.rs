@@ -34,7 +34,7 @@ pub mod superset;
 // or funcs[func_idx - imports.len()] otherwise.
 pub type FuncIdx = usize;
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Program {
     pub struct_types: Vec<Box<[VarType]>>, // stores the list of fields of all structs (i.e. objects) in the program (indexed with typeidx)
     pub imports: Box<[Import]>,            // list of imported functions

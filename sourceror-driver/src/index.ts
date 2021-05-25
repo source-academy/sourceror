@@ -23,14 +23,18 @@ export class RuntimeError extends Error {
 
 class SyntacticParser extends AcornParser {
   raiseRecoverable(pos: any, message: string) {
-    if (message.includes("Identifier ") && message.includes(" has already been declared")) return;
+    if (
+      message.includes("Identifier ") &&
+      message.includes(" has already been declared")
+    )
+      return;
     (AcornParser.prototype as any).raiseRecoverable.call(this, pos, message);
   }
 }
 
 function createImportOptions(err_handler: () => void): AcornOptions {
   return {
-    sourceType: 'module',
+    sourceType: "module",
     ecmaVersion: 6,
     locations: true,
     // tslint:disable-next-line:no-any
@@ -40,8 +44,8 @@ function createImportOptions(err_handler: () => void): AcornOptions {
     // tslint:disable-next-line:no-any
     onTrailingComma(_end: any, _loc: any) {
       err_handler();
-    }
-  }
+    },
+  };
 }
 
 function parseImport(code: string): es.Program | undefined {
@@ -50,7 +54,12 @@ function parseImport(code: string): es.Program | undefined {
   try {
     // we directly use acorn, because js-slang's parse is too restrictive
     // with attributes and exports
-    program = (SyntacticParser.parse(code, createImportOptions(() => { has_errors = true; })) as unknown) as es.Program
+    program = SyntacticParser.parse(
+      code,
+      createImportOptions(() => {
+        has_errors = true;
+      })
+    ) as unknown as es.Program;
   } catch (error) {
     if (error instanceof SyntaxError) {
       has_errors = true;
@@ -62,10 +71,45 @@ function parseImport(code: string): es.Program | undefined {
   return undefined;
 }
 
+export interface ReplContext {
+  context: number;
+  linear_memory?: WebAssembly.Memory;
+  globals: Record<string, any>;
+}
+
+export interface SourcerorContext extends Context {
+  repl_context?: ReplContext;
+}
+
 export async function compile(
   code: string,
-  context: Context
+  context: SourcerorContext,
+  isRepl: boolean
 ): Promise<WebAssembly.Module> {
+  context.errors = [];
+  if (isRepl && !context.repl_context) {
+    context.errors.push({
+      type: ErrorType.SYNTAX,
+      severity: ErrorSeverity.ERROR,
+      location: {
+        source: undefined,
+        start: {
+          line: 0,
+          column: 0,
+        },
+        end: {
+          line: 0,
+          column: 0,
+        },
+      },
+      explain: (): string => "Editor code must be run before using the REPL",
+      elaborate: (): string => "",
+    });
+    throw new CompileError("REPL does not have originating context");
+  }
+
+  if (!isRepl && context.repl_context)
+    Sourceror.destroyContext(context.repl_context!.context);
   //context.chapter = 3;
   let estree: es.Program | undefined = slang_parse(code, context);
   if (!estree) {
@@ -74,76 +118,96 @@ export async function compile(
     );
   }
   let es_str: string = JSON.stringify(estree);
-  let wasm_context: number = Sourceror.createContext((severity: number, location_file: string, location_start_line: number, location_start_column: number, location_end_line: number, location_end_column: number, message: string) => {
-    context.errors.push({
-      type: ErrorType.SYNTAX,
-      severity: severity >= 4 ? ErrorSeverity.ERROR : ErrorSeverity.WARNING, // Sourceror supports other severity levels, but js-slang does not
-      location: {
-        source: location_file ? location_file : undefined,
-        start: {
-          line: location_start_line,
-          column: location_start_column,
-        },
-        end: {
-          line: location_end_line,
-          column: location_end_column,
-        },
-      },
-      explain: (): string => message,
-      elaborate: (): string => "",
-    });
-  }, (name: string): Promise<string> => {
-    return cachedGetFile(name, name =>
-      fetch(name)
-        .then(rsp => rsp.text())
-        .then(rsptxt => {
-          if (rsptxt.split('\n', 1)[0] == "@SourceImports") {
-            // it is an import file, return it as is
-            return rsptxt;
-          }
-          else {
-            // it is a Source file, need to parse it with acorn
-            const estree: es.Program | undefined = parseImport(rsptxt);
-            if (!estree) {
-              return Promise.reject(
-                new CompileError("js-slang cannot parse the program")
-              );
-            }
-            return JSON.stringify(estree);
-          }
-        }));
-  });
-  return Sourceror.compile(wasm_context, es_str)
-    .then((wasm_binary: Uint8Array) => {
-      if (wasm_binary.byteLength > 0) {
-        return WebAssembly.compile(wasm_binary).catch((err: string) => {
+  let wasm_context: number;
+  if (isRepl) {
+    wasm_context = context.repl_context!.context;
+  } else {
+    context.repl_context = {
+      context: (wasm_context = Sourceror.createContext(
+        (
+          severity: number,
+          location_file: string,
+          location_start_line: number,
+          location_start_column: number,
+          location_end_line: number,
+          location_end_column: number,
+          message: string
+        ) => {
           context.errors.push({
             type: ErrorType.SYNTAX,
-            severity: ErrorSeverity.ERROR,
+            severity:
+              severity >= 4 ? ErrorSeverity.ERROR : ErrorSeverity.WARNING, // Sourceror supports other severity levels, but js-slang does not
             location: {
-              source: undefined,
+              source: location_file ? location_file : undefined,
               start: {
-                line: 0,
-                column: 0,
+                line: location_start_line,
+                column: location_start_column,
               },
               end: {
-                line: 0,
-                column: 0,
+                line: location_end_line,
+                column: location_end_column,
               },
             },
-            explain: (): string => err,
-            elaborate: (): string => "Your browser's WebAssembly engine is unable to compile the WebAssembly binary produced by Sourceror.  This is probably a bug in Sourceror; please report it.",
+            explain: (): string => message,
+            elaborate: (): string => "",
           });
-          throw new CompileError("WebAssembly compilation error");
+        },
+        (name: string): Promise<string> => {
+          return cachedGetFile(name, (name) =>
+            fetch(name)
+              .then((rsp) => rsp.text())
+              .then((rsptxt) => {
+                if (rsptxt.split("\n", 1)[0] == "@SourceImports") {
+                  // it is an import file, return it as is
+                  return rsptxt;
+                } else {
+                  // it is a Source file, need to parse it with acorn
+                  const estree: es.Program | undefined = parseImport(rsptxt);
+                  if (!estree) {
+                    return Promise.reject(
+                      new CompileError("js-slang cannot parse the program")
+                    );
+                  }
+                  return JSON.stringify(estree);
+                }
+              })
+          );
+        }
+      )),
+      linear_memory: undefined,
+      globals: {},
+    };
+  }
+  return (isRepl ? Sourceror.compileRepl : Sourceror.compile)(
+    wasm_context,
+    es_str
+  ).then((wasm_binary: Uint8Array) => {
+    if (wasm_binary.byteLength > 0) {
+      return WebAssembly.compile(wasm_binary).catch((err: string) => {
+        context.errors.push({
+          type: ErrorType.SYNTAX,
+          severity: ErrorSeverity.ERROR,
+          location: {
+            source: undefined,
+            start: {
+              line: 0,
+              column: 0,
+            },
+            end: {
+              line: 0,
+              column: 0,
+            },
+          },
+          explain: (): string => err,
+          elaborate: (): string =>
+            "Your browser's WebAssembly engine is unable to compile the WebAssembly binary produced by Sourceror.  This is probably a bug in Sourceror; please report it.",
         });
-      }
-      else {
-        throw new CompileError("Syntax error");
-      }
-    })
-    .finally(() => {
-      Sourceror.destroyContext(wasm_context);
-    });
+        throw new CompileError("WebAssembly compilation error");
+      });
+    } else {
+      throw new CompileError("Syntax error");
+    }
+  });
 }
 
 function read_js_result(linear_memory: WebAssembly.Memory): any {
@@ -196,7 +260,7 @@ function stringifySourcerorRuntimeErrorCode(code: number): [string, string] {
       return ["Function call operator applied on a non-function", ""];
     case 0x17:
       return ["If statement has a non-boolean condition", ""];
-    case 0x1A:
+    case 0x1a:
       return ["Variable used before initialization", ""];
     default:
       return [
@@ -213,8 +277,10 @@ export async function run(
   wasm_module: WebAssembly.Module,
   platform: any,
   transcoder: Transcoder,
-  context: Context,
+  context: SourcerorContext,
+  isRepl: boolean
 ): Promise<any> {
+  const external_context = context.repl_context!;
   const real_imports = Object.assign({}, platform);
   real_imports.core = {
     error: (
@@ -224,7 +290,7 @@ export async function run(
       start_line: number,
       start_column: number,
       end_line: number,
-      end_column: number,
+      end_column: number
     ) => {
       const [explain, elaborate] = stringifySourcerorRuntimeErrorCode(code);
       context.errors.push({
@@ -267,56 +333,83 @@ export async function run(
       throw propagationToken; // to stop the webassembly binary immediately
     },
   };
-  return WebAssembly.instantiate(wasm_module, real_imports).then((instance) => {
-    transcoder.setMem(new DataView((instance.exports.linear_memory as WebAssembly.Memory).buffer));
-    transcoder.setAllocateStringFunc(instance.exports.allocate_string as (len: number) => number);
-    try {
-      (instance.exports.main as Function)();
-      return read_js_result(
-        instance.exports.linear_memory as WebAssembly.Memory
+  if (isRepl) real_imports.core.linear_memory = external_context.linear_memory;
+  return WebAssembly.instantiate(wasm_module, real_imports).then(
+    (instance) => {
+      transcoder.setMem(
+        new DataView(
+          (!isRepl
+            ? (external_context.linear_memory = instance.exports
+                .linear_memory as WebAssembly.Memory)
+            : external_context.linear_memory!
+          ).buffer
+        )
       );
-    } catch (e) {
-      if (e === propagationToken) {
-        throw new RuntimeError("runtime error");
-      } else {
-        context.errors.push({
-          type: ErrorType.RUNTIME,
-          severity: ErrorSeverity.ERROR,
-          location: {
-            source: null,
-            start: {
-              line: 0,
-              column: 0,
-            },
-            end: {
-              line: 0,
-              column: 0,
-            },
-          },
-          explain: (): string => e.toString(),
-          elaborate: (): string => e.toString(),
-        });
-        throw e;
+      transcoder.setAllocateStringFunc(
+        instance.exports.allocate_string as (len: number) => number
+      );
+      // restore globals
+      for (const global in external_context.globals) {
+        (instance.exports[global] as WebAssembly.Global).value =
+          external_context.globals[global];
       }
-    }
-  }, (err: string) => {
-    context.errors.push({
-      type: ErrorType.SYNTAX,
-      severity: ErrorSeverity.ERROR,
-      location: {
-        source: null,
-        start: {
-          line: 0,
-          column: 0,
+      try {
+        (instance.exports.main as Function)();
+        return read_js_result(external_context.linear_memory!);
+      } catch (e) {
+        if (e === propagationToken) {
+          throw new RuntimeError("runtime error");
+        } else {
+          context.errors.push({
+            type: ErrorType.RUNTIME,
+            severity: ErrorSeverity.ERROR,
+            location: {
+              source: null,
+              start: {
+                line: 0,
+                column: 0,
+              },
+              end: {
+                line: 0,
+                column: 0,
+              },
+            },
+            explain: (): string => e.toString(),
+            elaborate: (): string => e.toString(),
+          });
+          throw e;
+        }
+      } finally {
+        // save globals
+        for (const global in instance.exports) {
+          if (instance.exports[global] instanceof WebAssembly.Global) {
+            external_context.globals[global] = (
+              instance.exports[global] as WebAssembly.Global
+            ).value;
+          }
+        }
+      }
+    },
+    (err: string) => {
+      context.errors.push({
+        type: ErrorType.SYNTAX,
+        severity: ErrorSeverity.ERROR,
+        location: {
+          source: null,
+          start: {
+            line: 0,
+            column: 0,
+          },
+          end: {
+            line: 0,
+            column: 0,
+          },
         },
-        end: {
-          line: 0,
-          column: 0,
-        },
-      },
-      explain: (): string => err,
-      elaborate: (): string => "Your browser's WebAssembly engine is unable to instantiate the WebAssembly module.",
-    });
+        explain: (): string => err,
+        elaborate: (): string =>
+          "Your browser's WebAssembly engine is unable to instantiate the WebAssembly module.",
+      });
       throw new CompileError("WebAssembly instantiation error");
-  });
+    }
+  );
 }

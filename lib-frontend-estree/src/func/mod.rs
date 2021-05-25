@@ -1,5 +1,6 @@
 use super::ParseState;
 use super::ProgramPreExports;
+use crate::estree::SourceLocation as esSL;
 use crate::estree::*;
 use crate::extensions::IntoSourceLocation;
 use ir;
@@ -100,9 +101,9 @@ impl std::fmt::Display for ParseProgramError {
 }
 
 /**
- * Parse a estree::Node that represents a whole source file.
+ * Parse a estree::Node that represents a whole source file of a dependency (i.e not the main program).
  */
-pub fn parse_program(
+pub fn parse_dep_program(
     default_name_ctx: &HashMap<String, PreVar>, // pre-declared Source names
     default_parse_state: &ParseState,           // already parsed automatic imports
     es_program_node: Node,
@@ -113,15 +114,93 @@ pub fn parse_program(
     ir_program: &mut ir::Program,
     ir_toplevel_seq: &mut Vec<ir::Expr>,
 ) -> Result<(ProgramPreExports, ParseState), CompileMessage<ParseProgramError>> {
+    parse_program(
+        pre_parse::pre_parse_program::<true>,
+        post_parse::post_parse_program::<true>,
+        &mut default_name_ctx.clone(),
+        &mut default_parse_state.clone(),
+        es_program_node,
+        deps,
+        start_idx,
+        filename,
+        order,
+        ir_program,
+        ir_toplevel_seq,
+    )
+}
+
+/**
+ * Parse a estree::Node that represents a whole source file of the main program.
+ */
+pub fn parse_main_program(
+    default_name_ctx: &HashMap<String, PreVar>, // pre-declared Source names
+    default_parse_state: &ParseState,           // already parsed automatic imports
+    es_program_node: Node,
+    deps: Box<[&(ProgramPreExports, ParseState)]>,
+    start_idx: &mut usize,
+    filename: Option<String>,
+    order: usize,
+    ir_program: &mut ir::Program,
+    ir_toplevel_seq: &mut Vec<ir::Expr>,
+) -> Result<(HashMap<String, PreVar>, ParseState), CompileMessage<ParseProgramError>> {
+    let mut modified_name_ctx = default_name_ctx.clone();
+    let mut modified_parse_state = default_parse_state.clone();
+    parse_program(
+        pre_parse::pre_parse_program::<false>,
+        post_parse::post_parse_program::<false>,
+        &mut modified_name_ctx,
+        &mut modified_parse_state,
+        es_program_node,
+        deps,
+        start_idx,
+        filename,
+        order,
+        ir_program,
+        ir_toplevel_seq,
+    )?;
+    Ok((modified_name_ctx, modified_parse_state))
+}
+
+/**
+ * Helper to parse a estree::Node that represents a whole source file.
+ */
+pub fn parse_program<R1, R2>(
+    pre_parse_program: impl FnOnce(
+        &mut Program,
+        &Option<esSL>,
+        &mut HashMap<String, PreVar>,
+        &[&ProgramPreExports],
+        &mut usize,
+        Option<&str>,
+    ) -> Result<R1, CompileMessage<ParseProgramError>>,
+    post_parse_program: impl FnOnce(
+        Program,
+        Option<esSL>,
+        &mut ParseState,
+        &[&ParseState],
+        Option<&str>,
+        &mut ir::Program,
+        &mut Vec<ir::Expr>,
+    ) -> Result<R2, CompileMessage<ParseProgramError>>,
+    default_name_ctx: &mut HashMap<String, PreVar>, // pre-declared Source names
+    default_parse_state: &mut ParseState,           // already parsed automatic imports
+    es_program_node: Node,
+    deps: Box<[&(ProgramPreExports, ParseState)]>,
+    start_idx: &mut usize,
+    filename: Option<String>,
+    _order: usize,
+    ir_program: &mut ir::Program,
+    ir_toplevel_seq: &mut Vec<ir::Expr>,
+) -> Result<(R1, R2), CompileMessage<ParseProgramError>> {
     if let Node {
         loc,
         kind: NodeKind::Program(mut es_program),
     } = es_program_node
     {
-        let program_pre_exports: ProgramPreExports = pre_parse::pre_parse_program(
+        let program_pre_exports: R1 = pre_parse_program(
             &mut es_program,
             &loc,
-            &mut default_name_ctx.clone(),
+            default_name_ctx,
             &deps
                 .iter()
                 .copied()
@@ -130,10 +209,10 @@ pub fn parse_program(
             start_idx,
             filename.as_deref(),
         )?;
-        let parse_state: ParseState = post_parse::post_parse_program(
+        let parse_state: R2 = post_parse_program(
             es_program,
             loc,
-            &mut default_parse_state.clone(),
+            default_parse_state,
             &deps
                 .iter()
                 .copied()
@@ -144,37 +223,6 @@ pub fn parse_program(
             ir_toplevel_seq,
         )?;
         Ok((program_pre_exports, parse_state))
-    /*let current_scope_decls: compact_state::CompactState<compact_state::CurrentScopeItem> =
-        compact_state::CompactState::from_unmaterialized(extract_current_decls_and_imports(
-            &es_program.body,
-            &*deps,
-            filename.as_deref(),
-            order,
-        )?);
-    let mut import_decl_idx = 0;
-    for es_node in es_program.body {
-        match es_node {
-            Node {
-                loc,
-                kind: NodeKind::ImportDeclaration(import_decl),
-            } => parse_import_declaration(
-                import_decl,
-                deps[import_decl_idx],
-                filename.as_deref(),
-                order,
-            )?,
-            _ => parse_statement(
-                es_node,
-                state,
-                true,
-                filename.as_deref(),
-                order,
-                ir_program,
-                ir_toplevel_seq,
-            ),
-        };
-    }
-    Ok(())*/
     } else {
         Err(CompileMessage::new_error(
             es_program_node.loc.into_sl(filename),

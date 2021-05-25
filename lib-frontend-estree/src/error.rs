@@ -161,3 +161,12 @@ impl From<DepError> for FrontendError {
         FrontendError::DepError(e)
     }
 }
+
+#[derive(Debug)]
+pub struct ReplHasImportDeclError {}
+impl Error for ReplHasImportDeclError {}
+impl fmt::Display for ReplHasImportDeclError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "REPL must not contain import declarations")
+    }
+}

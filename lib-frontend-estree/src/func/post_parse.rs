@@ -20,14 +20,15 @@ use std::result::Result;
  *
  * So the parse_ctx is sufficient to translate the tagged es_program to the relevant additions to the ir_program and ir_toplevel_seq.
  * Note: parse_ctx will be discarded after this function returns.  By convention,
- * this function should put parse_ctx to its original state before returning.
+ * this function should put parse_ctx to its original state before returning, unless UndoParseState is false.
+ * UndoParseState should be set to false for the main program, so that we can use it later in REPL.
  *
  * Note: we do not validate ESTree/SourceRestrictions here, because pre_parse() should have already done it.
  * Here, we forcefully unwrap optionals etc.
  *
  * Returns the parse state (of the globals only!)
  */
-pub fn post_parse_program(
+pub fn post_parse_program<const UNDO_PARSE_STATE: bool>(
     es_program: Program,
     loc: Option<esSL>,
     parse_ctx: &mut ParseState,
@@ -199,14 +200,16 @@ pub fn post_parse_program(
         Ok(())
     })?;
 
-    // remove the direct entries from the parse_ctx
-    parse_ctx.remove_directs(direct_undo_ctx);
+    if UNDO_PARSE_STATE {
+        // remove the direct entries from the parse_ctx
+        parse_ctx.remove_directs(direct_undo_ctx);
 
-    // remove the vars from the parse_ctx
-    parse_ctx.remove_targets(target_undo_ctx);
+        // remove the vars from the parse_ctx
+        parse_ctx.remove_targets(target_undo_ctx);
 
-    // remove the direct import overloadsets
-    parse_ctx.remove_direct_overloadsets(direct_import_undo_ctx);
+        // remove the direct import overloadsets
+        parse_ctx.remove_direct_overloadsets(direct_import_undo_ctx);
+    }
 
     Ok(exports)
 }
@@ -1112,7 +1115,7 @@ fn post_parse_toplevel_export_decl(
                     .get_direct(local_id.name.as_str())
                     .unwrap()
                     .clone();
-                exports.add_direct(local_id.name, os);
+                exports.add_direct(exported_id.name, os);
             }
         }
     }

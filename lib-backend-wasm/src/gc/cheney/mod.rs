@@ -243,6 +243,14 @@ impl<'a, 'b, 'c> Cheney<'a, 'b, 'c> {
             wasmgen::Mut::Var,
             ((heap_begin + MEM_INITIAL_USABLE_SIZE * 2) * WASM_PAGE_SIZE) as i32,
         );
+        // export the globals so that the driver knows how to restore them (for REPL resumption)
+        wasm_module.export_global(free_mem_ptr, "free_mem_ptr".to_string());
+        wasm_module.export_global(end_mem_ptr, "end_mem_ptr".to_string());
+        wasm_module.export_global(
+            gc_roots_stack_base_ptr,
+            "gc_roots_stack_base_ptr".to_string(),
+        );
+        wasm_module.export_global(gc_roots_stack_ptr, "gc_roots_stack_ptr".to_string());
 
         // copy_$i functions, indexed by VarType::tag().
         let copy_funcs: Box<[Option<wasmgen::FuncIdx>]> =

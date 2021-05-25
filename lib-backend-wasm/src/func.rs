@@ -24,6 +24,7 @@ use std::collections::HashMap;
 struct EncodeContext<'a, 'b, 'c, 'd, 'e, 'f, 'g, 'h, 'i, Heap: HeapManager> {
     // Local to this function
     return_type: Option<ir::VarType>,
+    is_repl: bool, // whether this function is from the repl
 
     // Global for whole program
     struct_types: &'a [Box<[ir::VarType]>],
@@ -42,6 +43,7 @@ struct EncodeContext<'a, 'b, 'c, 'd, 'e, 'f, 'g, 'h, 'i, Heap: HeapManager> {
     heap: &'h Heap,
     string_pool: &'i ShiftedStringPool,
     error_func: wasmgen::FuncIdx, // imported function to call to error out (e.g. runtime type errors)
+    repl_sl: ir::SourceLocation,  // source location constant for REPL errors
     options: Options,             // Compilation options (it implements Copy)
 }
 
@@ -111,6 +113,8 @@ pub fn encode_funcs<'a, Heap: HeapManager>(
     heap: &Heap,
     string_pool: &ShiftedStringPool,
     error_func: wasmgen::FuncIdx,
+    repl_sl: ir::SourceLocation,
+    repl_funcidx_start: usize,
     options: Options,
     wasm_module: &mut wasmgen::WasmModule,
 ) {
@@ -185,6 +189,7 @@ pub fn encode_funcs<'a, Heap: HeapManager>(
                 let scratch: Scratch = Scratch::new(locals_builder);
                 let ctx = EncodeContext {
                     return_type: Some(ir::VarType::Any),
+                    is_repl: false,
                     struct_types: ir_struct_types,
                     struct_field_byte_offsets: ir_struct_field_byte_offsets,
                     ir_signature_list: ir_signature_list,
@@ -197,6 +202,7 @@ pub fn encode_funcs<'a, Heap: HeapManager>(
                     appl_data_encoder: &appl_data_encoder,
                     string_pool: string_pool,
                     error_func: error_func,
+                    repl_sl: repl_sl,
                     options: options,
                 };
                 let mut mutctx = MutContext::new(
@@ -232,6 +238,7 @@ pub fn encode_funcs<'a, Heap: HeapManager>(
                 let scratch: Scratch = Scratch::new(locals_builder);
                 let ctx = EncodeContext {
                     return_type: ir_func.result,
+                    is_repl: ir_funcidx >= repl_funcidx_start,
                     struct_types: ir_struct_types,
                     struct_field_byte_offsets: ir_struct_field_byte_offsets,
                     ir_signature_list: ir_signature_list,
@@ -244,6 +251,7 @@ pub fn encode_funcs<'a, Heap: HeapManager>(
                     appl_data_encoder: &appl_data_encoder,
                     string_pool: string_pool,
                     error_func: error_func,
+                    repl_sl: repl_sl,
                     options: options,
                 };
                 let mut mutctx = MutContext::new(
@@ -564,7 +572,42 @@ fn encode_expr<H: HeapManager>(
                 expr.vartype == Some(ir::VarType::String),
                 "ICE: IR->Wasm: PrimString does not have type string"
             );
-            expr_builder.i32_const(ctx.string_pool.lookup(val) as i32);
+            if !ctx.is_repl {
+                expr_builder.i32_const(ctx.string_pool.lookup(val) as i32);
+            } else {
+                // manually build a string, since we can't use the string pool for REPL
+                // roughly looks like this:
+                // let str = new_string(val.len); // string length will already be written
+                // str[4] = val[0];
+                // str[5] = val[1];
+                // ...
+                // str[4+val.len-1] = val[len-1];
+
+                // net wasm stack: [] -> [i32(num_bytes)]
+                expr_builder.i32_const(val.len() as i32);
+                // net wasm stack: [i32(num_bytes)] -> [i32(str)]
+                mutctx.heap_encode_dynamic_allocation(ctx.heap, ir::VarType::String, expr_builder);
+
+                // net wasm stack: [i32(str)] -> [i32(str)]
+                if val.len() > 0 {
+                    mutctx.with_scratch_i32(|_mutctx, s| {
+                        // net wasm stack: [i32(str)] -> [i32(str)]
+                        expr_builder.local_tee(s);
+
+                        // for efficiency, we do it in chunks of 4 (remaining unused bytes are set to 0)
+                        for (i, chunk) in (val.as_ref() as &[u8]).chunks(4).enumerate() {
+                            let mut arr: [u8; 4] = [0; 4];
+                            arr[..chunk.len()].copy_from_slice(chunk);
+                            let x = u32::from_le_bytes(arr);
+
+                            // net wasm stack: [i32(str)] -> [i32(str)]
+                            expr_builder.i32_const(x as i32);
+                            expr_builder.i32_store(wasmgen::MemArg::new4(4 + 4 * (i as u32)));
+                            expr_builder.local_get(s);
+                        }
+                    });
+                }
+            }
             true
         }
         ir::ExprKind::PrimStructT { typeidx } => {
@@ -1286,7 +1329,11 @@ fn encode_appl<H: HeapManager>(
 
         // encode the proper caller id (which is the memory location of the SourceLocation)
         // net wasm stack: [] -> [i32(callerid)]
-        expr_builder.i32_const(*ctx.appl_data_encoder.get(location).unwrap() as i32);
+        expr_builder.i32_const(
+            *ctx.appl_data_encoder
+                .get(if !ctx.is_repl { location } else { &ctx.repl_sl })
+                .unwrap() as i32,
+        );
 
         // push the tableidx onto the stack
         // net wasm stack: [] -> [tableidx]

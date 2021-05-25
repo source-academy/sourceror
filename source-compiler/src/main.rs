@@ -4,8 +4,10 @@ use projstd::log;
 {"type":"Program","start":0,"end":72,"body":[{"type":"FunctionDeclaration","start":0,"end":72,"id":{"type":"Identifier","start":9,"end":10,"name":"f"},"expression":false,"generator":false,"async":false,"params":[{"type":"Identifier","start":11,"end":12,"name":"a"},{"type":"Identifier","start":14,"end":15,"name":"b"}],"body":{"type":"BlockStatement","start":17,"end":72,"body":[{"type":"VariableDeclaration","start":18,"end":30,"declarations":[{"type":"VariableDeclarator","start":24,"end":29,"id":{"type":"Identifier","start":24,"end":25,"name":"x"},"init":{"type":"Literal","start":28,"end":29,"value":4,"raw":"4"}}],"kind":"const"},{"type":"VariableDeclaration","start":30,"end":46,"declarations":[{"type":"VariableDeclarator","start":36,"end":45,"id":{"type":"Identifier","start":36,"end":37,"name":"y"},"init":{"type":"BinaryExpression","start":40,"end":45,"left":{"type":"Identifier","start":40,"end":41,"name":"x"},"operator":"*","right":{"type":"Identifier","start":44,"end":45,"name":"x"}}}],"kind":"const"},{"type":"VariableDeclaration","start":46,"end":62,"declarations":[{"type":"VariableDeclarator","start":52,"end":61,"id":{"type":"Identifier","start":52,"end":53,"name":"z"},"init":{"type":"BinaryExpression","start":56,"end":61,"left":{"type":"Identifier","start":56,"end":57,"name":"y"},"operator":"+","right":{"type":"Literal","start":60,"end":61,"value":5,"raw":"5"}}}],"kind":"const"},{"type":"ReturnStatement","start":62,"end":71,"argument":{"type":"Identifier","start":69,"end":70,"name":"z"}}]}}],"sourceType":"script"}
 "#;*/
 const SOURCE_CODE: &'static str = r#"
-{"type":"Program","start":0,"end":1310,"loc":{"start":{"line":1,"column":0},"end":{"line":51,"column":76}},"body":[{"type":"FunctionDeclaration","start":0,"end":60,"loc":{"start":{"line":1,"column":0},"end":{"line":3,"column":1}},"id":{"type":"Identifier","start":9,"end":10,"loc":{"start":{"line":1,"column":9},"end":{"line":1,"column":10}},"name":"f"},"expression":false,"generator":false,"params":[{"type":"Identifier","start":11,"end":12,"loc":{"start":{"line":1,"column":11},"end":{"line":1,"column":12}},"name":"x"}],"body":{"type":"BlockStatement","start":13,"end":60,"loc":{"start":{"line":1,"column":13},"end":{"line":3,"column":1}},"body":[{"type":"ReturnStatement","start":20,"end":57,"loc":{"start":{"line":2,"column":4},"end":{"line":2,"column":41}},"argument":{"type":"ConditionalExpression","start":27,"end":56,"loc":{"start":{"line":2,"column":11},"end":{"line":2,"column":40}},"test":{"type":"BinaryExpression","start":27,"end":34,"loc":{"start":{"line":2,"column":11},"end":{"line":2,"column":18}},"left":{"type":"Identifier","start":27,"end":28,"loc":{"start":{"line":2,"column":11},"end":{"line":2,"column":12}},"name":"x"},"operator":"===","right":{"type":"Literal","start":33,"end":34,"loc":{"start":{"line":2,"column":17},"end":{"line":2,"column":18}},"value":0,"raw":"0"}},"consequent":{"type":"Literal","start":37,"end":38,"loc":{"start":{"line":2,"column":21},"end":{"line":2,"column":22}},"value":1,"raw":"1"},"alternate":{"type":"BinaryExpression","start":41,"end":56,"loc":{"start":{"line":2,"column":25},"end":{"line":2,"column":40}},"left":{"type":"CallExpression","start":41,"end":47,"loc":{"start":{"line":2,"column":25},"end":{"line":2,"column":31}},"callee":{"type":"Identifier","start":41,"end":42,"loc":{"start":{"line":2,"column":25},"end":{"line":2,"column":26}},"name":"f"},"arguments":[{"type":"BinaryExpression","start":43,"end":46,"loc":{"start":{"line":2,"column":27},"end":{"line":2,"column":30}},"left":{"type":"Identifier","start":43,"end":44,"loc":{"start":{"line":2,"column":27},"end":{"line":2,"column":28}},"name":"x"},"operator":"-","right":{"type":"Literal","start":45,"end":46,"loc":{"start":{"line":2,"column":29},"end":{"line":2,"column":30}},"value":1,"raw":"1"}}]},"operator":"+","right":{"type":"CallExpression","start":50,"end":56,"loc":{"start":{"line":2,"column":34},"end":{"line":2,"column":40}},"callee":{"type":"Identifier","start":50,"end":51,"loc":{"start":{"line":2,"column":34},"end":{"line":2,"column":35}},"name":"f"},"arguments":[{"type":"BinaryExpression","start":52,"end":55,"loc":{"start":{"line":2,"column":36},"end":{"line":2,"column":39}},"left":{"type":"Identifier","start":52,"end":53,"loc":{"start":{"line":2,"column":36},"end":{"line":2,"column":37}},"name":"x"},"operator":"-","right":{"type":"Literal","start":54,"end":55,"loc":{"start":{"line":2,"column":38},"end":{"line":2,"column":39}},"value":1,"raw":"1"}}]}}}}]}},{"type":"ExpressionStatement","start":63,"end":69,"loc":{"start":{"line":4,"column":0},"end":{"line":4,"column":6}},"expression":{"type":"CallExpression","start":63,"end":68,"loc":{"start":{"line":4,"column":0},"end":{"line":4,"column":5}},"callee":{"type":"Identifier","start":63,"end":64,"loc":{"start":{"line":4,"column":0},"end":{"line":4,"column":1}},"name":"f"},"arguments":[{"type":"Literal","start":65,"end":67,"loc":{"start":{"line":4,"column":2},"end":{"line":4,"column":4}},"value":24,"raw":"24"}]}}],"sourceType":"module"}
+{"type":"Program","start":0,"end":0,"loc":{"start":{"line":1,"column":0},"end":{"line":1,"column":0}},"body":[],"sourceType":"module"}
 "#;
+const REPL_SOURCE_CODE: &'static str = r#"
+{"type":"Program","start":0,"end":33,"loc":{"start":{"line":1,"column":0},"end":{"line":1,"column":33}},"body":[{"type":"ImportDeclaration","start":0,"end":33,"loc":{"start":{"line":1,"column":0},"end":{"line":1,"column":33}},"specifiers":[{"type":"ImportSpecifier","start":8,"end":15,"loc":{"start":{"line":1,"column":8},"end":{"line":1,"column":15}},"imported":{"type":"Identifier","start":8,"end":15,"loc":{"start":{"line":1,"column":8},"end":{"line":1,"column":15}},"name":"display"},"local":{"type":"Identifier","start":8,"end":15,"loc":{"start":{"line":1,"column":8},"end":{"line":1,"column":15}},"name":"display"}}],"source":{"type":"Literal","start":22,"end":32,"loc":{"start":{"line":1,"column":22},"end":{"line":1,"column":32}},"value":"std/misc","raw":"\"std/misc\""}}],"sourceType":"module"}"#;
 /*const SOURCE_CODE: &'static str = r#"
 {"type":"Identifier","start":0,"end":72,"name":"str"}
 "#;*/
@@ -68,8 +70,7 @@ fn main() {
     let _: () = futures::executor::block_on((|| async {
         use wasmgen::WasmSerialize;
 
-        //let ir_imports = frontend_estree::parse_imports(import_spec, MainLogger::new(context))?;
-        let ir_program =
+        let (frontend_repl_ctx, ir_program) =
             frontend_estree::run_frontend(SOURCE_CODE.to_owned(), fetch_dep_proxy, MainLogger {})
                 .await?;
         {
@@ -78,7 +79,7 @@ fn main() {
             file.write_all(format!("{:#?}", &ir_program).as_bytes())
                 .unwrap();
         }
-        let ir_program_opt = ir::opt::optimize_all(ir_program);
+        let mut ir_program_opt = ir::opt::optimize_all(ir_program, 0);
         println!("{:#?}", &ir_program_opt);
         {
             use std::io::prelude::*;
@@ -86,8 +87,11 @@ fn main() {
             file.write_all(format!("{:#?}", &ir_program_opt).as_bytes())
                 .unwrap();
         }
-        let wasm_module =
-            backend_wasm::run_backend(&ir_program_opt, backend_wasm::Options::default());
+        let wasm_module = backend_wasm::run_backend(
+            &ir_program_opt,
+            usize::MAX,
+            backend_wasm::Options::default(),
+        );
         let mut receiver = std::vec::Vec::<u8>::new();
         wasm_module.wasm_serialize(&mut receiver);
         {
@@ -95,6 +99,42 @@ fn main() {
             let mut file = std::fs::File::create("out.wasm").unwrap();
             file.write_all(&receiver).unwrap();
         }
+
+        let repl_funcidx_start = ir_program_opt.funcs.len();
+
+        let (_new_frontend_repl_ctx, new_funcidx_start) = frontend_estree::run_frontend_repl(
+            REPL_SOURCE_CODE.to_owned(),
+            frontend_repl_ctx,
+            &mut ir_program_opt,
+            MainLogger {},
+        )?;
+        /*{
+            use std::io::prelude::*;
+            let mut file = std::fs::File::create("out-noop.ir").unwrap();
+            file.write_all(format!("{:#?}", &ir_program).as_bytes())
+                .unwrap();
+        }*/
+        let ir_program_opt_2 = ir::opt::optimize_all(ir_program_opt, new_funcidx_start);
+        println!("{:#?}", &ir_program_opt_2);
+        /*{
+            use std::io::prelude::*;
+            let mut file = std::fs::File::create("out.ir").unwrap();
+            file.write_all(format!("{:#?}", &ir_program_opt).as_bytes())
+                .unwrap();
+        }*/
+        let wasm_module = backend_wasm::run_backend(
+            &ir_program_opt_2,
+            repl_funcidx_start,
+            backend_wasm::Options::default(),
+        );
+        let mut receiver = std::vec::Vec::<u8>::new();
+        wasm_module.wasm_serialize(&mut receiver);
+        /*{
+            use std::io::prelude::*;
+            let mut file = std::fs::File::create("out.wasm").unwrap();
+            file.write_all(&receiver).unwrap();
+        }*/
+
         Ok(())
     })())
     .unwrap_or_else(|_: ()| panic!("Frontend errored out"));

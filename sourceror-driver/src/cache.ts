@@ -5,7 +5,10 @@
 
 const cache: Map<string, Promise<string>> = new Map();
 
-export function cachedGetFile(name: string, resolver: (name: string) => Promise<string>): Promise<string> {
+export function cachedGetFile(
+  name: string,
+  resolver: (name: string) => Promise<string>
+): Promise<string> {
   const existing_val = cache.get(name);
   if (existing_val) return existing_val;
   const new_val = resolver(name);

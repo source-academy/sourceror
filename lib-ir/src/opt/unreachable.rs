@@ -7,9 +7,9 @@ use super::*;
  * It also propagates unreachability out of sequences etc.
  * The second return value is true if the program got changed, or false otherwise.
  */
-pub fn optimize(mut program: Program) -> (Program, bool) {
+pub fn optimize(mut program: Program, start_funcidx: usize) -> (Program, bool) {
     let mut changed = false;
-    for func in &mut program.funcs {
+    for func in program.funcs.iter_mut().skip(start_funcidx) {
         changed |= optimize_func(func);
     }
     (program, changed)
