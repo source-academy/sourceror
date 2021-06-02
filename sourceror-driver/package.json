@@ -8,7 +8,7 @@
     "node-getopt": "^0.3.2"
   },
   "devDependencies": {
-    "@types/estree": "^0.0.47",
+    "@types/estree": "^0.0.48",
     "@types/node": "^15.0.3",
     "prettier": "^2.0.5",
     "typescript": "^4.2.4",
