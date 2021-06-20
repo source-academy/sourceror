@@ -39,15 +39,10 @@ acorn@^7.1.1:
   resolved "https://registry.yarnpkg.com/acorn/-/acorn-7.4.1.tgz#feaed255973d2e77555b83dbc08851a6c63520fa"
   integrity sha512-nQyp0o1/mNdbTO1PO6kHkwSrmgZ0MT/jCCpNiwbUjGoRN4dlBhqJtoQuCnEOKzgTVwg0ZWiCoQy6SxMebQVh8A==
 
-acorn@^8.0.3, acorn@^8.2.0:
+acorn@^8.0.3, acorn@^8.1, acorn@^8.2.0:
   version "8.4.0"
   resolved "https://registry.yarnpkg.com/acorn/-/acorn-8.4.0.tgz#af53266e698d7cffa416714b503066a82221be60"
   integrity sha512-ULr0LDaEqQrMFGyQ3bhJkLsbtrQ8QibAseGZeaSUiT/6zb9IvIkomWHJIvgvwad+hinRAgsI51JcWk2yvwyL+w==
-
-acorn@^8.1:
-  version "8.3.0"
-  resolved "https://registry.yarnpkg.com/acorn/-/acorn-8.3.0.tgz#1193f9b96c4e8232f00b11a9edff81b2c8b98b88"
-  integrity sha512-tqPKHZ5CaBJw0Xmy0ZZvLs1qTV+BNFSyvn77ASXkpBNfIRk8ev26fKrD9iLGwGA9zedPao52GSHzq8lyZG0NUw==
 
 ajv@^6.12.3:
   version "6.12.6"
@@ -551,9 +546,9 @@ isstream@~0.1.2:
   integrity sha1-R+Y/evVa+m+S4VAOaQ64uFKcCZo=
 
 js-slang@^0.5:
-  version "0.5.2"
-  resolved "https://registry.yarnpkg.com/js-slang/-/js-slang-0.5.2.tgz#a12e0fb4c6ba0bd14683dff907262ea6fb011941"
-  integrity sha512-kjN2UvQJSb9Bc/lxOyjfe7bO/6vPumEGyLxmm++fWOD1HwKmXoV/4xB+WRpi7mnf7fU+OtaS6G+g1F7cy0is6A==
+  version "0.5.3"
+  resolved "https://registry.yarnpkg.com/js-slang/-/js-slang-0.5.3.tgz#5600f6782eae2a684debdf3577ff0b1849fc91d2"
+  integrity sha512-4dFdk8vPqKuuEV4gSw85wS7GLh5i9V4yFrXl65qbJoZ50PJ38c9MP626ylTk6xNCaB5A0C8WWpzu8KDmAGy+0A==
   dependencies:
     "@types/estree" "0.0.47"
     acorn "^8.0.3"
