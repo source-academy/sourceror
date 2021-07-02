@@ -13,9 +13,9 @@
   integrity sha512-LfZwXoGUDo0C3me81HXgkBg5CTQYb6xzEl+fNmbO4JdRiSKQ8A0GD1OBBvKAIsbCUgoyAty7m99GqqMQe784ew==
 
 "@types/node@^15.0":
-  version "15.12.1"
-  resolved "https://registry.yarnpkg.com/@types/node/-/node-15.12.1.tgz#9b60797dee1895383a725f828a869c86c6caa5c2"
-  integrity sha512-zyxJM8I1c9q5sRMtVF+zdd13Jt6RU4r4qfhTd7lQubyThvLfx6yYekWSQjGCGV2Tkecgxnlpl/DNlb6Hg+dmEw==
+  version "15.14.0"
+  resolved "https://registry.yarnpkg.com/@types/node/-/node-15.14.0.tgz#74dbf254fb375551a9d2a71faf6b9dbc2178dc53"
+  integrity sha512-um/+/ip3QZmwLfIkWZSNtQIJNVAqrJ92OkLMeuZrjZMTAJniI7fh8N8OICyDhAJ2mzgk/fmYFo72jRr5HyZ1EQ==
 
 abbrev@1:
   version "1.1.1"
