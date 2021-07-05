@@ -21,4 +21,4 @@ jobs:
           command: test
           args: --release --all-features
       - name: Yarn install and build
-        run: cd sourceror-driver && yarn install && yarn run build
+        run: cargo install wasm-pack && cd sourceror-driver && yarn install && yarn run build
