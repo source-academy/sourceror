@@ -405,8 +405,12 @@ fn optimize_expr(
             let mut changed = false;
             let mut new_content = Vec::new();
             let tmp_content_len = tmp_content.len();
-            for mut expr2 in tmp_content {
+            for (i, mut expr2) in tmp_content.into_iter().enumerate() {
                 changed |= optimize_expr(&mut expr2, local_map, ctx, landing_ctx);
+                if i + 1 != tmp_content_len && is_pure_primitive(&expr2) {
+                    // if it's a pure primitive and not the last expr in a sequence, then it is useless and should be skipped
+                    continue;
+                }
                 let is_none = expr2.vartype.is_none();
                 new_content.push(expr2);
                 if is_none {
@@ -1173,5 +1177,24 @@ fn make_prim_string(val: String) -> Expr {
     Expr {
         vartype: Some(VarType::String),
         kind: ExprKind::PrimString { val: val },
+    }
+}
+
+/**
+ * Returns true if this expr is a primitive that has no side effects,
+ * i.e. it is PrimUndefined, PrimNumber, PrimBoolean, PrimString, PrimStructT, or PrimFunc whose closure is also a pure primitive.
+ */
+fn is_pure_primitive(expr: &Expr) -> bool {
+    match &expr.kind {
+        ExprKind::PrimUndefined
+        | ExprKind::PrimNumber { val: _ }
+        | ExprKind::PrimBoolean { val: _ }
+        | ExprKind::PrimString { val: _ }
+        | ExprKind::PrimStructT { typeidx: _ } => true,
+        ExprKind::PrimFunc {
+            funcidxs: _,
+            closure,
+        } => is_pure_primitive(closure),
+        _ => false,
     }
 }
