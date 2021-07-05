@@ -529,9 +529,9 @@ isstream@~0.1.2:
   integrity sha1-R+Y/evVa+m+S4VAOaQ64uFKcCZo=
 
 js-slang@^0.5:
-  version "0.5.2"
-  resolved "https://registry.yarnpkg.com/js-slang/-/js-slang-0.5.2.tgz#a12e0fb4c6ba0bd14683dff907262ea6fb011941"
-  integrity sha512-kjN2UvQJSb9Bc/lxOyjfe7bO/6vPumEGyLxmm++fWOD1HwKmXoV/4xB+WRpi7mnf7fU+OtaS6G+g1F7cy0is6A==
+  version "0.5.5"
+  resolved "https://registry.yarnpkg.com/js-slang/-/js-slang-0.5.5.tgz#edb70e68249c3143c1ad2d87f80423f223fd0d3f"
+  integrity sha512-FzGh2Q5xZN/MHi+F4Y9iN40eGs8g0FEYLxDP8rtpp0NPr40H6PeUxDNPXPiY7RnnZEqW1IBiEdKL+hcYU4IOHA==
   dependencies:
     "@types/estree" "0.0.47"
     acorn "^8.0.3"
