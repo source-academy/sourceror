@@ -1,3 +1,4 @@
+mod declaration_propagate;
 mod inline;
 mod landing_context;
 mod propagate;
@@ -65,6 +66,18 @@ pub fn optimize_all(mut program: Program, start_funcidx: usize) -> Program {
             }
         }
         {
+            let (new_program, changed) = declaration_propagate::optimize(program, start_funcidx);
+            program = new_program;
+            if changed {
+                n = 0;
+            } else {
+                n += 1;
+            }
+            if n == TOTAL {
+                break;
+            }
+        }
+        {
             let (new_program, changed) = inline::optimize(program, start_funcidx);
             program = new_program;
             if changed {
@@ -101,6 +114,34 @@ fn union_type(first: Option<VarType>, second: Option<VarType>) -> Option<VarType
 }
 
 /**
+ * Returns the type wide enough to contain both the given two types.
+ */
+fn union_type_nonvoid(first: VarType, second: VarType) -> VarType {
+    if first == second {
+        first
+    } else {
+        VarType::Any
+    }
+}
+
+/**
+ * Returns the widest type that fits into both the given two types.
+ */
+fn intersection_type(first: Option<VarType>, second: Option<VarType>) -> Option<VarType> {
+    if first == Some(VarType::Any) {
+        return second;
+    }
+    if second == Some(VarType::Any) {
+        return first;
+    }
+    // now both first and second are not Any
+    if first == second {
+        return first;
+    }
+    None
+}
+
+/**
  * Helper function that returns true if dest got changed
  */
 fn useful_update<T: Eq>(dest: &mut T, source: T) -> bool {
@@ -109,5 +150,46 @@ fn useful_update<T: Eq>(dest: &mut T, source: T) -> bool {
     } else {
         *dest = source;
         true
+    }
+}
+
+/**
+ * Returns true if this expr is a primitive that has no side effects,
+ * i.e. it is PrimUndefined, PrimNumber, PrimBoolean, PrimString, PrimStructT, or PrimFunc whose closure is also a pure primitive.
+ * Essentially, this is something that doesn't need to be executed if the return value is unused.
+ */
+fn is_pure_primitive(expr: &Expr) -> bool {
+    match &expr.kind {
+        ExprKind::PrimUndefined
+        | ExprKind::PrimNumber { val: _ }
+        | ExprKind::PrimBoolean { val: _ }
+        | ExprKind::PrimString { val: _ }
+        | ExprKind::PrimStructT { typeidx: _ } => true,
+        ExprKind::PrimFunc {
+            funcidxs: _,
+            closure,
+        } => is_pure_primitive(closure),
+        _ => false,
+    }
+}
+
+/**
+ * Returns true if this expr is a primitive that has no side effects,
+ * and is also identity-safe (i.e. not a heap object).
+ * Functions are identity-safe because when comparing for equality we compare
+ * both the ptr and closure.
+ * Essentially, this is something that can be replaced with copies of itself when read from a variable.
+ */
+fn is_pure_primitive_and_identity_safe(expr: &Expr) -> bool {
+    match &expr.kind {
+        ExprKind::PrimUndefined
+        | ExprKind::PrimNumber { val: _ }
+        | ExprKind::PrimBoolean { val: _ }
+        | ExprKind::PrimString { val: _ } => true,
+        ExprKind::PrimFunc {
+            funcidxs: _,
+            closure,
+        } => is_pure_primitive_and_identity_safe(closure),
+        _ => false,
     }
 }
