@@ -84,7 +84,7 @@ fn relabel_target(target: &mut TargetExpr, local_map: &mut Relabeller) -> bool {
 
 /**
  * Optimises the expr.
- * The return value is true if the function got changed, or false otherwise.
+ * The return value is true if the expr got changed, or false otherwise.
  */
 fn optimize_expr(
     expr: &mut Expr,
@@ -1176,24 +1176,5 @@ fn make_prim_string(val: String) -> Expr {
     Expr {
         vartype: Some(VarType::String),
         kind: ExprKind::PrimString { val: val },
-    }
-}
-
-/**
- * Returns true if this expr is a primitive that has no side effects,
- * i.e. it is PrimUndefined, PrimNumber, PrimBoolean, PrimString, PrimStructT, or PrimFunc whose closure is also a pure primitive.
- */
-fn is_pure_primitive(expr: &Expr) -> bool {
-    match &expr.kind {
-        ExprKind::PrimUndefined
-        | ExprKind::PrimNumber { val: _ }
-        | ExprKind::PrimBoolean { val: _ }
-        | ExprKind::PrimString { val: _ }
-        | ExprKind::PrimStructT { typeidx: _ } => true,
-        ExprKind::PrimFunc {
-            funcidxs: _,
-            closure,
-        } => is_pure_primitive(closure),
-        _ => false,
     }
 }

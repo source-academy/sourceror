@@ -79,7 +79,7 @@ pub fn optimize(mut program: Program, _start_funcidx: usize) -> (Program, bool) 
         if func_props[og_item.funcidx].is_some() {
             if og_item.num_calls == 0 {
                 // this is a candidate for inlining, so we do step 3a.
-                let mut fp = std::mem::replace(&mut func_props[og_item.funcidx], None).unwrap();
+                let fp = std::mem::replace(&mut func_props[og_item.funcidx], None).unwrap();
                 assert!(fp.num_calls == 0);
                 // at this point, we're guaranteed that no references to Exprs in the current function are being held,
                 // because fp.num_calls == 0
