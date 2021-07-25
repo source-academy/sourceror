@@ -1,4 +1,5 @@
 mod declaration_propagate;
+mod declaration_remove_redundant;
 mod inline;
 mod landing_context;
 mod propagate;
@@ -51,7 +52,7 @@ pub fn optimize_mandatory(mut program: Program, start_funcidx: usize) -> Program
  */
 pub fn optimize_all(mut program: Program, start_funcidx: usize) -> Program {
     let mut n: usize = 0;
-    const TOTAL: usize = 2;
+    const TOTAL: usize = 4;
     loop {
         {
             let (new_program, changed) = propagate::optimize(program, start_funcidx);
@@ -67,6 +68,19 @@ pub fn optimize_all(mut program: Program, start_funcidx: usize) -> Program {
         }
         {
             let (new_program, changed) = declaration_propagate::optimize(program, start_funcidx);
+            program = new_program;
+            if changed {
+                n = 0;
+            } else {
+                n += 1;
+            }
+            if n == TOTAL {
+                break;
+            }
+        }
+        {
+            let (new_program, changed) =
+                declaration_remove_redundant::optimize(program, start_funcidx);
             program = new_program;
             if changed {
                 n = 0;
