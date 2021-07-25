@@ -2,23 +2,21 @@ use super::*;
 
 /**
  * Discretionary optimisation to determine where we are storing pure primitives into variables,
- * and hence can know the type and possibly values of the variables.
- * TODO: Eliminating redundant writes is not done here - we have to do a backward AST processing to figure out live/dead variables.
+ * and hence can know the type and possibly values of the variables.  This does a single forward pass over the IR.
  * TODO: Single-declare-use variables should be optimized regardless of pureness or identity-safeness.
  *
  * How it works:
- * We first make a first pass where we take note of every write and read to variables.
+ * We make a single pass where we take note of every write and read to variables.
  * Each variable can be in one of these states:
  * * Unknown value (type could be either Any or some more specific type, this is stored)
  * * Known value (this is an identity-safe known value) (this also has a specific type)
  * * Uninitialized (this value is garbage (and we can assume it is never read))
- * The variable also stores the list of last write(s).
  * Where we reach a read:
  * * If the variable is of known value, we replace the read with the known value.
  * When we reach a write:
- * * Replace the list of last writes with the current write, and set the current write to "unused"
  * * Set whether the variable has known or unknown value, based on the thing being currently written.
  *
+ * Note: when combining alteriatives (e.g. if-else, loops, break, return), we have to take the union of those states.
  * Note: We will have to figure out how to process loops.
  * Probably we figure out which variables are written to, and just say that they have unknown value.
  */
@@ -172,11 +170,11 @@ impl<'a> Context<'a> {
     // create landing context for a new function
     // there will be a single state, and
     // all globals will be Uninitialized (since we haven't encountered a return statement), and there will be no locals.
-    fn new(globals_vartypes: &'a [VarType], num_params: usize) -> Self {
+    fn new(globals_vartypes: &'a [VarType]) -> Self {
         Self {
             landings: vec![States::new_with_uninitialized_globals_and_locals(
                 globals_vartypes.len(),
-                num_params,
+                0,
             )],
             globals_vartypes,
         }
@@ -188,7 +186,7 @@ impl<'a> Context<'a> {
             .push(States::new_with_uninitialized_scaffolding(scaffolding));
     }
 
-    // add a new landing (used at the end of a Block)
+    // remove the last landing (used at the end of a Block)
     fn pop_landing(&mut self) -> States {
         self.landings.pop().unwrap()
     }
@@ -210,11 +208,12 @@ impl<'a> Context<'a> {
  * Optimises the function.
  * The return value is true if the function got changed, or false otherwise.
  */
+#[must_use]
 fn optimize_func(func: &mut Func, globals: &[VarType]) -> bool {
     optimize_expr(
         &mut func.expr,
         &mut States::new_with_unknown_globals_and_locals(globals, &func.params),
-        &mut Context::new(globals, func.params.len()),
+        &mut Context::new(globals),
     )
 }
 
@@ -224,6 +223,7 @@ fn optimize_func(func: &mut Func, globals: &[VarType]) -> bool {
  * @param globals_states: The states of all globals
  * @param globals_states: The states of all in-scope locals
  */
+#[must_use]
 fn optimize_expr(expr: &mut Expr, states: &mut States, context: &mut Context<'_>) -> bool {
     let changed = match &mut expr.kind {
         ExprKind::PrimUndefined
@@ -256,7 +256,7 @@ fn optimize_expr(expr: &mut Expr, states: &mut States, context: &mut Context<'_>
             } else {
                 changed |= optimize_expr(true_expr, states, context);
             }
-            optimize_expr(false_expr, &mut cloned_states, context);
+            changed |= optimize_expr(false_expr, &mut cloned_states, context);
             states.merge_with(cloned_states);
             changed
         }
@@ -337,6 +337,7 @@ fn optimize_expr(expr: &mut Expr, states: &mut States, context: &mut Context<'_>
         }
         ExprKind::Assign { target, expr } => {
             // this is a write
+            let changed = optimize_expr(expr, states, context);
             match target {
                 TargetExpr::Global { globalidx, next } => {
                     *states.global_mut(*globalidx) = if next.is_none() {
@@ -359,7 +360,7 @@ fn optimize_expr(expr: &mut Expr, states: &mut States, context: &mut Context<'_>
                     };
                 }
             }
-            false
+            changed
         }
         ExprKind::Return { expr } => {
             let changed = optimize_expr(expr, states, context);
@@ -517,6 +518,7 @@ fn is_same_identity_safe_pure_primitive(first: &Expr, second: &Expr) -> bool {
     }
 }
 
+#[must_use]
 fn make_prim_undefined() -> Expr {
     Expr {
         vartype: Some(VarType::Undefined),
