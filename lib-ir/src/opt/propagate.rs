@@ -411,7 +411,15 @@ fn optimize_expr(
                     continue;
                 }
                 let is_none = expr2.vartype.is_none();
-                new_content.push(expr2);
+                if let ExprKind::Sequence {
+                    content: mut content2,
+                } = expr2.kind
+                {
+                    new_content.append(&mut content2);
+                } else if i + 1 == tmp_content_len || !expr2.is_prim_undefined() {
+                    // is an empty expression (prim undefined) (unless it is the last expr, in which the return value needs to be undefined)
+                    new_content.push(expr2);
+                }
                 if is_none {
                     break;
                 }
