@@ -169,7 +169,8 @@ fn useful_update<T: Eq>(dest: &mut T, source: T) -> bool {
 
 /**
  * Returns true if this expr is a primitive that has no side effects,
- * i.e. it is PrimUndefined, PrimNumber, PrimBoolean, PrimString, PrimStructT, or PrimFunc whose closure is also a pure primitive.
+ * i.e. it is PrimUndefined, PrimNumber, PrimBoolean, PrimString, PrimStructT, or PrimFunc whose closure is also a pure primitive, or VarName.
+ * VarName is a pure primitive because loading the variable without doing anything else has no side effects.
  * Essentially, this is something that doesn't need to be executed if the return value is unused.
  */
 fn is_pure_primitive(expr: &Expr) -> bool {
@@ -183,6 +184,7 @@ fn is_pure_primitive(expr: &Expr) -> bool {
             funcidxs: _,
             closure,
         } => is_pure_primitive(closure),
+        ExprKind::VarName { source: _ } => true,
         _ => false,
     }
 }
