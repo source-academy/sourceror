@@ -16,7 +16,7 @@ use super::*;
  * When we reach a write:
  * * Set whether the variable has known or unknown value, based on the thing being currently written.
  *
- * Note: when combining alteriatives (e.g. if-else, loops, break, return), we have to take the union of those states.
+ * Note: when combining alternatives (e.g. if-else, loops, break, return), we have to take the union of those states.
  * Note: We will have to figure out how to process loops.
  * Probably we figure out which variables are written to, and just say that they have unknown value.
  */
