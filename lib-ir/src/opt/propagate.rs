@@ -384,15 +384,14 @@ fn optimize_expr(
                 optimize_expr(&mut **expr2, local_map, ctx, landing_ctx)
             });
             if landing_vartype.is_none() {
-                // todo! reoptimise expr2 without this landing
-                // can't do it for now until LandingContext supports it like local_map
-                //let expr_tmp = std::mem::replace(&mut **expr2, dummy_expr());
-                //*expr = expr_tmp;
-                //true
-                ret | useful_update(
-                    &mut expr.vartype,
-                    union_type(expr2.vartype, landing_vartype),
-                ) // should be removed when we can eliminate unused landings
+                // This might be slow (up to O(n^2)), and we can do better by doing a second pass to relabel Breaks (not implemented yet)
+                // We reoptimize the expr to get the braks relabelled
+                let mut expr_tmp = std::mem::replace(&mut **expr2, dummy_expr());
+                landing_ctx.skip_old_landing(|landing_ctx| {
+                    optimize_expr(&mut expr_tmp, local_map, ctx, landing_ctx);
+                });
+                *expr = expr_tmp;
+                true
             } else {
                 ret | useful_update(
                     &mut expr.vartype,
