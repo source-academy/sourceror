@@ -774,7 +774,7 @@ fn try_devirtualize_appl(
             let overloads = std::mem::take(funcidxs);
             let mut allowable_overloads: Vec<OverloadEntry> = Vec::new();
             // iterate in the reverse direction, since we match them from back to front
-            'outer: for overload in Vec::from(overloads).into_iter() {
+            'outer: for overload in Vec::from(overloads).into_iter().rev() {
                 let sig: &[VarType] = &ctx.param_types[overload.funcidx];
                 if sig.len() != args.len() {
                     // wrong number of params, will never be matched
@@ -963,7 +963,7 @@ fn try_devirtualize_appl(
                                 arg_localidxs[idx] = orig_arg_localidx;
                                 let tmp_seq = make_sequence_from_exprs(new_out);
                                 out.push(Expr {
-                                    vartype: tmp_seq.vartype,
+                                    vartype: union_type(tmp_seq.vartype, Some(VarType::Undefined)), // the union of the true_expr and false_expr
                                     kind: ExprKind::TypeCast {
                                         test: Box::new(Expr {
                                             vartype: args[idx].vartype,

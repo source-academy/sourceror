@@ -253,7 +253,7 @@ pub async fn run_frontend<
 }
 
 /// Main entry point for appending code for REPL.  Pass in the ReplContext obtained previously.
-/// Returns a ReplContext and a usize (denoting the funcidx of the ir_program from which is new)
+/// Returns a ReplContext and a usize (denoting the funcidx of the ir_program from which is new (this index does not include imports!)).
 pub fn run_frontend_repl<L: Logger>(
     estree_str: String,
     (name_ctx, parse_ctx, mut start_idx): ReplContext,
