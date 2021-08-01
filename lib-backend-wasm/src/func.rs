@@ -1409,7 +1409,7 @@ fn encode_direct_appl<H: HeapManager>(
     let signature: &Signature = &ctx.ir_signature_list[funcidx];
 
     // Assert that the function has correct return type
-    assert!(return_type == signature.result);
+    assert_eq!(return_type, signature.result);
 
     // Encode all the arguments
     encode_args_to_call_function(&signature.params, args, ctx, mutctx, expr_builder);
