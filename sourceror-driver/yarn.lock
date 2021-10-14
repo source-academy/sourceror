@@ -501,9 +501,9 @@ isstream@~0.1.2:
   integrity sha1-R+Y/evVa+m+S4VAOaQ64uFKcCZo=
 
 js-slang@^0.5:
-  version "0.5.19"
-  resolved "https://registry.yarnpkg.com/js-slang/-/js-slang-0.5.19.tgz#01a896122f85f6c4bc8daae71fc58beeb55a6378"
-  integrity sha512-DRgFNIo/RrljA0yF1VcxWo/Gz4msbUbtS4wJgzpjgAh3/Ub9b8E3fr6SNRNvNmydeK16DTT0cBtbg7eZ3wPJ0A==
+  version "0.5.20"
+  resolved "https://registry.yarnpkg.com/js-slang/-/js-slang-0.5.20.tgz#36db3b4f3843f8c58349f8085560de4e72283e22"
+  integrity sha512-rONnqoSI4HPQxX0rD7jXDeKV6WiF0iwPICeYEgcpzwPNhDTyZEbUV4g9ZeS8r5H8EG/op/6Yh9xOg1Hs3QTANw==
   dependencies:
     "@joeychenofficial/alt-ergo-modified" "^2.4.0"
     "@types/estree" "0.0.50"
