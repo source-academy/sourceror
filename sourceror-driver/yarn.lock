@@ -264,6 +264,11 @@ env-paths@^2.2.0:
   resolved "https://registry.yarnpkg.com/env-paths/-/env-paths-2.2.1.tgz#420399d416ce1fbe9bc0a07c62fa68d67fd0f8f2"
   integrity sha512-+h1lkLKhZMTYjog1VEpJNG7NZJWcuc2DDk/qsqSTRRCOXiLjeQ1d1/udrUGhqMxUgAlwKNZ0cf2uqan5GLuS2A==
 
+eslint-plugin-simple-import-sort@^7.0.0:
+  version "7.0.0"
+  resolved "https://registry.yarnpkg.com/eslint-plugin-simple-import-sort/-/eslint-plugin-simple-import-sort-7.0.0.tgz#a1dad262f46d2184a90095a60c66fef74727f0f8"
+  integrity sha512-U3vEDB5zhYPNfxT5TYR7u01dboFZp+HNpnGhkDB2g/2E4wZ/g1Q9Ton8UwCLfRV9yAKyYqDh62oHOamvkFxsvw==
+
 expand-template@^2.0.3:
   version "2.0.3"
   resolved "https://registry.yarnpkg.com/expand-template/-/expand-template-2.0.3.tgz#6e14b3fcee0f3a6340ecb57d2e8918692052a47c"
@@ -501,9 +506,9 @@ isstream@~0.1.2:
   integrity sha1-R+Y/evVa+m+S4VAOaQ64uFKcCZo=
 
 js-slang@^0.5:
-  version "0.5.19"
-  resolved "https://registry.yarnpkg.com/js-slang/-/js-slang-0.5.19.tgz#01a896122f85f6c4bc8daae71fc58beeb55a6378"
-  integrity sha512-DRgFNIo/RrljA0yF1VcxWo/Gz4msbUbtS4wJgzpjgAh3/Ub9b8E3fr6SNRNvNmydeK16DTT0cBtbg7eZ3wPJ0A==
+  version "0.5.30"
+  resolved "https://registry.yarnpkg.com/js-slang/-/js-slang-0.5.30.tgz#b6f276639f95d66e2822eea3c25d9427d6a2adfe"
+  integrity sha512-1NqPUFDuFSroGwwMCvM4tnIicnpfudHvsUFANu8XvK5q91kOb8vQy0wWVDBhtvNq10uSUc6fdtIK0Gb26FDBNw==
   dependencies:
     "@joeychenofficial/alt-ergo-modified" "^2.4.0"
     "@types/estree" "0.0.50"
@@ -511,6 +516,7 @@ js-slang@^0.5:
     acorn-loose "^8.0.0"
     acorn-walk "^8.0.0"
     astring "^1.4.3"
+    eslint-plugin-simple-import-sort "^7.0.0"
     gpu.js "^2.10.4"
     lodash "^4.17.20"
     node-getopt "^0.3.2"
