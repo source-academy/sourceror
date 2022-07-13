@@ -7,7 +7,7 @@
     "node-getopt": "^0.3"
   },
   "devDependencies": {
-    "@types/estree": "^0.0.51",
+    "@types/estree": "^1.0.0",
     "@types/node": "^17.0",
     "js-slang": "^0.5",
     "prettier": "^2.0",
