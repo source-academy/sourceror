@@ -2,12 +2,22 @@
 # yarn lockfile v1
 
 
+"@babel/parser@^7.19.4":
+  version "7.20.15"
+  resolved "https://registry.yarnpkg.com/@babel/parser/-/parser-7.20.15.tgz#eec9f36d8eaf0948bb88c87a46784b5ee9fd0c89"
+  integrity sha512-DI4a1oZuf8wC+oAJA9RW6ga3Zbe8RZFt7kD9i4qAspz3I/yHet1VvC3DiSy/fsUvv5pvJuNPh0LPOdCcqinDPg==
+
 "@joeychenofficial/alt-ergo-modified@^2.4.0":
   version "2.4.0"
   resolved "https://registry.yarnpkg.com/@joeychenofficial/alt-ergo-modified/-/alt-ergo-modified-2.4.0.tgz#27aec0cbed8ab4e2f0dad6feb4f0c9766ac3132f"
   integrity sha512-58b0K8pNUVZXGbua4IJQ+1K+E+jz3MkhDazZaaeKlD+sOLYR9iTHIbicV/I5K16ivYW6R9lONiT3dz8rMeFJ1w==
 
-"@types/estree@0.0.51", "@types/estree@^0.0.51":
+"@types/estree@0.0.52":
+  version "0.0.52"
+  resolved "https://registry.yarnpkg.com/@types/estree/-/estree-0.0.52.tgz#7f1f57ad5b741f3d5b210d3b1f145640d89bf8fe"
+  integrity sha512-BZWrtCU0bMVAIliIV+HJO1f1PR41M7NKjfxrFJwwhKI1KwhwOxYw1SXg9ao+CIMt774nFuGiG6eU+udtbEI9oQ==
+
+"@types/estree@^0.0.51":
   version "0.0.51"
   resolved "https://registry.yarnpkg.com/@types/estree/-/estree-0.0.51.tgz#cfd70924a25a3fd32b218e5e420e6897e1ac4f40"
   integrity sha512-CuPgU6f3eT/XgKKPqKd/gLZV1Xmvf1a2R5POBOGQa6uv82xpls89HU5zKeVoyR8XzHd1RGNOlQlvUe3CFkjWNQ==
@@ -22,12 +32,24 @@ abbrev@1:
   resolved "https://registry.yarnpkg.com/abbrev/-/abbrev-1.1.1.tgz#f8f2c887ad10bf67f634f005b6987fed3179aac8"
   integrity sha512-nne9/IiQ/hzIhY6pdDnbBtz7DjPTKrY00P/zvPSm5pOFkl6xuGrGnXn/VtTNNfNtAfZ9/1RtehkszU9qcTii0Q==
 
+acorn-class-fields@^1.0.0:
+  version "1.0.0"
+  resolved "https://registry.yarnpkg.com/acorn-class-fields/-/acorn-class-fields-1.0.0.tgz#b413793e6b3ddfcd17a02f9c7a850f4bbfdc1c7a"
+  integrity sha512-l+1FokF34AeCXGBHkrXFmml9nOIRI+2yBnBpO5MaVAaTIJ96irWLtcCxX+7hAp6USHFCe+iyyBB4ZhxV807wmA==
+  dependencies:
+    acorn-private-class-elements "^1.0.0"
+
 acorn-loose@^8.0.0:
   version "8.2.1"
   resolved "https://registry.yarnpkg.com/acorn-loose/-/acorn-loose-8.2.1.tgz#9603129133e6772d6df8b8a318e6e13d13efcaa1"
   integrity sha512-/sVu5wCtWrX6ChLCMzBTmNkXSoyRKunTf6HjHMswzMmzIyE8vU+HYlgd2kFF/A9Av9j+b9/d/FzxrmcH0lCrBw==
   dependencies:
     acorn "^8.5.0"
+
+acorn-private-class-elements@^1.0.0:
+  version "1.0.0"
+  resolved "https://registry.yarnpkg.com/acorn-private-class-elements/-/acorn-private-class-elements-1.0.0.tgz#c5805bf8a46cd065dc9b3513bfebb504c88cd706"
+  integrity sha512-zYNcZtxKgVCg1brS39BEou86mIao1EV7eeREG+6WMwKbuYTeivRRs6S2XdWnboRde6G9wKh2w+WBydEyJsJ6mg==
 
 acorn-walk@^8.0.0:
   version "8.2.0"
@@ -505,14 +527,16 @@ isstream@~0.1.2:
   resolved "https://registry.yarnpkg.com/isstream/-/isstream-0.1.2.tgz#47e63f7af55afa6f92e1500e690eb8b8529c099a"
   integrity sha1-R+Y/evVa+m+S4VAOaQ64uFKcCZo=
 
-js-slang@^0.5:
-  version "0.5.32"
-  resolved "https://registry.yarnpkg.com/js-slang/-/js-slang-0.5.32.tgz#97c22250a9c1653675010e03ce81d834892b8cfe"
-  integrity sha512-bUUi1muU5xS+DRfiJMYrE3jLX3dxGfbKPVnqGgqjsUZNm+9ymsl2aLW2huExEY5qu6pQpc9ccYJCpk+kKQlhYw==
+js-slang@^1.0:
+  version "1.0.12"
+  resolved "https://registry.yarnpkg.com/js-slang/-/js-slang-1.0.12.tgz#eb4d24b9b70caf18636639eab8c85259117ab1b4"
+  integrity sha512-YyA9+QB8+K+dfILB2B1HgHGeCV7cvUbn6yCWcnCwBHn5h1v2fzf8E3tjUqNaxPSlYpR7RCdmj+8Ju2XnKK2spg==
   dependencies:
+    "@babel/parser" "^7.19.4"
     "@joeychenofficial/alt-ergo-modified" "^2.4.0"
-    "@types/estree" "0.0.51"
+    "@types/estree" "0.0.52"
     acorn "^8.0.3"
+    acorn-class-fields "^1.0.0"
     acorn-loose "^8.0.0"
     acorn-walk "^8.0.0"
     astring "^1.4.3"
@@ -520,7 +544,7 @@ js-slang@^0.5:
     gpu.js "^2.10.4"
     lodash "^4.17.20"
     node-getopt "^0.3.2"
-    source-map "^0.7.3"
+    source-map "0.7.3"
     xmlhttprequest-ts "^1.0.1"
 
 jsbn@~0.1.0:
@@ -891,7 +915,7 @@ simple-get@^3.0.3:
     once "^1.3.1"
     simple-concat "^1.0.0"
 
-source-map@^0.7.3:
+source-map@0.7.3:
   version "0.7.3"
   resolved "https://registry.yarnpkg.com/source-map/-/source-map-0.7.3.tgz#5302f8169031735226544092e64981f751750383"
   integrity sha512-CkCj6giN3S+n9qrYiBTX5gystlENnRW5jZeNLHpe6aue+SrHcG5VYwujhW9s4dY31mEGsxBDrHR6oI69fTXsaQ==
