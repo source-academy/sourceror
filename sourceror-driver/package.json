@@ -11,7 +11,7 @@
     "@types/node": "^20.11",
     "js-slang": "^0.5",
     "prettier": "^2.0",
-    "typescript": "^4.2"
+    "typescript": "^5.4"
   },
   "peerDependencies": {
     "js-slang": "^0.5"
