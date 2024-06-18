@@ -739,10 +739,10 @@ prebuild-install@^5.3.6:
     tunnel-agent "^0.6.0"
     which-pm-runs "^1.0.0"
 
-prettier@^2.0:
-  version "2.6.2"
-  resolved "https://registry.yarnpkg.com/prettier/-/prettier-2.6.2.tgz#e26d71a18a74c3d0f0597f55f01fb6c06c206032"
-  integrity sha512-PkUpF+qoXTqhOeWL9fu7As8LXsIUZ1WYaJiY/a7McAQzxjk82OF0tibkFXVCDImZtWxbvojFjerkiLb0/q8mew==
+prettier@^3.3:
+  version "3.3.2"
+  resolved "https://registry.yarnpkg.com/prettier/-/prettier-3.3.2.tgz#03ff86dc7c835f2d2559ee76876a3914cec4a90a"
+  integrity sha512-rAVeHYMcv8ATV5d508CFdn+8/pHPpXeIid1DdrPwXnaAdH7cqjVbpJaT5eq4yRAFU/lsbwYwSF/n5iNrdJHPQA==
 
 process-nextick-args@~2.0.0:
   version "2.0.1"
