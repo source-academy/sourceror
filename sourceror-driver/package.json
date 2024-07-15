@@ -10,7 +10,7 @@
     "@types/estree": "^0.0.51",
     "@types/node": "^20.11",
     "js-slang": "^0.5",
-    "prettier": "^2.0",
+    "prettier": "^3.3",
     "typescript": "^5.4.3"
   },
   "peerDependencies": {
