@@ -9,6 +9,7 @@ members = [
     "wasm-test-harness",
     "wasm-test-driver",
     "wasm-test-local",
+    "e2e"
 ]
 default-members = [
     "source-compiler",
