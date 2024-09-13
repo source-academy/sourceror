@@ -9,12 +9,12 @@
   "devDependencies": {
     "@types/estree": "^0.0.51",
     "@types/node": "^20.11",
-    "js-slang": "^0.5",
+    "js-slang": "^1.0",
     "prettier": "^2.0",
     "typescript": "^5.4.3"
   },
   "peerDependencies": {
-    "js-slang": "^0.5"
+    "js-slang": "^1.0"
   },
   "main": "dist/index",
   "types": "dist/index",
